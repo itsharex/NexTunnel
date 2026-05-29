@@ -22,6 +22,7 @@ desktop/runtime/
 *.swp
 *.swo
 .history/
+#.qoder
 
 # 系统文件
 .DS_Store
@@ -54,6 +55,6 @@ desktop/frontend/wailsjs/go/
 desktop/frontend/wailsjs/runtime/
 
 # 其他
-progress-tracking.md
-task-plan.md
-project-plan.md
+# progress-tracking.md
+# task-plan.md
+# project-plan.md
