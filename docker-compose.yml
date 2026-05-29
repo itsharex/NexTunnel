@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  relay-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "7000:7000"
+    command: ["--control-port", "7000", "--bind", "0.0.0.0", "--stats-interval", "30s"]
+    restart: unless-stopped
