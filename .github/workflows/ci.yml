@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-go:
+    name: Lint Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: golangci-lint (desktop)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: desktop
+
+      - name: golangci-lint (server)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: server
+
+  lint-frontend:
+    name: Lint Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+
+      - name: ESLint
+        working-directory: desktop/frontend
+        run: npm run lint
+
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Go (server)
+        working-directory: server
+        run: go build ./...
+
+      - name: Build Go (pkg)
+        working-directory: pkg
+        run: go build ./...
+
+      - name: Install frontend deps
+        working-directory: desktop/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: desktop/frontend
+        run: npx vite build
+
+  test-go:
+    name: Test Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Test desktop
+        working-directory: desktop
+        run: go test ./...
+
+      - name: Test server
+        working-directory: server
+        run: go test ./...
+
+      - name: Test pkg
+        working-directory: pkg
+        run: go test ./...

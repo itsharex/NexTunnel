@@ -48,3 +48,12 @@ server/config/*.env
 
 # 日志
 *.log
+
+# Wails generated
+desktop/frontend/wailsjs/go/
+desktop/frontend/wailsjs/runtime/
+
+# 其他
+progress-tracking.md
+task-plan.md
+project-plan.md
