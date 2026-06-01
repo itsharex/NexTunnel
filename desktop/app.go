@@ -189,6 +189,22 @@ func (a *App) GetConnectionStatus() string {
 	return "disconnected"
 }
 
+// GetP2PStatus returns the current P2P engine state.
+func (a *App) GetP2PStatus() string {
+	if a.manager != nil {
+		return a.manager.GetP2PState()
+	}
+	return ""
+}
+
+// GetNATType returns the detected NAT type.
+func (a *App) GetNATType() string {
+	if a.manager != nil {
+		return a.manager.GetNATType()
+	}
+	return ""
+}
+
 // GetTrafficStats returns aggregate traffic statistics.
 func (a *App) GetTrafficStats() map[string]int64 {
 	stats := map[string]int64{"bytes_in": 0, "bytes_out": 0, "tunnels": 0}

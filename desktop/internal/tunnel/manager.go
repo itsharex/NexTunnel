@@ -13,6 +13,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// P2PEngine is the interface for P2P connection establishment.
+type P2PEngine interface {
+	GetState() string
+	GetNATType() string
+}
+
 // Manager is the top-level tunnel orchestrator on the client side.
 type Manager struct {
 	config TunnelClientConfig
@@ -21,6 +27,8 @@ type Manager struct {
 
 	tunnelsMu sync.RWMutex
 	tunnels   map[string]*Tunnel
+
+	p2pEngine P2PEngine
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -60,6 +68,27 @@ func NewManager(cfg TunnelClientConfig) *Manager {
 // SetLogger allows the Wails app to inject its own logger.
 func (m *Manager) SetLogger(logger *slog.Logger) {
 	m.logger = logger
+}
+
+// SetP2PEngine sets the P2P engine for direct connections.
+func (m *Manager) SetP2PEngine(engine P2PEngine) {
+	m.p2pEngine = engine
+}
+
+// GetP2PState returns the P2P engine state, or empty if no engine is set.
+func (m *Manager) GetP2PState() string {
+	if m.p2pEngine != nil {
+		return m.p2pEngine.GetState()
+	}
+	return ""
+}
+
+// GetNATType returns the detected NAT type, or empty if not detected.
+func (m *Manager) GetNATType() string {
+	if m.p2pEngine != nil {
+		return m.p2pEngine.GetNATType()
+	}
+	return ""
 }
 
 // Start connects to the relay server and registers all configured tunnels.

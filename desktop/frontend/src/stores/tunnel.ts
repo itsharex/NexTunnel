@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { GetTunnels, CreateTunnel, DeleteTunnel, GetConnectionStatus, GetTrafficStats } from '../api/app'
+import { GetTunnels, CreateTunnel, DeleteTunnel, GetConnectionStatus, GetTrafficStats, GetP2PStatus, GetNATType } from '../api/app'
 
 export interface Tunnel {
   id: string
@@ -28,6 +28,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     bytes_out: 0,
     tunnels: 0,
   })
+  const p2pStatus = ref<string>('')
+  const natType = ref<string>('')
 
   const tunnelCount = computed(() => tunnels.value.length)
 
@@ -64,6 +66,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     try {
       connectionStatus.value = await GetConnectionStatus()
       trafficStats.value = (await GetTrafficStats()) as typeof trafficStats.value
+      p2pStatus.value = await GetP2PStatus()
+      natType.value = await GetNATType()
     } catch {
       connectionStatus.value = 'disconnected'
     }
@@ -73,6 +77,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     tunnels,
     connectionStatus,
     trafficStats,
+    p2pStatus,
+    natType,
     tunnelCount,
     loadTunnels,
     createTunnel,

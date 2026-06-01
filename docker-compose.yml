@@ -9,3 +9,13 @@ services:
       - "7000:7000"
     command: ["--control-port", "7000", "--bind", "0.0.0.0", "--stats-interval", "30s"]
     restart: unless-stopped
+
+  nat-detector:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    entrypoint: ["/app/nat-detector"]
+    ports:
+      - "3478:3478/udp"
+    command: ["--primary-addr", "${PRIMARY_IP:-0.0.0.0}", "--alt-addr", "${ALT_IP:-127.0.0.1}", "--port", "3478"]
+    restart: unless-stopped

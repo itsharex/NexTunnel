@@ -24,6 +24,17 @@
       </div>
     </div>
 
+    <div class="info-grid" v-if="store.p2pStatus || store.natType">
+      <div class="info-card" v-if="store.p2pStatus">
+        <span class="label">P2P</span>
+        <span class="value">{{ store.p2pStatus || 'idle' }}</span>
+      </div>
+      <div class="info-card" v-if="store.natType">
+        <span class="label">NAT Type</span>
+        <span class="value nat-badge" :class="store.natType">{{ store.natType }}</span>
+      </div>
+    </div>
+
     <div class="section">
       <div class="section-header">
         <h3>Tunnels</h3>
@@ -248,4 +259,16 @@ onUnmounted(() => {
 .tunnel-status.active, .tunnel-status.running { color: #66bb6a; }
 .tunnel-status.stopped, .tunnel-status.inactive { color: var(--color-text-secondary); }
 .tunnel-status.error { color: #ef5350; }
+
+.nat-badge {
+  font-size: 14px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background-color: rgba(255,255,255,0.05);
+}
+.nat-badge.open_internet { color: #66bb6a; }
+.nat-badge.full_cone { color: #81c784; }
+.nat-badge.restricted, .nat-badge.port_restricted { color: #ffa726; }
+.nat-badge.symmetric { color: #ef5350; }
+.nat-badge.blocked { color: #b71c1c; }
 </style>

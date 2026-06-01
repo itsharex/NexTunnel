@@ -23,6 +23,9 @@ type TunnelDef struct {
 	Domain     string `json:"domain,omitempty"`
 	HostHeader string `json:"host_header,omitempty"`
 	UseHTTPS   bool   `json:"use_https,omitempty"`
+	// P2P-specific fields (Phase 2)
+	P2PEnabled   bool   `json:"p2p_enabled,omitempty"`
+	PeerClientID string `json:"peer_client_id,omitempty"`
 }
 
 // DefaultClientConfig returns a TunnelClientConfig with sensible defaults.

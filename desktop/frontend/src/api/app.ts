@@ -46,3 +46,11 @@ export function GetConnectionStatus(): Promise<string> {
 export function GetTrafficStats(): Promise<{ bytes_in: number; bytes_out: number; tunnels: number }> {
   return call('GetTrafficStats')
 }
+
+export function GetP2PStatus(): Promise<string> {
+  return call('GetP2PStatus')
+}
+
+export function GetNATType(): Promise<string> {
+  return call('GetNATType')
+}

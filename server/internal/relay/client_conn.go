@@ -75,6 +75,14 @@ func (cc *ClientConn) readLoop() {
 			}
 		case protocol.TypeHeartbeatResp:
 			// Timer already reset above
+		case protocol.TypeP2POffer, protocol.TypeP2PAnswer, protocol.TypeP2PClose:
+			cc.forwardP2PMessage(msg)
+		case protocol.TypeMeshJoin:
+			cc.handleMeshJoin(msg)
+		case protocol.TypeMeshLeave:
+			cc.handleMeshLeave(msg)
+		case protocol.TypeMeshPing, protocol.TypeMeshPong:
+			cc.forwardP2PMessage(msg) // reuse P2P forwarding for mesh ping/pong
 		default:
 			cc.logger.Warn("unexpected message type on control conn", "type", msg.Type)
 		}
@@ -187,6 +195,72 @@ func (cc *ClientConn) getProxy(name string) *Proxy {
 	return cc.proxies[name]
 }
 
+// forwardP2PMessage forwards a P2P signaling message to the target peer.
+func (cc *ClientConn) forwardP2PMessage(msg *protocol.Message) {
+	payload, err := msg.DecodePayload()
+	if err != nil {
+		cc.logger.Error("invalid P2P message payload", "error", err)
+		return
+	}
+
+	var toClientID, sessionID string
+	switch p := payload.(type) {
+	case *protocol.P2POfferMessage:
+		toClientID = p.ToClientID
+		sessionID = p.SessionID
+	case *protocol.P2PAnswerMessage:
+		toClientID = p.ToClientID
+		sessionID = p.SessionID
+	case *protocol.P2PCloseMessage:
+		sessionID = p.SessionID
+		cc.logger.Debug("P2P close message", "session", sessionID)
+		return
+	default:
+		cc.logger.Warn("unexpected P2P payload type", "type", fmt.Sprintf("%T", payload))
+		return
+	}
+
+	target := cc.server.findClient(toClientID)
+	if target == nil {
+		cc.logger.Warn("P2P target client not found", "to", toClientID, "session", sessionID)
+		if msg.Type == protocol.TypeP2POffer {
+			errResp, err := protocol.NewP2PAnswerMessage(sessionID, "", cc.clientID, "", "", nil, false, "peer not found")
+			if err == nil {
+				cc.conn.Write(errResp)
+			}
+		}
+		return
+	}
+
+	if err := target.conn.Write(msg); err != nil {
+		cc.logger.Error("failed to forward P2P message", "to", toClientID, "error", err)
+	} else {
+		cc.logger.Debug("P2P message forwarded", "to", toClientID, "type", msg.Type, "session", sessionID)
+	}
+}
+
+// handleMeshJoin registers this client as a mesh peer.
+func (cc *ClientConn) handleMeshJoin(msg *protocol.Message) {
+	payload, err := msg.DecodePayload()
+	if err != nil {
+		cc.logger.Error("invalid MeshJoin payload", "error", err)
+		return
+	}
+	join := payload.(*protocol.MeshJoinMessage)
+	cc.server.registerMeshPeer(join.ClientID, join.WGPubKey, join.NATType, join.Subnet)
+}
+
+// handleMeshLeave unregisters this client from the mesh.
+func (cc *ClientConn) handleMeshLeave(msg *protocol.Message) {
+	payload, err := msg.DecodePayload()
+	if err != nil {
+		cc.logger.Error("invalid MeshLeave payload", "error", err)
+		return
+	}
+	leave := payload.(*protocol.MeshLeaveMessage)
+	cc.server.unregisterMeshPeer(leave.ClientID)
+}
+
 // cleanup is called when the control connection is lost.
 func (cc *ClientConn) cleanup() {
 	cc.logger.Info("client connection cleanup")
@@ -210,6 +284,7 @@ func (cc *ClientConn) cleanup() {
 		cc.server.unregisterProxy(cc.clientID + "/" + name)
 	}
 
+	cc.server.unregisterMeshPeer(cc.clientID)
 	cc.server.removeClient(cc.clientID)
 	cc.conn.Close()
 }

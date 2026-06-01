@@ -23,6 +23,9 @@ type Server struct {
 	proxiesMu sync.RWMutex
 	proxies   map[string]*Proxy
 
+	meshMu    sync.RWMutex
+	meshPeers map[string]*protocol.MeshPeerJSON // clientID -> mesh info
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -31,12 +34,13 @@ type Server struct {
 func NewServer(cfg *Config, logger *slog.Logger) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
-		config:  cfg,
-		logger:  logger,
-		clients: make(map[string]*ClientConn),
-		proxies: make(map[string]*Proxy),
-		ctx:     ctx,
-		cancel:  cancel,
+		config:    cfg,
+		logger:    logger,
+		clients:   make(map[string]*ClientConn),
+		proxies:   make(map[string]*Proxy),
+		meshPeers: make(map[string]*protocol.MeshPeerJSON),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -211,6 +215,75 @@ func (s *Server) removeClient(clientID string) {
 	delete(s.clients, clientID)
 	s.clientsMu.Unlock()
 	s.logger.Info("client disconnected", "client", clientID)
+}
+
+// findClient returns the ClientConn for the given clientID, or nil.
+func (s *Server) findClient(clientID string) *ClientConn {
+	s.clientsMu.RLock()
+	cc := s.clients[clientID]
+	s.clientsMu.RUnlock()
+	return cc
+}
+
+// --- Mesh network methods ---
+
+// registerMeshPeer adds a client to the mesh registry and broadcasts the updated peer list.
+func (s *Server) registerMeshPeer(clientID, wgPubKey, natType, subnet string) {
+	peer := &protocol.MeshPeerJSON{
+		ClientID: clientID,
+		NATType:  natType,
+		WGPubKey: wgPubKey,
+		Subnet:   subnet,
+	}
+
+	s.meshMu.Lock()
+	s.meshPeers[clientID] = peer
+	s.meshMu.Unlock()
+
+	s.logger.Info("mesh peer registered", "client", clientID, "nat", natType, "subnet", subnet)
+	s.broadcastMeshPeerList()
+}
+
+// unregisterMeshPeer removes a client from the mesh registry and broadcasts the update.
+func (s *Server) unregisterMeshPeer(clientID string) {
+	s.meshMu.Lock()
+	_, exists := s.meshPeers[clientID]
+	if exists {
+		delete(s.meshPeers, clientID)
+	}
+	s.meshMu.Unlock()
+
+	if exists {
+		s.logger.Info("mesh peer unregistered", "client", clientID)
+		s.broadcastMeshPeerList()
+	}
+}
+
+// broadcastMeshPeerList sends the current mesh peer list to all mesh members.
+func (s *Server) broadcastMeshPeerList() {
+	s.meshMu.RLock()
+	peers := make([]protocol.MeshPeerJSON, 0, len(s.meshPeers))
+	meshMembers := make([]string, 0, len(s.meshPeers))
+	for id, p := range s.meshPeers {
+		peers = append(peers, *p)
+		meshMembers = append(meshMembers, id)
+	}
+	s.meshMu.RUnlock()
+
+	msg, err := protocol.NewMeshPeerListMessage(peers)
+	if err != nil {
+		s.logger.Error("failed to create mesh peer list", "error", err)
+		return
+	}
+
+	for _, memberID := range meshMembers {
+		cc := s.findClient(memberID)
+		if cc != nil {
+			if err := cc.conn.Write(msg); err != nil {
+				s.logger.Error("failed to send mesh peer list", "client", memberID, "error", err)
+			}
+		}
+	}
 }
 
 // Shutdown gracefully stops the server.
