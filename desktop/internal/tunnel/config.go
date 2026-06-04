@@ -5,12 +5,13 @@ import "time"
 
 // TunnelClientConfig holds the configuration for the tunnel client.
 type TunnelClientConfig struct {
-	ServerAddr           string
-	ClientID             string
-	Tunnels              []TunnelDef
-	ReconnectBaseDelay   time.Duration
-	ReconnectMaxDelay    time.Duration
-	HeartbeatInterval    time.Duration
+	ServerAddr         string
+	ClientID           string
+	AuthToken          string
+	Tunnels            []TunnelDef
+	ReconnectBaseDelay time.Duration
+	ReconnectMaxDelay  time.Duration
+	HeartbeatInterval  time.Duration
 }
 
 // TunnelDef defines a single tunnel configuration.

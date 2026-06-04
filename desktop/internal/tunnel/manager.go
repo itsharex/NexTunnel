@@ -110,7 +110,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // connectAndRun performs a single connect + register + message loop cycle.
 func (m *Manager) connectAndRun() error {
-	client := NewControlClient(m.config.ClientID, m.config.ServerAddr, m.logger)
+	client := NewControlClient(m.config.ClientID, m.config.AuthToken, m.config.ServerAddr, m.logger)
 	if err := client.Connect(m.ctx); err != nil {
 		m.logger.Error("connection failed", "error", err)
 		return err
@@ -214,11 +214,32 @@ func (m *Manager) handleServerMessage(msg *protocol.Message) {
 		// Expected, nothing to do
 
 	case protocol.TypeNewProxyResp:
-		// Late response for dynamically added tunnel
-		payload, _ := msg.DecodePayload()
-		if npr, ok := payload.(*protocol.NewProxyRespMessage); ok && !npr.Success {
-			m.logger.Error("dynamic proxy registration failed", "proxy", npr.ProxyName, "error", npr.Error)
+		// 动态启动的隧道会在这里收到注册结果，必须同步运行态供桌面端展示。
+		payload, err := msg.DecodePayload()
+		if err != nil {
+			m.logger.Error("invalid NewProxyResp payload", "error", err)
+			return
 		}
+		npr, ok := payload.(*protocol.NewProxyRespMessage)
+		if !ok {
+			m.logger.Error("unexpected NewProxyResp payload", "type", fmt.Sprintf("%T", payload))
+			return
+		}
+		m.tunnelsMu.RLock()
+		t, exists := m.tunnels[npr.ProxyName]
+		m.tunnelsMu.RUnlock()
+		if !exists {
+			m.logger.Warn("NewProxyResp for unknown tunnel", "proxy", npr.ProxyName)
+			return
+		}
+		if !npr.Success {
+			t.status.Store(types.ProxyStatusError)
+			m.logger.Error("dynamic proxy registration failed", "proxy", npr.ProxyName, "error", npr.Error)
+			return
+		}
+		t.def.RemotePort = npr.RemotePort
+		t.status.Store(types.ProxyStatusActive)
+		m.logger.Info("dynamic tunnel registered", "name", npr.ProxyName, "remotePort", npr.RemotePort)
 
 	default:
 		m.logger.Warn("unexpected message from server", "type", msg.Type)
@@ -282,6 +303,14 @@ func (m *Manager) AddTunnel(def TunnelDef) error {
 	}
 
 	return nil
+}
+
+// HasTunnel reports whether a tunnel is currently managed at runtime.
+func (m *Manager) HasTunnel(name string) bool {
+	m.tunnelsMu.RLock()
+	defer m.tunnelsMu.RUnlock()
+	_, exists := m.tunnels[name]
+	return exists
 }
 
 // RemoveTunnel dynamically removes a tunnel.

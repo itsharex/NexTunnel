@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/nextunnel/pkg v0.0.0
 	github.com/pion/stun/v2 v2.0.0
+	github.com/quic-go/quic-go v0.59.1
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446
 	modernc.org/sqlite v1.51.0

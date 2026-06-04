@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25.0'
 
       - name: golangci-lint (desktop)
         uses: golangci/golangci-lint-action@v6
@@ -39,14 +39,24 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: desktop/frontend/package-lock.json
+          cache-dependency-path: |
+            desktop/frontend/package-lock.json
+            server/web/package-lock.json
 
-      - name: Install dependencies
+      - name: Install desktop frontend dependencies
         working-directory: desktop/frontend
         run: npm ci
 
-      - name: ESLint
+      - name: ESLint desktop frontend
         working-directory: desktop/frontend
+        run: npm run lint
+
+      - name: Install server web dependencies
+        working-directory: server/web
+        run: npm ci
+
+      - name: ESLint server web
+        working-directory: server/web
         run: npm run lint
 
   build-check:
@@ -57,11 +67,15 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25.0'
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            desktop/frontend/package-lock.json
+            server/web/package-lock.json
 
       - name: Build Go (server)
         working-directory: server
@@ -71,13 +85,21 @@ jobs:
         working-directory: pkg
         run: go build ./...
 
-      - name: Install frontend deps
+      - name: Install desktop frontend deps
         working-directory: desktop/frontend
         run: npm ci
 
-      - name: Build frontend
+      - name: Build desktop frontend
         working-directory: desktop/frontend
-        run: npx vite build
+        run: npm run build
+
+      - name: Install server web deps
+        working-directory: server/web
+        run: npm ci
+
+      - name: Build server web
+        working-directory: server/web
+        run: npm run build
 
   test-go:
     name: Test Go
@@ -87,11 +109,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25.0'
 
       - name: Test desktop
         working-directory: desktop
-        run: go test ./...
+        run: go list ./... | grep -v '/frontend/node_modules/' | xargs go test
 
       - name: Test server
         working-directory: server

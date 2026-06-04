@@ -1,4 +1,4 @@
-.PHONY: all dev build lint test clean help
+.PHONY: all dev dev-server-web build lint test clean help
 
 # Default target
 all: build
@@ -15,6 +15,10 @@ help:
 ## dev: Start Wails development server
 dev:
 	cd desktop && wails dev
+
+## dev-server-web: Start server management Web console
+dev-server-web:
+	cd server/web && npm run dev
 
 ## build: Build the Wails desktop application
 build:
@@ -37,24 +41,27 @@ lint-go:
 ## lint-frontend: Run ESLint on frontend
 lint-frontend:
 	cd desktop/frontend && npm run lint
+	cd server/web && npm run lint
 
 ## test: Run all tests
 test: test-go test-frontend
 
 ## test-go: Run Go tests
 test-go:
-	cd desktop && go test ./...
+	cd desktop && go list ./... | grep -v '/frontend/node_modules/' | xargs go test
 	cd server && go test ./...
 	cd pkg && go test ./...
 
 ## test-frontend: Run frontend tests
 test-frontend:
 	cd desktop/frontend && npm run test
+	cd server/web && npm run test
 
 ## clean: Remove build artifacts
 clean:
 	rm -rf desktop/build/bin/
 	rm -rf desktop/frontend/dist/
+	rm -rf server/web/dist/
 	rm -rf build/
 
 ## install-deps: Install all dependencies
@@ -63,3 +70,4 @@ install-deps:
 	cd server && go mod tidy
 	cd pkg && go mod tidy
 	cd desktop/frontend && npm install
+	cd server/web && npm install

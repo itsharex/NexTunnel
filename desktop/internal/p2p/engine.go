@@ -19,16 +19,16 @@ import (
 type SessionState string
 
 const (
-	SessionIdle             SessionState = "idle"
-	SessionDetectingNAT     SessionState = "detecting_nat"
-	SessionGatheringCands   SessionState = "gathering_candidates"
-	SessionExchangingCands  SessionState = "exchanging_candidates"
-	SessionChecking         SessionState = "checking_connectivity"
-	SessionPunching         SessionState = "punching"
-	SessionEstablishing     SessionState = "establishing_tunnel"
-	SessionConnected        SessionState = "connected"
-	SessionFailed           SessionState = "failed"
-	SessionClosed           SessionState = "closed"
+	SessionIdle            SessionState = "idle"
+	SessionDetectingNAT    SessionState = "detecting_nat"
+	SessionGatheringCands  SessionState = "gathering_candidates"
+	SessionExchangingCands SessionState = "exchanging_candidates"
+	SessionChecking        SessionState = "checking_connectivity"
+	SessionPunching        SessionState = "punching"
+	SessionEstablishing    SessionState = "establishing_tunnel"
+	SessionConnected       SessionState = "connected"
+	SessionFailed          SessionState = "failed"
+	SessionClosed          SessionState = "closed"
 )
 
 // Transport is the abstraction for relay or P2P data transport.
@@ -43,6 +43,22 @@ type Transport interface {
 // ControlChannel is the interface for signaling message exchange.
 type ControlChannel interface {
 	Send(*protocol.Message) error
+}
+
+// PathManager 是智能链路调度器需要实现的最小能力集合。
+type PathManager interface {
+	SwitchTo(pathID string) error
+}
+
+// RelaySelector 是 Relay 降级选择器需要实现的最小能力集合。
+type RelaySelector interface {
+	SwitchTo(serverAddr string) error
+}
+
+// MigrationController 是网络切换控制器需要实现的生命周期能力集合。
+type MigrationController interface {
+	Start(context.Context) error
+	Stop()
 }
 
 // EngineConfig configures the P2P engine.
@@ -65,6 +81,12 @@ type Engine struct {
 
 	onStateChange func(SessionState)
 
+	// Phase 3 extensions use narrow interfaces to keep the engine decoupled
+	// while still making scheduler/relay/migration integration type-safe.
+	scheduler PathManager
+	relayMgr  RelaySelector
+	migrator  MigrationController
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	logger *slog.Logger
@@ -72,13 +94,18 @@ type Engine struct {
 
 // Session holds the state for a single P2P connection attempt.
 type Session struct {
-	ID         string
-	PeerID     string
-	State      atomic.Value
-	iceAgent   *Agent
-	punchEng   *PunchEngine
-	wgTunnel   *WGTunnel
-	transport  *p2pTransport
+	ID        string
+	PeerID    string
+	State     atomic.Value
+	iceAgent  *Agent
+	punchEng  *PunchEngine
+	wgTunnel  *WGTunnel
+	transport *p2pTransport
+
+	// Phase 3 extensions
+	quicT    interface{} // *quic.QUICTransport (avoid import cycle)
+	prober   interface{} // *probe.Prober
+	pathType string      // "udp_p2p", "quic_p2p", "relay", etc.
 }
 
 // NewEngine creates a new P2P engine.
@@ -495,3 +522,35 @@ func (t *p2pTransport) RemoteAddr() net.Addr {
 // --- Suppress unused import warnings ---
 var _ = binary.BigEndian
 var _ = uuid.New
+
+// --- Phase 3 setter methods ---
+
+// SetScheduler sets the intelligent link scheduler.
+func (e *Engine) SetScheduler(s PathManager) {
+	e.scheduler = s
+}
+
+// SetRelayManager sets the relay manager for fallback connections.
+func (e *Engine) SetRelayManager(r RelaySelector) {
+	e.relayMgr = r
+}
+
+// SetMigrator sets the connection migrator for network handoff.
+func (e *Engine) SetMigrator(m MigrationController) {
+	e.migrator = m
+}
+
+// GetScheduler returns the current scheduler.
+func (e *Engine) GetScheduler() PathManager {
+	return e.scheduler
+}
+
+// GetRelayManager returns the current relay manager.
+func (e *Engine) GetRelayManager() RelaySelector {
+	return e.relayMgr
+}
+
+// GetMigrator returns the current migrator.
+func (e *Engine) GetMigrator() MigrationController {
+	return e.migrator
+}

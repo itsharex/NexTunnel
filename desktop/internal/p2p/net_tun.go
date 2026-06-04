@@ -7,9 +7,9 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// netTun implements tun.Device without a real TUN interface.
-// It acts as a virtual network adapter, piping packets between
-// the WireGuard device and Go channels.
+// netTun implements tun.Device without creating a real OS TUN interface.
+// 当前实现是 userspace MVP/测试通道，用于验证 WireGuard 设备编排和包流转；
+// 生产版需要在平台层替换为 Windows/macOS/Linux 的真实 TUN 或 userspace netstack。
 type netTun struct {
 	events   chan tun.Event
 	incoming chan []byte // packets from the application -> WireGuard reads them
@@ -62,8 +62,8 @@ func (t *netTun) Write(bufs [][]byte, offset int) (int, error) {
 	return count, nil
 }
 
-func (t *netTun) MTU() (int, error)       { return t.mtu, nil }
-func (t *netTun) Name() (string, error)   { return "netTun", nil }
+func (t *netTun) MTU() (int, error)        { return t.mtu, nil }
+func (t *netTun) Name() (string, error)    { return "netTun", nil }
 func (t *netTun) Events() <-chan tun.Event { return t.events }
 
 func (t *netTun) Close() error {

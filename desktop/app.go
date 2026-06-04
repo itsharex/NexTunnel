@@ -2,16 +2,24 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
+	"strings"
+	"sync"
 
 	"github.com/nextunnel/desktop/internal/config"
 	"github.com/nextunnel/desktop/internal/tunnel"
-	"github.com/nextunnel/pkg/types"
 
 	"github.com/google/uuid"
+)
+
+const (
+	defaultProxyType = "tcp"
+	statusStopped    = "stopped"
+	statusActive     = "active"
+	statusRunning    = "running"
 )
 
 // App is the main Wails application struct.
@@ -21,6 +29,8 @@ type App struct {
 	manager *tunnel.Manager
 	db      *config.DB
 	store   *config.Store
+	runMu   sync.Mutex
+	cancel  context.CancelFunc
 }
 
 // NewApp creates a new App application struct.
@@ -41,27 +51,8 @@ func (a *App) startup(ctx context.Context) {
 	a.db = db
 	a.store = config.NewStore(db)
 
-	// Load tunnel configs from database
-	configs, err := a.store.List()
-	if err != nil {
-		a.logger.Error("failed to load tunnel configs", "error", err)
-	}
-
-	var defs []tunnel.TunnelDef
-	for _, c := range configs {
-		defs = append(defs, tunnel.TunnelDef{
-			Name:       c.Name,
-			ProxyType:  c.ProxyType,
-			LocalAddr:  fmt.Sprintf("%s:%d", c.LocalAddr, c.LocalPort),
-			RemotePort: uint16(c.RemotePort),
-			Domain:     "", // loaded from config if needed
-		})
-	}
-
-	// Initialize tunnel manager (without server connection for now)
-	cfg := tunnel.DefaultClientConfig()
-	cfg.ClientID = a.getOrCreateClientID()
-	cfg.Tunnels = defs
+	// Initialize tunnel manager from local configuration.
+	cfg := a.managerConfig()
 	a.manager = tunnel.NewManager(cfg)
 	a.manager.SetLogger(a.logger)
 }
@@ -147,19 +138,28 @@ type CreateTunnelInput struct {
 	RemotePort int    `json:"remote_port"`
 }
 
+type ServerConfigInput struct {
+	ServerAddr string `json:"server_addr"`
+	AuthToken  string `json:"auth_token"`
+}
+
 // CreateTunnel creates a new tunnel configuration.
 func (a *App) CreateTunnel(input CreateTunnelInput) (*TunnelInfo, error) {
+	if err := validateCreateTunnelInput(input); err != nil {
+		return nil, err
+	}
+	proxyType := input.ProxyType
+	if proxyType == "" {
+		proxyType = defaultProxyType
+	}
 	tc := &config.TunnelConfig{
 		ID:         uuid.New().String(),
 		Name:       input.Name,
-		ProxyType:  input.ProxyType,
+		ProxyType:  proxyType,
 		LocalAddr:  input.LocalAddr,
 		LocalPort:  input.LocalPort,
 		RemotePort: input.RemotePort,
-		Status:     "stopped",
-	}
-	if tc.ProxyType == "" {
-		tc.ProxyType = "tcp"
+		Status:     statusStopped,
 	}
 	if err := a.store.Create(tc); err != nil {
 		return nil, err
@@ -171,6 +171,66 @@ func (a *App) CreateTunnel(input CreateTunnelInput) (*TunnelInfo, error) {
 	}, nil
 }
 
+func validateCreateTunnelInput(input CreateTunnelInput) error {
+	if strings.TrimSpace(input.Name) == "" {
+		return fmt.Errorf("tunnel name is required")
+	}
+	if input.ProxyType != "" && input.ProxyType != "tcp" && input.ProxyType != "http" {
+		return fmt.Errorf("unsupported proxy type: %s", input.ProxyType)
+	}
+	if net.ParseIP(input.LocalAddr) == nil && strings.TrimSpace(input.LocalAddr) == "" {
+		return fmt.Errorf("local address is required")
+	}
+	if input.LocalPort <= 0 || input.LocalPort > 65535 {
+		return fmt.Errorf("local port must be between 1 and 65535")
+	}
+	if input.RemotePort < 0 || input.RemotePort > 65535 {
+		return fmt.Errorf("remote port must be between 0 and 65535")
+	}
+	return nil
+}
+
+// StartTunnel 启动一个已保存的隧道，并向已连接的 Relay 注册代理。
+func (a *App) StartTunnel(id string) error {
+	tc, err := a.store.Get(id)
+	if err != nil {
+		return err
+	}
+	if tc == nil {
+		return fmt.Errorf("tunnel config not found: %s", id)
+	}
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.manager == nil || !a.manager.IsConnected() {
+		return fmt.Errorf("server is not connected")
+	}
+	if !a.manager.HasTunnel(tc.Name) {
+		if err := a.manager.AddTunnel(tunnelDefFromConfig(tc)); err != nil {
+			return err
+		}
+	}
+	return a.store.UpdateStatus(id, statusRunning)
+}
+
+// StopTunnel 停止一个运行中的隧道，并关闭对应的 Relay 代理。
+func (a *App) StopTunnel(id string) error {
+	tc, err := a.store.Get(id)
+	if err != nil {
+		return err
+	}
+	if tc == nil {
+		return fmt.Errorf("tunnel config not found: %s", id)
+	}
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.manager != nil && a.manager.HasTunnel(tc.Name) {
+		if err := a.manager.RemoveTunnel(tc.Name); err != nil {
+			return err
+		}
+	}
+	return a.store.UpdateStatus(id, statusStopped)
+}
+
 // DeleteTunnel removes a tunnel configuration.
 func (a *App) DeleteTunnel(id string) error {
 	// Also remove from manager if running
@@ -179,6 +239,80 @@ func (a *App) DeleteTunnel(id string) error {
 		a.manager.RemoveTunnel(tc.Name)
 	}
 	return a.store.Delete(id)
+}
+
+// ConnectServer starts the relay control connection with the current tunnel set.
+func (a *App) ConnectServer(input ServerConfigInput) error {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.manager != nil && a.manager.IsConnected() {
+		return nil
+	}
+	if strings.TrimSpace(input.ServerAddr) == "" {
+		return fmt.Errorf("server address is required")
+	}
+	cfg := a.managerConfig()
+	cfg.ServerAddr = input.ServerAddr
+	cfg.AuthToken = input.AuthToken
+	manager := tunnel.NewManager(cfg)
+	manager.SetLogger(a.logger)
+	parentCtx := a.ctx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
+	a.manager = manager
+	a.cancel = cancel
+	go func() {
+		if err := manager.Start(ctx); err != nil && ctx.Err() == nil {
+			a.logger.Error("relay manager stopped", "error", err)
+		}
+	}()
+	return nil
+}
+
+// DisconnectServer stops the active relay control connection.
+func (a *App) DisconnectServer() {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+	if a.manager != nil {
+		a.manager.Stop()
+	}
+}
+
+func (a *App) managerConfig() tunnel.TunnelClientConfig {
+	cfg := tunnel.DefaultClientConfig()
+	cfg.ClientID = a.getOrCreateClientID()
+	configs, err := a.store.List()
+	if err != nil {
+		a.logger.Error("failed to load tunnel configs", "error", err)
+		return cfg
+	}
+	for _, c := range configs {
+		if isPersistedTunnelEnabled(c.Status) {
+			cfg.Tunnels = append(cfg.Tunnels, tunnelDefFromConfig(c))
+		}
+	}
+	return cfg
+}
+
+// tunnelDefFromConfig 将持久化配置转换为运行时隧道定义。
+func tunnelDefFromConfig(c *config.TunnelConfig) tunnel.TunnelDef {
+	return tunnel.TunnelDef{
+		Name:       c.Name,
+		ProxyType:  c.ProxyType,
+		LocalAddr:  fmt.Sprintf("%s:%d", c.LocalAddr, c.LocalPort),
+		RemotePort: uint16(c.RemotePort),
+	}
+}
+
+// isPersistedTunnelEnabled 判断哪些持久化隧道需要在重连后自动注册。
+func isPersistedTunnelEnabled(status string) bool {
+	return status == statusActive || status == statusRunning
 }
 
 // GetConnectionStatus returns the current connection status.
@@ -217,7 +351,3 @@ func (a *App) GetTrafficStats() map[string]int64 {
 	}
 	return stats
 }
-
-// Ensure types import is used
-var _ = types.ProxyTypeTCP
-var _ = json.Marshal

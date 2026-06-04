@@ -56,7 +56,7 @@ func (t *Tunnel) openWorkConn(sessionID string) error {
 	pconn := protocol.NewConn(serverConn)
 
 	// Send WorkConn message to identify this connection
-	workMsg, err := protocol.NewWorkConnMessage(t.def.Name, sessionID)
+	workMsg, err := protocol.NewWorkConnMessageWithToken(t.def.Name, sessionID, t.manager.config.AuthToken)
 	if err != nil {
 		serverConn.Close()
 		return fmt.Errorf("create work conn message: %w", err)

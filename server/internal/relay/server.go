@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ type Server struct {
 	logger *slog.Logger
 
 	controlListener net.Listener
+	quicTransport   *QUICTransport
 
 	clientsMu sync.RWMutex
 	clients   map[string]*ClientConn
@@ -55,6 +57,13 @@ func (s *Server) Run() error {
 	s.logger.Info("relay server started", "addr", addr)
 
 	go s.acceptLoop()
+	if s.config.QUICPort > 0 {
+		s.quicTransport = NewQUICTransport(s.config, s, s.logger)
+		if err := s.quicTransport.Start(s.ctx); err != nil {
+			ln.Close()
+			return err
+		}
+	}
 	return nil
 }
 
@@ -129,6 +138,12 @@ func (s *Server) handleControlConn(conn *protocol.Conn, authMsg *protocol.Messag
 		conn.Close()
 		return
 	}
+	if !s.validAuthToken(auth.AuthToken) {
+		resp, _ := protocol.NewAuthRespMessage(false, "invalid auth token")
+		conn.Write(resp)
+		conn.Close()
+		return
+	}
 
 	// Check for duplicate client ID
 	s.clientsMu.RLock()
@@ -159,13 +174,21 @@ func (s *Server) handleControlConn(conn *protocol.Conn, authMsg *protocol.Messag
 }
 
 func (s *Server) handleWorkConn(conn *protocol.Conn, workMsg *protocol.Message) {
+	if err := s.handleWorkConnStream(conn, workMsg); err != nil {
+		s.logger.Warn("failed to handle work conn", "error", err)
+		conn.Close()
+	}
+}
+
+func (s *Server) handleWorkConnStream(conn *protocol.Conn, workMsg *protocol.Message) error {
 	payload, err := workMsg.DecodePayload()
 	if err != nil {
-		s.logger.Error("invalid WorkConn payload", "error", err)
-		conn.Close()
-		return
+		return fmt.Errorf("invalid WorkConn payload: %w", err)
 	}
 	wc := payload.(*protocol.WorkConnMessage)
+	if !s.validAuthToken(wc.AuthToken) {
+		return fmt.Errorf("work conn rejected by auth token")
+	}
 
 	// Find the client that owns this proxy
 	s.clientsMu.RLock()
@@ -180,22 +203,26 @@ func (s *Server) handleWorkConn(conn *protocol.Conn, workMsg *protocol.Message) 
 	s.clientsMu.RUnlock()
 
 	if targetCC == nil {
-		s.logger.Warn("work conn for unknown proxy", "proxy", wc.ProxyName)
-		conn.Close()
-		return
+		return fmt.Errorf("work conn for unknown proxy: %s", wc.ProxyName)
 	}
 
 	proxy := targetCC.getProxy(wc.ProxyName)
 	if proxy == nil {
-		s.logger.Warn("proxy not found for work conn", "proxy", wc.ProxyName)
-		conn.Close()
-		return
+		return fmt.Errorf("proxy not found for work conn: %s", wc.ProxyName)
 	}
 
 	if err := proxy.DeliverWorkConn(wc.SessionID, conn.Underlying()); err != nil {
-		s.logger.Warn("failed to deliver work conn", "proxy", wc.ProxyName, "session", wc.SessionID, "error", err)
-		conn.Close()
+		return fmt.Errorf("deliver work conn: %w", err)
 	}
+	return nil
+}
+
+// validAuthToken 校验共享认证令牌；空配置仅用于本地开发和测试环境。
+func (s *Server) validAuthToken(token string) bool {
+	if s.config.AuthToken == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.config.AuthToken)) == 1
 }
 
 func (s *Server) registerProxy(key string, proxy *Proxy) {
@@ -294,6 +321,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.controlListener != nil {
 		s.controlListener.Close()
 	}
+	if s.quicTransport != nil {
+		s.quicTransport.Stop()
+	}
 
 	// Close all client connections
 	s.clientsMu.Lock()
@@ -344,11 +374,11 @@ func (s *Server) GetProxyCount() int {
 
 // ServerStats holds aggregate server statistics.
 type ServerStats struct {
-	Clients    int
-	Proxies    int
-	BytesIn    int64
-	BytesOut   int64
-	Sessions   int64
+	Clients  int
+	Proxies  int
+	BytesIn  int64
+	BytesOut int64
+	Sessions int64
 }
 
 // GetStats returns aggregate server statistics.

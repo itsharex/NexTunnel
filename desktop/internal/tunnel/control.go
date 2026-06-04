@@ -16,6 +16,7 @@ import (
 type ControlClient struct {
 	conn       *protocol.Conn
 	clientID   string
+	authToken  string
 	serverAddr string
 	msgCh      chan *protocol.Message
 	logger     *slog.Logger
@@ -28,9 +29,10 @@ type ControlClient struct {
 }
 
 // NewControlClient creates a new control client.
-func NewControlClient(clientID, serverAddr string, logger *slog.Logger) *ControlClient {
+func NewControlClient(clientID, authToken, serverAddr string, logger *slog.Logger) *ControlClient {
 	return &ControlClient{
 		clientID:   clientID,
+		authToken:  authToken,
 		serverAddr: serverAddr,
 		msgCh:      make(chan *protocol.Message, 32),
 		logger:     logger,
@@ -49,7 +51,7 @@ func (c *ControlClient) Connect(ctx context.Context) error {
 	pconn := protocol.NewConn(conn)
 
 	// Send auth
-	authMsg, err := protocol.NewAuthMessage(c.clientID)
+	authMsg, err := protocol.NewAuthMessageWithToken(c.clientID, c.authToken)
 	if err != nil {
 		pconn.Close()
 		return fmt.Errorf("create auth message: %w", err)
