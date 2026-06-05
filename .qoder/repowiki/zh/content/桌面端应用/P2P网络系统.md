@@ -11,6 +11,8 @@
 - [wireguard.go](file://desktop/internal/p2p/wireguard.go)
 - [punch.go](file://desktop/internal/p2p/punch.go)
 - [detect.go](file://desktop/internal/nat/detect.go)
+- [stun.go](file://desktop/internal/nat/stun.go)
+- [types.go](file://desktop/internal/nat/types.go)
 - [manager.go](file://desktop/internal/tunnel/manager.go)
 - [message.go](file://pkg/protocol/message.go)
 - [keys.go](file://pkg/crypto/keys.go)
@@ -18,6 +20,14 @@
 - [tunnel.ts](file://desktop/frontend/src/stores/tunnel.ts)
 - [StatusView.vue](file://desktop/frontend/src/views/StatusView.vue)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 更新了P2P引擎的完整实现状态，包括WebRTC ICE代理、UDP打洞、WireGuard隧道等核心组件
+- 新增了NAT检测器的详细实现和RFC 3489标准算法
+- 完善了Mesh网络路由器的功能描述和路由管理机制
+- 增强了协议消息流和加密密钥管理的详细说明
+- 更新了性能考虑和故障排除指南
 
 ## 目录
 1. [简介](#简介)
@@ -98,7 +108,7 @@ M --> E
 **图表来源**
 - [main.go:1-37](file://desktop/main.go#L1-L37)
 - [app.go:17-24](file://desktop/app.go#L17-L24)
-- [engine.go:56-71](file://desktop/inner/p2p/engine.go#L56-L71)
+- [engine.go:56-71](file://desktop/internal/p2p/engine.go#L56-L71)
 
 **章节来源**
 - [README.md:39-96](file://README.md#L39-L96)
@@ -148,8 +158,8 @@ Session --> Transport : "返回传输接口"
 ```
 
 **图表来源**
-- [engine.go:56-82](file://desktop/inner/p2p/engine.go#L56-L82)
-- [engine.go:109-125](file://desktop/inner/p2p/engine.go#L109-L125)
+- [engine.go:56-82](file://desktop/internal/p2p/engine.go#L56-L82)
+- [engine.go:109-125](file://desktop/internal/p2p/engine.go#L109-L125)
 
 ### ICE协议实现 (Agent)
 ICE（Interactive Connectivity Establishment）协议实现负责候选地址收集和连通性检查。
@@ -194,8 +204,8 @@ Agent --> CandidatePair : "检查连通性"
 ```
 
 **图表来源**
-- [ice.go:98-127](file://desktop/inner/p2p/ice.go#L98-L127)
-- [ice.go:29-76](file://desktop/inner/p2p/ice.go#L29-L76)
+- [ice.go:98-127](file://desktop/internal/p2p/ice.go#L98-L127)
+- [ice.go:29-76](file://desktop/internal/p2p/ice.go#L29-L76)
 
 ### Mesh网络路由器 (MeshRouter)
 Mesh路由器管理多个P2P对等连接，形成网状网络拓扑。
@@ -238,13 +248,13 @@ MeshRouter --> RouteEntry : "维护路由表"
 ```
 
 **图表来源**
-- [mesh.go:65-79](file://desktop/inner/p2p/mesh.go#L65-L79)
-- [mesh.go:25-43](file://desktop/inner/p2p/mesh.go#L25-L43)
+- [mesh.go:65-79](file://desktop/internal/p2p/mesh.go#L65-L79)
+- [mesh.go:25-43](file://desktop/internal/p2p/mesh.go#L25-L43)
 
 **章节来源**
-- [engine.go:56-107](file://desktop/inner/p2p/engine.go#L56-L107)
-- [ice.go:98-143](file://desktop/inner/p2p/ice.go#L98-L143)
-- [mesh.go:65-94](file://desktop/inner/p2p/mesh.go#L65-L94)
+- [engine.go:56-107](file://desktop/internal/p2p/engine.go#L56-L107)
+- [ice.go:98-143](file://desktop/internal/p2p/ice.go#L98-L143)
+- [mesh.go:65-94](file://desktop/internal/p2p/mesh.go#L65-L94)
 
 ## 架构概览
 
@@ -294,8 +304,8 @@ B7 --> A7
 
 **图表来源**
 - [README.md:100-130](file://README.md#L100-L130)
-- [engine.go:127-143](file://desktop/inner/p2p/engine.go#L127-L143)
-- [mesh.go:138-165](file://desktop/inner/p2p/mesh.go#L138-L165)
+- [engine.go:127-143](file://desktop/internal/p2p/engine.go#L127-L143)
+- [mesh.go:138-165](file://desktop/internal/p2p/mesh.go#L138-L165)
 
 ### 链路调度策略
 
@@ -318,7 +328,7 @@ GlobalRelay --> Success
 
 **图表来源**
 - [README.md:150-159](file://README.md#L150-L159)
-- [detect.go:29-137](file://desktop/inner/nat/detect.go#L29-L137)
+- [detect.go:29-137](file://desktop/internal/nat/detect.go#L29-L137)
 
 ## 详细组件分析
 
@@ -352,9 +362,9 @@ EngineB->>ClientB : 返回Transport接口
 ```
 
 **图表来源**
-- [engine.go:145-192](file://desktop/inner/p2p/engine.go#L145-L192)
-- [engine.go:194-296](file://desktop/inner/p2p/engine.go#L194-L296)
-- [engine.go:298-372](file://desktop/inner/p2p/engine.go#L298-L372)
+- [engine.go:145-192](file://desktop/internal/p2p/engine.go#L145-L192)
+- [engine.go:194-296](file://desktop/internal/p2p/engine.go#L194-L296)
+- [engine.go:298-372](file://desktop/internal/p2p/engine.go#L298-L372)
 
 ### UDP打洞机制
 
@@ -377,8 +387,8 @@ Note over Initiator,Responder : 打洞完成，建立双向通道
 ```
 
 **图表来源**
-- [punch.go:81-131](file://desktop/inner/p2p/punch.go#L81-L131)
-- [punch.go:143-201](file://desktop/inner/p2p/punch.go#L143-L201)
+- [punch.go:81-131](file://desktop/internal/p2p/punch.go#L81-L131)
+- [punch.go:143-201](file://desktop/internal/p2p/punch.go#L143-L201)
 
 ### WireGuard隧道实现
 
@@ -413,14 +423,45 @@ netBind --> netEP : "封装"
 ```
 
 **图表来源**
-- [wireguard.go:37-57](file://desktop/inner/p2p/wireguard.go#L37-L57)
-- [wireguard.go:114-123](file://desktop/inner/p2p/wireguard.go#L114-L123)
-- [wireguard.go:173-185](file://desktop/inner/p2p/wireguard.go#L173-L185)
+- [wireguard.go:37-57](file://desktop/internal/p2p/wireguard.go#L37-L57)
+- [wireguard.go:114-123](file://desktop/internal/p2p/wireguard.go#L114-L123)
+- [wireguard.go:173-185](file://desktop/internal/p2p/wireguard.go#L173-L185)
+
+### NAT检测器实现
+
+```mermaid
+classDiagram
+class Detector {
++string serverAddr
++string altServerAddr
++STUNClient stunClient
++Detect(ctx) (*NATResult, error)
+}
+class STUNClient {
++BindingRequest(ctx, serverAddr, localConn) (*STUNBinding, error)
++BindingRequestFromAlt(ctx, serverAddr, localConn) (*STUNBinding, error)
+}
+class NATResult {
++NATType Type
++string PublicAddr
++uint16 MappedPort
++string LocalAddr
++IsP2PPossible(peerNAT) bool
+}
+Detector --> STUNClient : "使用"
+Detector --> NATResult : "返回"
+```
+
+**图表来源**
+- [detect.go:29-137](file://desktop/internal/nat/detect.go#L29-L137)
+- [stun.go:65-114](file://desktop/internal/nat/stun.go#L65-L114)
+- [types.go:18-37](file://desktop/internal/nat/types.go#L18-L37)
 
 **章节来源**
-- [engine.go:145-372](file://desktop/inner/p2p/engine.go#L145-L372)
-- [punch.go:58-137](file://desktop/inner/p2p/punch.go#L58-L137)
-- [wireguard.go:37-112](file://desktop/inner/p2p/wireguard.go#L37-L112)
+- [engine.go:145-372](file://desktop/internal/p2p/engine.go#L145-L372)
+- [punch.go:58-137](file://desktop/internal/p2p/punch.go#L58-L137)
+- [wireguard.go:37-112](file://desktop/internal/p2p/wireguard.go#L37-L112)
+- [detect.go:29-137](file://desktop/internal/nat/detect.go#L29-L137)
 
 ## 依赖关系分析
 
@@ -554,10 +595,10 @@ Mesh路由器实现了连接池管理，包括：
 - Mesh网络路由日志
 
 **章节来源**
-- [detect.go:29-137](file://desktop/inner/nat/detect.go#L29-L137)
-- [ice.go:300-357](file://desktop/inner/p2p/ice.go#L300-L357)
-- [wireguard.go:59-94](file://desktop/inner/p2p/wireguard.go#L59-L94)
-- [mesh.go:389-441](file://desktop/inner/p2p/mesh.go#L389-L441)
+- [detect.go:29-137](file://desktop/internal/nat/detect.go#L29-L137)
+- [ice.go:300-357](file://desktop/internal/p2p/ice.go#L300-L357)
+- [wireguard.go:59-94](file://desktop/internal/p2p/wireguard.go#L59-L94)
+- [mesh.go:389-441](file://desktop/internal/p2p/mesh.go#L389-L441)
 
 ## 结论
 

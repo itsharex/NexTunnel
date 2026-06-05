@@ -1,286 +1,349 @@
 <template>
-  <section
-    id="client-console"
-    class="status-view"
-  >
-    <div class="hero-panel">
-      <div class="hero-copy">
-        <div
-          class="status-indicator"
-          :class="store.connectionStatus"
+  <section class="client-dashboard">
+    <div class="dashboard-grid">
+      <n-card
+        class="connect-panel"
+        :bordered="false"
+      >
+        <div class="connect-layout">
+          <div class="connect-copy">
+            <n-tag
+              round
+              :type="statusTagType"
+              :bordered="false"
+            >
+              <span class="status-dot" />
+              {{ statusLabel }}
+            </n-tag>
+            <h2>{{ heroTitle }}</h2>
+            <p>{{ heroSubtitle }}</p>
+
+            <div class="relay-summary">
+              <span>{{ t('connection.currentRelay') }}</span>
+              <strong>{{ relayForm.server_addr || t('connection.notConfigured') }}</strong>
+            </div>
+          </div>
+
+          <div class="connect-action">
+            <button
+              class="connect-button"
+              :class="{ active: store.isConnected }"
+              type="button"
+              :disabled="!canConnect || store.isConnecting"
+              @click="handlePrimaryConnection"
+            >
+              <span>{{ primaryButtonLabel }}</span>
+            </button>
+            <span class="connect-caption">{{ store.isConnected ? statusLabel : t('status.idle') }}</span>
+          </div>
+        </div>
+      </n-card>
+
+      <n-card
+        class="settings-panel"
+        :bordered="false"
+      >
+        <template #header>
+          {{ t('connection.quickConnect') }}
+        </template>
+
+        <n-form
+          label-placement="top"
+          :show-feedback="false"
         >
-          <span class="dot" />
-          <span>{{ statusLabel }}</span>
-        </div>
-        <h2>Build secure tunnels from one focused desktop console.</h2>
-        <p>
-          Relay connection, local tunnel lifecycle, traffic telemetry and future P2P capability are organized in a
-          single operational workspace.
-        </p>
-      </div>
+          <n-grid
+            :cols="2"
+            :x-gap="12"
+            :y-gap="12"
+            responsive="screen"
+          >
+            <n-form-item-gi :label="t('connection.relayAddress')">
+              <n-input
+                v-model:value="relayForm.server_addr"
+                placeholder="127.0.0.1:7000"
+              />
+            </n-form-item-gi>
+            <n-form-item-gi :label="t('connection.relayToken')">
+              <n-input
+                v-model:value="relayForm.auth_token"
+                type="password"
+                show-password-on="click"
+                :placeholder="t('connection.relayTokenPlaceholder')"
+              />
+            </n-form-item-gi>
+          </n-grid>
+        </n-form>
 
-      <div
-        class="topology-card"
-        aria-label="Client topology preview"
-      >
-        <div class="topology-line line-a" />
-        <div class="topology-line line-b" />
-        <div class="topology-line line-c" />
-        <span class="topology-node node-local">Local</span>
-        <span class="topology-node node-relay">Relay</span>
-        <span class="topology-node node-edge">Edge</span>
-      </div>
-    </div>
-
-    <div class="metric-grid">
-      <article
-        v-for="metric in summaryMetrics"
-        :key="metric.label"
-        class="metric-card"
-      >
-        <span class="metric-label">{{ metric.label }}</span>
-        <strong>{{ metric.value }}</strong>
-        <span class="metric-hint">{{ metric.hint }}</span>
-      </article>
-    </div>
-
-    <div class="workspace-grid">
-      <section class="panel connection-panel">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Relay Server</span>
-            <h3>Connection Control</h3>
-          </div>
-          <span class="connection-address">{{ relayForm.server_addr || 'not configured' }}</span>
-        </div>
-
-        <div class="server-form">
-          <label class="field">
-            <span>Address</span>
-            <input
-              v-model.trim="relayForm.server_addr"
-              class="input"
-              placeholder="127.0.0.1:7000"
-            >
-          </label>
-          <label class="field">
-            <span>Token</span>
-            <input
-              v-model="relayForm.auth_token"
-              class="input"
-              type="password"
-              autocomplete="off"
-            >
-          </label>
-          <div class="button-row">
-            <button
-              class="btn"
-              :disabled="!canConnect || store.isConnecting || store.isConnected"
-              @click="handleConnect"
-            >
-              {{ store.isConnecting ? 'Connecting' : 'Connect' }}
-            </button>
-            <button
-              class="btn btn-secondary"
-              :disabled="!store.isConnected"
-              @click="handleDisconnect"
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-
-        <p
+        <n-alert
           v-if="store.lastError"
-          class="error-text"
+          class="error-alert"
+          type="error"
+          :bordered="false"
         >
           {{ store.lastError }}
-        </p>
-      </section>
-
-      <section class="panel capability-panel">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">Path Intelligence</span>
-            <h3>P2P and NAT Preview</h3>
-          </div>
-          <span class="planned-pill">Planned</span>
-        </div>
-
-        <div class="capability-list">
-          <div
-            v-for="item in capabilityItems"
-            :key="item.name"
-            class="capability-item"
-          >
-            <div>
-              <strong>{{ item.name }}</strong>
-              <span>{{ item.detail }}</span>
-            </div>
-            <span
-              class="capability-state"
-              :class="item.stateClass"
-            >{{ item.state }}</span>
-          </div>
-        </div>
-      </section>
+        </n-alert>
+      </n-card>
     </div>
 
-    <section class="panel tunnel-panel">
-      <div class="panel-header">
-        <div>
-          <span class="panel-kicker">Tunnels</span>
-          <h3>Local Proxy Routes</h3>
-        </div>
-        <button
-          class="btn btn-sm"
-          @click="showForm = !showForm"
-        >
-          {{ showForm ? 'Cancel' : 'New Tunnel' }}
-        </button>
-      </div>
-
-      <div
-        v-if="showForm"
-        class="tunnel-form"
+    <div class="stats-grid">
+      <n-card
+        v-for="metric in summaryMetrics"
+        :key="metric.label"
+        class="stat-card"
+        :bordered="false"
       >
-        <input
-          v-model.trim="form.name"
-          placeholder="Name"
-          class="input"
-        >
-        <select
-          v-model="form.proxy_type"
-          class="input"
-        >
-          <option value="tcp">
-            TCP
-          </option>
-          <option value="http">
-            HTTP
-          </option>
-        </select>
-        <input
-          v-model.trim="form.local_addr"
-          placeholder="Local Address"
-          class="input"
-        >
-        <input
-          v-model.number="form.local_port"
-          type="number"
-          min="1"
-          max="65535"
-          placeholder="Local Port"
-          class="input"
-        >
-        <input
-          v-model.number="form.remote_port"
-          type="number"
-          min="0"
-          max="65535"
-          placeholder="Remote Port"
-          class="input"
-        >
-        <button
-          class="btn"
-          :disabled="!canCreateTunnel"
-          @click="handleCreate"
-        >
-          Create
-        </button>
-      </div>
+        <n-statistic
+          :label="metric.label"
+          :value="metric.value"
+        />
+        <span>{{ metric.hint }}</span>
+      </n-card>
+    </div>
 
-      <div
-        v-if="store.tunnels.length === 0 && !showForm"
-        class="empty-state"
+    <div class="detail-grid">
+      <n-card
+        class="tunnel-panel"
+        :bordered="false"
       >
-        <div class="empty-orbit" />
-        <p>No tunnels configured.</p>
-        <span>Create a tunnel after connecting to a relay server.</span>
-      </div>
-
-      <div
-        v-else
-        class="tunnel-list"
-      >
-        <article
-          v-for="tunnel in store.tunnels"
-          :key="tunnel.id"
-          class="tunnel-item"
-        >
-          <div class="tunnel-info">
-            <span class="tunnel-name">{{ tunnel.name }}</span>
-            <span class="tunnel-type">{{ tunnel.proxy_type.toUpperCase() }}</span>
-            <span class="tunnel-addr">{{ tunnel.local_addr }}:{{ tunnel.local_port }} to :{{ tunnel.remote_port }}</span>
+        <template #header>
+          <div class="panel-title">
+            <div>
+              <strong>{{ t('tunnel.title') }}</strong>
+              <span>{{ t('tunnel.subtitle') }}</span>
+            </div>
+            <n-button
+              type="primary"
+              size="small"
+              @click="showForm = !showForm"
+            >
+              {{ showForm ? t('tunnel.cancel') : t('tunnel.newTunnel') }}
+            </n-button>
           </div>
-          <div class="tunnel-actions">
-            <span
-              class="tunnel-status"
-              :class="tunnel.status"
-            >{{ tunnel.status }}</span>
-            <button
-              v-if="!isTunnelRunning(tunnel.status)"
-              class="btn btn-sm"
-              :disabled="!store.isConnected || store.busyTunnelIds.has(tunnel.id)"
-              @click="handleStart(tunnel.id)"
-            >
-              Start
-            </button>
-            <button
-              v-else
-              class="btn btn-sm btn-secondary"
-              :disabled="store.busyTunnelIds.has(tunnel.id)"
-              @click="handleStop(tunnel.id)"
-            >
-              Stop
-            </button>
-            <button
-              class="btn btn-sm btn-danger"
-              :disabled="store.busyTunnelIds.has(tunnel.id)"
-              @click="handleDelete(tunnel.id)"
-            >
-              Delete
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
+        </template>
 
-    <section class="panel activity-panel">
-      <div class="panel-header">
-        <div>
-          <span class="panel-kicker">Activity</span>
-          <h3>Operational Timeline</h3>
-        </div>
-        <span class="planned-pill">Live stream planned</span>
-      </div>
+        <n-collapse-transition :show="showForm">
+          <n-form
+            class="tunnel-form"
+            label-placement="top"
+            :show-feedback="false"
+          >
+            <n-grid
+              :cols="6"
+              :x-gap="10"
+              :y-gap="10"
+              responsive="screen"
+            >
+              <n-form-item-gi :label="t('tunnel.name')">
+                <n-input v-model:value="form.name" />
+              </n-form-item-gi>
+              <n-form-item-gi :label="t('tunnel.protocol')">
+                <n-select
+                  v-model:value="form.proxy_type"
+                  :options="protocolOptions"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi :label="t('tunnel.localAddress')">
+                <n-input v-model:value="form.local_addr" />
+              </n-form-item-gi>
+              <n-form-item-gi :label="t('tunnel.localPort')">
+                <n-input-number
+                  v-model:value="form.local_port"
+                  :min="1"
+                  :max="65535"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi :label="t('tunnel.remotePort')">
+                <n-input-number
+                  v-model:value="form.remote_port"
+                  :min="0"
+                  :max="65535"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label=" ">
+                <n-button
+                  type="primary"
+                  block
+                  :disabled="!canCreateTunnel"
+                  @click="handleCreate"
+                >
+                  {{ t('tunnel.create') }}
+                </n-button>
+              </n-form-item-gi>
+            </n-grid>
+          </n-form>
+        </n-collapse-transition>
 
-      <div class="activity-list">
+        <n-empty
+          v-if="store.tunnels.length === 0 && !showForm"
+          class="empty-state"
+          :description="t('tunnel.emptyTitle')"
+        >
+          <template #extra>
+            <span>{{ t('tunnel.emptyText') }}</span>
+          </template>
+        </n-empty>
+
         <div
-          v-for="event in activityEvents"
-          :key="event.title"
-          class="activity-item"
+          v-else
+          class="tunnel-list"
         >
-          <span class="activity-time">{{ event.time }}</span>
-          <div>
-            <strong>{{ event.title }}</strong>
-            <p>{{ event.detail }}</p>
-          </div>
+          <article
+            v-for="tunnel in store.tunnels"
+            :key="tunnel.id"
+            class="tunnel-item"
+          >
+            <div class="tunnel-main">
+              <n-tag
+                round
+                size="small"
+                type="info"
+                :bordered="false"
+              >
+                {{ tunnel.proxy_type.toUpperCase() }}
+              </n-tag>
+              <div>
+                <strong>{{ tunnel.name }}</strong>
+                <span>{{ t('tunnel.localEndpoint') }} {{ tunnel.local_addr }}:{{ tunnel.local_port }}</span>
+              </div>
+            </div>
+
+            <div class="tunnel-meta">
+              <span>{{ t('tunnel.remoteEndpoint') }} :{{ tunnel.remote_port }}</span>
+              <n-tag
+                round
+                size="small"
+                :type="getTunnelTagType(tunnel.status)"
+                :bordered="false"
+              >
+                {{ translateStatus(tunnel.status) }}
+              </n-tag>
+            </div>
+
+            <n-space>
+              <n-button
+                v-if="!isTunnelRunning(tunnel.status)"
+                size="small"
+                type="primary"
+                :disabled="!store.isConnected || store.busyTunnelIds.has(tunnel.id)"
+                @click="handleStart(tunnel.id)"
+              >
+                {{ t('tunnel.start') }}
+              </n-button>
+              <n-button
+                v-else
+                size="small"
+                secondary
+                :disabled="store.busyTunnelIds.has(tunnel.id)"
+                @click="handleStop(tunnel.id)"
+              >
+                {{ t('tunnel.stop') }}
+              </n-button>
+              <n-button
+                size="small"
+                type="error"
+                secondary
+                :disabled="store.busyTunnelIds.has(tunnel.id)"
+                @click="handleDelete(tunnel.id)"
+              >
+                {{ t('tunnel.delete') }}
+              </n-button>
+            </n-space>
+          </article>
         </div>
+      </n-card>
+
+      <div class="side-stack">
+        <n-card
+          class="capability-card"
+          :bordered="false"
+        >
+          <template #header>
+            <div class="panel-title compact">
+              <div>
+                <strong>{{ t('capability.title') }}</strong>
+                <span>{{ t('capability.subtitle') }}</span>
+              </div>
+            </div>
+          </template>
+
+          <div class="capability-list">
+            <div
+              v-for="item in capabilityItems"
+              :key="item.name"
+              class="capability-item"
+            >
+              <div>
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.detail }}</span>
+              </div>
+              <n-tag
+                round
+                size="small"
+                :type="item.active ? 'success' : 'info'"
+                :bordered="false"
+              >
+                {{ item.state }}
+              </n-tag>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card
+          class="log-panel"
+          :bordered="false"
+        >
+          <template #header>
+            <div class="panel-title compact">
+              <div>
+                <strong>{{ t('activity.title') }}</strong>
+                <span>{{ t('activity.subtitle') }}</span>
+              </div>
+            </div>
+          </template>
+
+          <div class="log-terminal">
+            <div
+              v-for="event in activityEvents"
+              :key="event.title"
+              class="log-line"
+            >
+              <span class="log-time">[{{ event.time }}]</span>
+              <span>{{ event.title }} - {{ event.detail }}</span>
+            </div>
+          </div>
+        </n-card>
       </div>
-    </section>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NCollapseTransition,
+  NEmpty,
+  NForm,
+  NFormItemGi,
+  NGrid,
+  NInput,
+  NInputNumber,
+  NSelect,
+  NSpace,
+  NStatistic,
+  NTag,
+  type SelectOption,
+} from 'naive-ui'
 import { useTunnelStore } from '../stores/tunnel'
 
 interface CapabilityItem {
   name: string
   detail: string
   state: string
-  stateClass: string
+  active: boolean
 }
 
 interface ActivityEvent {
@@ -289,7 +352,10 @@ interface ActivityEvent {
   detail: string
 }
 
+type TagType = 'default' | 'error' | 'success' | 'warning' | 'info'
+
 const store = useTunnelStore()
+const { t } = useI18n()
 const showForm = ref(false)
 const relayForm = ref({
   server_addr: store.serverAddr,
@@ -303,78 +369,87 @@ const form = ref({
   remote_port: 80,
 })
 
-const statusLabel = computed(() => {
-  switch (store.connectionStatus) {
-    case 'connected':
-      return 'Connected'
-    case 'reconnecting':
-      return 'Reconnecting'
-    default:
-      return 'Disconnected'
-  }
+const protocolOptions: SelectOption[] = [
+  { label: 'TCP', value: 'tcp' },
+  { label: 'HTTP', value: 'http' },
+]
+
+const statusLabel = computed(() => translateStatus(store.connectionStatus))
+const statusTagType = computed<TagType>(() => {
+  if (store.connectionStatus === 'connected') return 'success'
+  if (store.connectionStatus === 'reconnecting') return 'warning'
+  return 'error'
+})
+const heroTitle = computed(() => (store.isConnected ? t('connection.connectedTitle') : t('connection.readyTitle')))
+const heroSubtitle = computed(() =>
+  store.isConnected ? t('connection.connectedSubtitle') : t('connection.readySubtitle'),
+)
+const primaryButtonLabel = computed(() => {
+  if (store.isConnecting) return t('connection.connecting')
+  return store.isConnected ? t('connection.disconnect') : t('connection.connectNow')
 })
 
 const summaryMetrics = computed(() => [
   {
-    label: 'Tunnels',
-    value: `${store.tunnelCount}`,
-    hint: `${store.trafficStats.tunnels || 0} active routes reported`,
-  },
-  {
-    label: 'Traffic In',
-    value: formatBytes(store.trafficStats.bytes_in),
-    hint: 'Inbound relay traffic',
-  },
-  {
-    label: 'Traffic Out',
+    label: t('metrics.upload'),
     value: formatBytes(store.trafficStats.bytes_out),
-    hint: 'Outbound relay traffic',
+    hint: t('metrics.outboundTraffic'),
   },
   {
-    label: 'NAT Type',
-    value: store.natType || 'Unknown',
-    hint: store.p2pStatus || 'Detection pending',
+    label: t('metrics.download'),
+    value: formatBytes(store.trafficStats.bytes_in),
+    hint: t('metrics.inboundTraffic'),
+  },
+  {
+    label: t('metrics.latency'),
+    value: '-- ms',
+    hint: t('metrics.realtimePending'),
+  },
+  {
+    label: t('metrics.tunnelCount'),
+    value: `${store.tunnelCount}`,
+    hint: t('metrics.activeRoutes', { count: store.trafficStats.tunnels || 0 }),
   },
 ])
 
 const capabilityItems = computed<CapabilityItem[]>(() => [
   {
-    name: 'P2P Path',
-    detail: 'Scheduler integration will switch between direct and relay paths.',
-    state: store.p2pStatus || 'Planned',
-    stateClass: store.p2pStatus ? 'active' : 'planned',
+    name: t('capability.p2p'),
+    detail: t('capability.p2pDetail'),
+    state: store.p2pStatus || t('status.planned'),
+    active: Boolean(store.p2pStatus),
   },
   {
-    name: 'NAT Detection',
-    detail: 'Runtime NAT classification is surfaced when the local agent reports it.',
-    state: store.natType || 'Waiting',
-    stateClass: store.natType ? 'active' : 'planned',
+    name: t('capability.nat'),
+    detail: t('capability.natDetail'),
+    state: store.natType || t('status.waiting'),
+    active: Boolean(store.natType),
   },
   {
-    name: 'QUIC Relay',
-    detail: 'Stream migration controls remain a server-side roadmap item.',
-    state: 'Coming soon',
-    stateClass: 'planned',
+    name: t('capability.quic'),
+    detail: t('capability.quicDetail'),
+    state: t('capability.comingSoon'),
+    active: false,
   },
 ])
 
-const activityEvents: ActivityEvent[] = [
+const activityEvents = computed<ActivityEvent[]>(() => [
   {
     time: 'Now',
-    title: 'Client console ready',
-    detail: 'Local configuration and tunnel controls are available in the desktop shell.',
+    title: t('activity.ready'),
+    detail: t('activity.readyDetail'),
   },
   {
     time: 'Next',
-    title: 'Path migration hooks',
-    detail: 'Future releases can connect the scheduler, QUIC relay and P2P engine here.',
+    title: t('activity.migration'),
+    detail: t('activity.migrationDetail'),
   },
   {
     time: 'Later',
-    title: 'Security posture feed',
-    detail: 'Token expiry, ACL updates and certificate health can be surfaced in this stream.',
+    title: t('activity.security'),
+    detail: t('activity.securityDetail'),
   },
-]
+])
 
 const canConnect = computed(() => relayForm.value.server_addr.trim().length > 0)
 const canCreateTunnel = computed(() => {
@@ -388,7 +463,15 @@ const canCreateTunnel = computed(() => {
   )
 })
 
-// formatBytes 将后端累计字节数格式化为紧凑展示文本。
+// translateStatus 将后端状态字符串映射为当前语言文案。
+const translateStatus = (status: string): string => {
+  const normalizedStatus = status || 'unknown'
+  const key = `status.${normalizedStatus}`
+  const translated = t(key)
+  return translated === key ? normalizedStatus : translated
+}
+
+// formatBytes 将累计字节数格式化为桌面端指标展示文本。
 const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -397,6 +480,20 @@ const formatBytes = (bytes: number): string => {
 }
 
 const isTunnelRunning = (status: string): boolean => status === 'active' || status === 'running'
+
+const getTunnelTagType = (status: string): TagType => {
+  if (status === 'active' || status === 'running') return 'success'
+  if (status === 'error') return 'error'
+  return 'default'
+}
+
+const handlePrimaryConnection = async (): Promise<void> => {
+  if (store.isConnected) {
+    await handleDisconnect()
+    return
+  }
+  await handleConnect()
+}
 
 const handleConnect = async (): Promise<void> => {
   if (!canConnect.value) return
@@ -426,7 +523,7 @@ const handleStop = async (id: string): Promise<void> => {
   await store.stopTunnel(id)
 }
 
-// refreshClientState 定期刷新桌面端状态，避免视觉重构改变原有数据流。
+// refreshClientState 定期刷新桌面端状态，保持界面与本地代理同步。
 const refreshClientState = async (): Promise<void> => {
   await store.refreshStatus()
   await store.loadTunnels()
@@ -446,566 +543,327 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.status-view {
+.client-dashboard {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.hero-panel,
-.panel,
-.metric-card {
-  min-width: 0;
-  border: 1px solid var(--console-border-muted);
-  border-radius: var(--radius-panel);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
-    rgba(10, 25, 43, 0.92);
-  box-shadow: var(--shadow-panel);
-}
-
-.hero-panel {
+.dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
-  gap: 22px;
-  min-height: 260px;
-  padding: 24px;
-  overflow: hidden;
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+  gap: 16px;
 }
 
-.hero-copy {
+.connect-panel,
+.settings-panel,
+.stat-card,
+.tunnel-panel,
+.capability-card,
+.log-panel {
+  border: 1px solid var(--line-soft);
+  background: var(--surface-bg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.connect-layout {
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: center;
+  gap: 26px;
+}
+
+.connect-copy {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 16px;
-  min-width: 0;
-  max-width: 680px;
+  align-items: flex-start;
+  gap: 14px;
 }
 
-.hero-copy h2 {
+.connect-copy h2 {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-main);
+  font-size: 36px;
+  line-height: 1.12;
+}
+
+.connect-copy p {
   max-width: 640px;
-  color: var(--text-primary);
-  font-size: 38px;
-  line-height: 1.05;
-  font-weight: 820;
-  overflow-wrap: anywhere;
-}
-
-.hero-copy p {
-  max-width: 58ch;
-  color: var(--text-secondary);
+  margin: 0;
+  color: var(--text-dim);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.75;
 }
 
-.status-indicator {
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(255, 92, 122, 0.28);
-  border-radius: 999px;
-  background: rgba(255, 92, 122, 0.08);
-  color: var(--status-danger);
-  padding: 8px 11px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.status-indicator .dot {
-  width: 8px;
-  height: 8px;
+.status-dot {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  margin-right: 6px;
   border-radius: 999px;
   background: currentColor;
-  box-shadow: 0 0 14px currentColor;
+  box-shadow: 0 0 12px currentColor;
 }
 
-.status-indicator.connected {
-  border-color: rgba(36, 230, 161, 0.3);
-  background: rgba(36, 230, 161, 0.09);
-  color: var(--status-success);
+.relay-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 260px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-cyan);
+  border-radius: 12px;
+  background: rgba(0, 255, 255, 0.06);
 }
 
-.status-indicator.reconnecting {
-  border-color: rgba(255, 200, 87, 0.3);
-  background: rgba(255, 200, 87, 0.1);
-  color: var(--status-warning);
+.relay-summary span {
+  color: var(--text-dim);
+  font-size: 12px;
 }
 
-.topology-card {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  min-height: 212px;
-  border: 1px solid rgba(0, 255, 255, 0.12);
-  border-radius: var(--radius-panel);
-  background:
-    radial-gradient(circle at 50% 48%, rgba(0, 255, 255, 0.16), transparent 24%),
-    linear-gradient(120deg, rgba(0, 0, 255, 0.12), rgba(138, 43, 226, 0.12)),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 42px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 42px);
-  overflow: hidden;
+.relay-summary strong {
+  color: var(--nex-cyan);
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 13px;
 }
 
-.topology-card::before {
-  content: '';
-  position: absolute;
-  inset: 30px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 255, 255, 0.14);
-}
-
-.topology-line {
-  position: absolute;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, var(--nex-cyan), var(--tunnel-violet), transparent);
-  transform-origin: left center;
-}
-
-.line-a {
-  width: 62%;
-  left: 18%;
-  top: 48%;
-  transform: rotate(-18deg);
-}
-
-.line-b {
-  width: 48%;
-  left: 28%;
-  top: 58%;
-  transform: rotate(19deg);
-}
-
-.line-c {
-  width: 44%;
-  left: 18%;
-  top: 35%;
-  transform: rotate(24deg);
-}
-
-.topology-node {
-  position: absolute;
-  min-width: 56px;
+.connect-action {
   display: grid;
   place-items: center;
-  border: 1px solid rgba(0, 255, 255, 0.26);
-  border-radius: 999px;
-  background: rgba(8, 22, 39, 0.92);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 9px 12px;
-  box-shadow: 0 0 30px rgba(0, 255, 255, 0.14);
-}
-
-.node-local {
-  left: 8%;
-  bottom: 22%;
-}
-
-.node-relay {
-  left: 45%;
-  top: 35%;
-}
-
-.node-edge {
-  right: 8%;
-  top: 20%;
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-height: 116px;
-  padding: 16px;
-}
-
-.metric-label,
-.panel-kicker {
-  color: var(--nex-cyan);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.metric-card strong {
-  color: var(--text-primary);
-  font-size: 25px;
-  line-height: 1.1;
-}
-
-.metric-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.workspace-grid {
+.connect-button {
+  width: 202px;
+  height: 202px;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.45), transparent 22%),
+    var(--accent-gradient);
+  color: white;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow:
+    0 0 34px rgba(138, 43, 226, 0.42),
+    inset 0 0 24px rgba(255, 255, 255, 0.18);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+}
+
+.connect-button:hover:not(:disabled) {
+  transform: scale(1.035);
+  box-shadow:
+    0 0 52px rgba(0, 255, 255, 0.42),
+    inset 0 0 24px rgba(255, 255, 255, 0.2);
+}
+
+.connect-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.45);
+  opacity: 0.64;
+}
+
+.connect-button.active {
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.35), transparent 22%),
+    linear-gradient(135deg, #ef4444, #8a2be2);
+}
+
+.connect-caption {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.error-alert {
+  margin-top: 12px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
-.panel {
-  padding: 18px;
+.stat-card span {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
 }
 
-.panel-header {
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+  gap: 16px;
+}
+
+.panel-title {
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 14px;
-  margin-bottom: 16px;
 }
 
-.panel-header h3 {
-  margin-top: 5px;
-  color: var(--text-primary);
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.connection-address {
-  color: var(--text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  text-align: right;
-  word-break: break-all;
-}
-
-.server-form {
+.panel-title div {
   display: grid;
-  grid-template-columns: minmax(180px, 1.3fr) minmax(140px, 0.9fr) auto;
-  gap: 10px;
-  align-items: end;
+  gap: 4px;
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  color: var(--text-secondary);
+.panel-title strong {
+  color: var(--text-main);
+  font-size: 16px;
+}
+
+.panel-title span {
+  color: var(--text-dim);
   font-size: 12px;
 }
 
-.input {
-  width: 100%;
-  min-height: 40px;
-  border: 1px solid rgba(168, 169, 169, 0.24);
-  border-radius: var(--radius-panel);
-  background: rgba(255, 255, 255, 0.055);
-  color: var(--text-primary);
-  outline: none;
-  padding: 9px 12px;
+.panel-title.compact {
+  display: block;
 }
 
-.input::placeholder {
-  color: rgba(159, 178, 199, 0.64);
+.tunnel-form {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.62);
 }
 
-.input:focus {
-  border-color: rgba(0, 255, 255, 0.68);
-  box-shadow: 0 0 0 3px rgba(0, 255, 255, 0.08);
+.empty-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
 }
 
-.button-row {
-  display: flex;
-  gap: 8px;
-}
-
-.btn {
-  min-height: 40px;
-  border: 1px solid rgba(0, 255, 255, 0.24);
-  border-radius: var(--radius-panel);
-  background: linear-gradient(90deg, var(--nex-cyan), var(--tunnel-violet));
-  color: #04111f;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  padding: 9px 15px;
-  white-space: nowrap;
-}
-
-.btn:hover:not(:disabled) {
-  box-shadow: 0 8px 24px rgba(0, 255, 255, 0.16);
-}
-
-.btn:disabled {
-  cursor: not-allowed;
-  filter: grayscale(0.4);
-  opacity: 0.45;
-}
-
-.btn-sm {
-  min-height: 32px;
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-}
-
-.btn-danger {
-  border-color: rgba(255, 92, 122, 0.24);
-  background: rgba(255, 92, 122, 0.14);
-  color: #ffdce4;
-}
-
-.error-text {
-  margin-top: 12px;
-  color: #ff9caf;
-  font-size: 13px;
-}
-
-.planned-pill,
-.capability-state {
-  border: 1px solid rgba(138, 43, 226, 0.28);
-  border-radius: 999px;
-  background: rgba(138, 43, 226, 0.1);
-  color: #d5b7ff;
-  font-size: 11px;
-  line-height: 1;
-  padding: 7px 9px;
-  white-space: nowrap;
-}
-
-.capability-list,
-.activity-list,
 .tunnel-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 10px;
 }
 
-.capability-item,
-.activity-item,
 .tunnel-item {
-  border: 1px solid rgba(168, 169, 169, 0.14);
-  border-radius: var(--radius-panel);
-  background: rgba(255, 255, 255, 0.035);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.tunnel-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tunnel-main div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.tunnel-main strong {
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tunnel-main span,
+.tunnel-meta span {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.tunnel-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.capability-list {
+  display: grid;
+  gap: 10px;
 }
 
 .capability-item {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  padding: 13px;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.55);
 }
 
 .capability-item div {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 4px;
 }
 
 .capability-item strong {
-  color: var(--text-primary);
+  color: var(--text-main);
   font-size: 13px;
 }
 
 .capability-item span {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.capability-state.active {
-  border-color: rgba(36, 230, 161, 0.28);
-  background: rgba(36, 230, 161, 0.1);
-  color: var(--status-success);
-}
-
-.tunnel-form {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) 110px minmax(150px, 1fr) 130px 130px auto;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.empty-state {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-height: 190px;
-  border: 1px dashed rgba(0, 255, 255, 0.2);
-  border-radius: var(--radius-panel);
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.empty-state p {
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.empty-state span {
-  max-width: 280px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.empty-orbit {
-  width: 54px;
-  height: 54px;
-  border: 1px solid rgba(0, 255, 255, 0.24);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at center, rgba(0, 255, 255, 0.34) 0 5px, transparent 6px),
-    radial-gradient(circle at 72% 30%, rgba(138, 43, 226, 0.8) 0 4px, transparent 5px);
-}
-
-.tunnel-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 13px;
-}
-
-.tunnel-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.tunnel-name {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.tunnel-type {
-  border-radius: 6px;
-  background: rgba(0, 255, 255, 0.1);
-  color: var(--nex-cyan);
-  font-size: 11px;
-  font-weight: 800;
-  padding: 4px 7px;
-}
-
-.tunnel-addr {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tunnel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.tunnel-status {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 5px 8px;
-}
-
-.tunnel-status.active,
-.tunnel-status.running {
-  color: var(--status-success);
-}
-
-.tunnel-status.error {
-  color: var(--status-danger);
-}
-
-.activity-item {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px;
-}
-
-.activity-time {
-  color: var(--nex-cyan);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-}
-
-.activity-item strong {
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.activity-item p {
-  margin-top: 3px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 12px;
   line-height: 1.5;
 }
 
-@media (max-width: 1180px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .workspace-grid,
-  .hero-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .tunnel-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.log-terminal {
+  height: 184px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #10b981;
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 12px;
 }
 
-@media (max-width: 760px) {
-  .hero-panel,
-  .panel {
-    padding: 14px;
-  }
+.log-line {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 7px;
+  line-height: 1.5;
+}
 
-  .hero-copy h2 {
-    font-size: 26px;
-    line-height: 1.12;
-  }
+.log-time {
+  flex: 0 0 auto;
+  color: #64748b;
+}
 
-  .topology-card {
-    min-height: 190px;
-  }
-
-  .metric-grid,
-  .server-form,
-  .tunnel-form {
+@media (max-width: 1180px) {
+  .dashboard-grid,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 
-  .button-row,
-  .tunnel-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .tunnel-item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .tunnel-info {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .activity-item {
-    grid-template-columns: 1fr;
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

@@ -23,13 +23,26 @@
 | R1-T04 | 调度器闭环 | `PathManager`、`RelaySelector`、`MigrationController` 能真实触发 TCP Relay、QUIC Relay、P2P 路径切换，并有集成测试 |
 | R1-T05 | 桌面端可用流程 | 支持连接/断开服务器、创建/启动/停止/删除隧道、Relay token 配置、错误提示、基础表单校验 |
 
-### 0.3 中长期任务
+### 0.3 Phase 4 模块现状摘要（2026-06-04 第三次迭代）
+
+| 模块 | 代码路径 | 现状 | 生产差距 |
+|:---|:---|:---|:---|
+| 边缘节点部署 | `server/internal/edge/` | EdgeNode/Registry/HealthChecker/Deploy 模板/ControlPlane 集成全部到位，585 行测试 | 缺真实多地域部署验证 |
+| Anycast 路由 | `server/internal/anycast/` | Haversine 路由 + GeoDNS + Failover + GeoIPProvider 接口完整，220+ 行测试 | MaxMindAdapter 需加载真实 .mmdb 数据库 |
+| eBPF 加速 | `server/internal/ebpf/` | Loader 架构 + 降级 + RuleMap 转发规则 + UserspaceForwarder，87+ 行测试 | Load() 仍为模拟，缺内核态 XDP 程序 |
+| SD-WAN 策略 | `server/internal/sdwan/` | Classifier + PolicyEngine + QoS 队列 + TokenBucket 限速，227+ 行测试 | 已具备生产能力雏形 |
+| Dashboard | `server/internal/dashboard/` + `server/web/` | REST API + JWT/bcrypt + AlertEngine + Webhook + 指标摄入，246+ 行测试 | DataStore 内存实现，前端需完善 |
+
+### 0.4 中长期任务
 
 | 优先级 | 方向 | 说明 |
 |:---:|:---|:---|
 | P1 | 安全认证升级 | Relay/Control Plane 从共享 token 演进到 mTLS/OIDC，补审计日志和权限模型 |
 | P1 | 网络场景测试 | localhost、双节点 Docker 网络、Relay 降级、连接中断重连、QUIC 证书失败路径 |
 | P2 | Dashboard 生产化 | 持久化用户/token/节点/ACL/告警，补 RBAC 与前端管理台 |
+| P2 | eBPF XDP 内核态接入 | 编写 eBPF C 程序 + cilium/ebpf 加载，替换 Load() 模拟逻辑，Linux 环境基准测试 |
+| P2 | GeoIP 数据库加载 | MaxMindAdapter 加载真实 .mmdb 文件，替换静态映射 |
+| P2 | Dashboard 前端完善 | App.vue 完善节点地图、流量图表、ACL 编辑表单等交互 |
 | P2 | 全球加速验证 | eBPF/XDP、Anycast/GeoDNS、SD-WAN 需要真实网络和性能基准后再进入生产路线 |
 
 ---

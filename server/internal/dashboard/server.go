@@ -30,11 +30,12 @@ func DefaultServerConfig() ServerConfig {
 
 // Server is the dashboard HTTP server.
 type Server struct {
-	config ServerConfig
-	auth   *AuthManager
-	mux    *http.ServeMux
-	store  *DataStore
-	server *http.Server
+	config      ServerConfig
+	auth        *AuthManager
+	mux         *http.ServeMux
+	store       *DataStore
+	alertEngine *AlertEngine
+	server      *http.Server
 }
 
 // DataStore holds dashboard data in-memory.
@@ -59,13 +60,19 @@ func NewDataStore() *DataStore {
 // NewServer creates a new dashboard server.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
-		config: cfg,
-		auth:   NewAuthManager(cfg.Auth),
-		mux:    http.NewServeMux(),
-		store:  NewDataStore(),
+		config:      cfg,
+		auth:        NewAuthManager(cfg.Auth),
+		mux:         http.NewServeMux(),
+		store:       NewDataStore(),
+		alertEngine: NewAlertEngine(cfg.Logger),
 	}
 	s.registerRoutes()
 	return s
+}
+
+// AlertEngine returns the alert engine for external metric injection.
+func (s *Server) AlertEngine() *AlertEngine {
+	return s.alertEngine
 }
 
 // Start begins listening for HTTP requests.
@@ -128,6 +135,16 @@ func (s *Server) registerRoutes() {
 	// Alerts
 	s.mux.HandleFunc("GET /api/v1/alerts", s.handleListAlerts)
 	s.mux.HandleFunc("POST /api/v1/alerts/{id}/ack", s.handleAckAlert)
+	s.mux.HandleFunc("GET /api/v1/alerts/unacked", s.handleListUnackedAlerts)
+
+	// Alert Rules
+	s.mux.HandleFunc("GET /api/v1/alert-rules", s.handleListAlertRules)
+	s.mux.HandleFunc("POST /api/v1/alert-rules", s.handleCreateAlertRule)
+	s.mux.HandleFunc("PUT /api/v1/alert-rules/{id}", s.handleUpdateAlertRule)
+	s.mux.HandleFunc("DELETE /api/v1/alert-rules/{id}", s.handleDeleteAlertRule)
+
+	// Metrics ingestion (for external systems to push metrics and trigger alerts)
+	s.mux.HandleFunc("POST /api/v1/metrics", s.handleIngestMetrics)
 
 	// Users
 	s.mux.HandleFunc("GET /api/v1/users", s.handleListUsers)
@@ -289,6 +306,13 @@ func (s *Server) handleDeleteACL(w http.ResponseWriter, r *http.Request) {
 // --- Alert handlers ---
 
 func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
+	// Primary source: AlertEngine events
+	engineEvents := s.alertEngine.ListEvents()
+	if len(engineEvents) > 0 {
+		writeSuccess(w, engineEvents)
+		return
+	}
+	// Fallback: legacy DataStore alerts
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
 	alerts := make([]*Alert, 0, len(s.store.alerts))
@@ -300,17 +324,94 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.store.mu.Lock()
-	alert, ok := s.store.alerts[id]
-	if ok {
-		alert.Acked = true
+	var req struct {
+		AckedBy string `json:"acked_by"`
 	}
-	s.store.mu.Unlock()
-	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("alert %q not found", id))
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.AckedBy == "" {
+		req.AckedBy = r.Header.Get("X-User-ID")
+	}
+	if err := s.alertEngine.AckEvent(id, req.AckedBy); err != nil {
+		// Fallback to legacy DataStore alerts
+		s.store.mu.Lock()
+		alert, ok := s.store.alerts[id]
+		if ok {
+			alert.Acked = true
+		}
+		s.store.mu.Unlock()
+		if !ok {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("alert %q not found", id))
+			return
+		}
+		writeSuccess(w, alert)
 		return
 	}
-	writeSuccess(w, alert)
+	writeSuccess(w, map[string]string{"acked": id})
+}
+
+// --- Alert Rule handlers ---
+
+func (s *Server) handleListAlertRules(w http.ResponseWriter, _ *http.Request) {
+	writeSuccess(w, s.alertEngine.ListRules())
+}
+
+func (s *Server) handleCreateAlertRule(w http.ResponseWriter, r *http.Request) {
+	var rule AlertRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.alertEngine.AddRule(&rule); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, APIResponse{Success: true, Data: &rule})
+}
+
+func (s *Server) handleUpdateAlertRule(w http.ResponseWriter, r *http.Request) {
+	var rule AlertRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	rule.ID = r.PathValue("id")
+	if err := s.alertEngine.UpdateRule(&rule); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeSuccess(w, &rule)
+}
+
+func (s *Server) handleDeleteAlertRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.alertEngine.RemoveRule(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]string{"deleted": id})
+}
+
+func (s *Server) handleListUnackedAlerts(w http.ResponseWriter, _ *http.Request) {
+	writeSuccess(w, s.alertEngine.ListUnackedEvents())
+}
+
+// metricsRequest is the payload for POST /api/v1/metrics.
+type metricsRequest struct {
+	Samples []MetricSample `json:"samples"`
+}
+
+func (s *Server) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
+	var req metricsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	fired := s.alertEngine.Evaluate(req.Samples)
+	writeSuccess(w, map[string]interface{}{
+		"ingested": len(req.Samples),
+		"fired":    len(fired),
+		"alerts":   fired,
+	})
 }
 
 // --- User handlers ---
