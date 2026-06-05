@@ -15,11 +15,17 @@
         <header class="titlebar">
           <div class="titlebar-drag-region">
             <div class="brand-lockup">
-              <div class="brand-mark">
-                NT
-              </div>
+              <img
+                class="brand-icon"
+                :src="logoImage"
+                alt="NexTunnel"
+              >
               <div class="brand-copy">
-                <strong>{{ t('app.productName') }}</strong>
+                <img
+                  class="brand-wordmark"
+                  :src="textLogoImage"
+                  alt="NexTunnel"
+                >
                 <span>{{ t('app.subtitle') }}</span>
               </div>
             </div>
@@ -66,6 +72,13 @@
 
         <div class="workspace">
           <aside class="sidebar">
+            <div class="sidebar-logo">
+              <img
+                :src="logoImage"
+                alt="NexTunnel"
+              >
+            </div>
+
             <nav
               class="sidebar-nav"
               aria-label="NexTunnel client navigation"
@@ -149,6 +162,8 @@ import StatusView from './views/StatusView.vue'
 import { GetVersion } from './api/app'
 import { closeWindow, minimiseWindow, toggleMaximiseWindow } from './api/window'
 import { SUPPORTED_LOCALES, type SupportedLocale } from './i18n'
+import logoImage from './assets/logo.png'
+import textLogoImage from './assets/text-logo.png'
 
 interface NavItem {
   key: string
@@ -165,18 +180,18 @@ const currentLocale = ref<SupportedLocale>('zh-CN')
 const themeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#00ffff',
-    primaryColorHover: '#4dffff',
+    primaryColorHover: '#33f6f6',
     primaryColorPressed: '#00d5d5',
     primaryColorSuppl: '#8a2be2',
     borderRadius: '8px',
-    bodyColor: '#0f172a',
-    cardColor: 'rgba(30, 41, 59, 0.72)',
+    bodyColor: '#091120',
+    cardColor: 'rgba(18, 31, 52, 0.82)',
     modalColor: '#111c2f',
     popoverColor: '#111c2f',
-    textColorBase: '#f8fafc',
-    textColor1: '#f8fafc',
-    textColor2: '#cbd5e1',
-    textColor3: '#94a3b8',
+    textColorBase: '#feffff',
+    textColor1: '#feffff',
+    textColor2: '#d2e0ec',
+    textColor3: '#a8a9a9',
   },
   Button: {
     borderRadiusMedium: '8px',
@@ -256,22 +271,28 @@ onMounted(async () => {
 
 <style>
 :root {
+  /* 品牌色来自 assets/palette.png，统一桌面端和后续服务端管理台的视觉基线。 */
   --nex-cyan: #00ffff;
   --tunnel-violet: #8a2be2;
   --data-blue: #0000ff;
-  --bg-dark: #0f172a;
-  --sidebar-bg: #111c2f;
-  --surface-bg: rgba(30, 41, 59, 0.72);
-  --surface-strong: rgba(15, 23, 42, 0.9);
-  --line-soft: rgba(148, 163, 184, 0.16);
-  --line-cyan: rgba(0, 255, 255, 0.2);
-  --text-main: #f8fafc;
-  --text-dim: #94a3b8;
-  --text-muted: #64748b;
+  --neutral-grey: #a8a9a9;
+  --future-white: #feffff;
+  --bg-dark: #091120;
+  --sidebar-bg: #0c1628;
+  --surface-bg: rgba(18, 31, 52, 0.82);
+  --surface-strong: rgba(9, 17, 32, 0.94);
+  --line-soft: rgba(168, 169, 169, 0.16);
+  --line-cyan: rgba(0, 255, 255, 0.18);
+  --text-main: var(--future-white);
+  --text-dim: #b8c5d3;
+  --text-muted: var(--neutral-grey);
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
   --accent-gradient: linear-gradient(135deg, var(--nex-cyan), var(--tunnel-violet));
+  /* 标题栏高度按商业桌面软件比例设置，并同步参与主布局高度计算。 */
+  --titlebar-height: 56px;
+  --sidebar-width: 88px;
 }
 
 * {
@@ -304,17 +325,18 @@ select {
   height: 100dvh;
   min-width: 1080px;
   background:
-    radial-gradient(circle at 24% 14%, rgba(0, 255, 255, 0.14), transparent 28%),
-    radial-gradient(circle at 86% 22%, rgba(138, 43, 226, 0.18), transparent 30%),
+    radial-gradient(circle at 22% 12%, rgba(0, 255, 255, 0.11), transparent 28%),
+    radial-gradient(circle at 86% 20%, rgba(138, 43, 226, 0.15), transparent 30%),
+    linear-gradient(145deg, rgba(0, 0, 255, 0.08), transparent 38%),
     var(--bg-dark);
   overflow: hidden;
 }
 
 .network-background {
   position: fixed;
-  inset: 42px 0 0 80px;
+  inset: var(--titlebar-height) 0 0 var(--sidebar-width);
   pointer-events: none;
-  opacity: 0.28;
+  opacity: 0.22;
   background-image:
     linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
     linear-gradient(0deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px);
@@ -324,13 +346,15 @@ select {
 .titlebar {
   position: relative;
   z-index: 3;
-  height: 42px;
+  height: var(--titlebar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line-soft);
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(18px);
+  background:
+    linear-gradient(90deg, rgba(11, 23, 42, 0.98), rgba(12, 19, 35, 0.92)),
+    rgba(9, 17, 32, 0.96);
+  backdrop-filter: blur(20px);
 }
 
 .titlebar-drag-region {
@@ -338,62 +362,67 @@ select {
   flex: 1;
   display: flex;
   align-items: center;
-  padding-left: 16px;
+  padding-left: 18px;
   --wails-draggable: drag;
 }
 
 .brand-lockup {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 }
 
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--accent-gradient);
-  color: #06111f;
-  font-size: 12px;
-  font-weight: 900;
-  box-shadow: 0 0 18px rgba(0, 255, 255, 0.25);
+.brand-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  object-fit: cover;
+  box-shadow: 0 10px 26px rgba(0, 255, 255, 0.16);
 }
 
 .brand-copy {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
-.brand-copy strong {
-  color: var(--text-main);
-  font-size: 13px;
-  letter-spacing: 0;
+.brand-wordmark {
+  width: 164px;
+  max-height: 42px;
+  object-fit: contain;
 }
 
 .brand-copy span {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .titlebar-actions {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 12px;
+  --wails-draggable: no-drag;
 }
 
 .language-select {
-  width: 116px;
+  width: 128px;
 }
 
 .window-icon {
   color: var(--text-main);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
+}
+
+.titlebar-actions .n-button {
+  width: 34px;
+  height: 34px;
 }
 
 .close-button:hover {
@@ -401,19 +430,39 @@ select {
 }
 
 .workspace {
-  height: calc(100dvh - 42px);
+  height: calc(100dvh - var(--titlebar-height));
   display: grid;
-  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
   padding: 18px 10px;
   border-right: 1px solid var(--line-soft);
-  background: linear-gradient(180deg, rgba(17, 28, 47, 0.98), rgba(9, 15, 28, 0.98));
+  background:
+    linear-gradient(180deg, rgba(13, 27, 47, 0.98), rgba(6, 12, 25, 0.98)),
+    var(--sidebar-bg);
+}
+
+.sidebar-logo {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 255, 255, 0.18);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 12px 30px rgba(0, 255, 255, 0.1);
+}
+
+.sidebar-logo img {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  object-fit: cover;
 }
 
 .sidebar-nav {
@@ -425,7 +474,7 @@ select {
 
 .nav-button {
   width: 100%;
-  min-height: 58px;
+  min-height: 60px;
   display: grid;
   place-items: center;
   gap: 4px;
@@ -445,7 +494,7 @@ select {
 .nav-button.active,
 .nav-button:hover:not(:disabled) {
   border-left-color: var(--nex-cyan);
-  background: rgba(0, 255, 255, 0.1);
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(138, 43, 226, 0.08));
   color: var(--nex-cyan);
 }
 
@@ -476,7 +525,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px 26px 26px;
+  padding: 24px 28px 28px;
   overflow: auto;
 }
 
@@ -489,14 +538,14 @@ select {
 
 .section-kicker {
   color: var(--nex-cyan);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .content-header h1 {
   margin: 4px 0 0;
   color: var(--text-main);
-  font-size: 28px;
+  font-size: 30px;
   line-height: 1.16;
 }
 

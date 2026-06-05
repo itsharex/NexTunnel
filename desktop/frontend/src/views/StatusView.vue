@@ -546,7 +546,7 @@ onUnmounted(() => {
 .client-dashboard {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .dashboard-grid {
@@ -562,16 +562,18 @@ onUnmounted(() => {
 .capability-card,
 .log-panel {
   border: 1px solid var(--line-soft);
-  background: var(--surface-bg);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    var(--surface-bg);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
 }
 
 .connect-layout {
-  min-height: 260px;
+  min-height: 252px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 252px;
   align-items: center;
-  gap: 26px;
+  gap: 28px;
 }
 
 .connect-copy {
@@ -585,7 +587,7 @@ onUnmounted(() => {
   max-width: 620px;
   margin: 0;
   color: var(--text-main);
-  font-size: 36px;
+  font-size: 34px;
   line-height: 1.12;
 }
 
@@ -614,7 +616,7 @@ onUnmounted(() => {
   padding: 12px 14px;
   border: 1px solid var(--line-cyan);
   border-radius: 12px;
-  background: rgba(0, 255, 255, 0.06);
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.07), rgba(138, 43, 226, 0.045));
 }
 
 .relay-summary span {
@@ -635,8 +637,8 @@ onUnmounted(() => {
 }
 
 .connect-button {
-  width: 202px;
-  height: 202px;
+  width: 192px;
+  height: 192px;
   display: grid;
   place-items: center;
   border: 0;
@@ -650,7 +652,7 @@ onUnmounted(() => {
   font-weight: 800;
   letter-spacing: 0;
   box-shadow:
-    0 0 34px rgba(138, 43, 226, 0.42),
+    0 0 30px rgba(138, 43, 226, 0.34),
     inset 0 0 24px rgba(255, 255, 255, 0.18);
   transition:
     transform 180ms ease,
@@ -659,9 +661,9 @@ onUnmounted(() => {
 }
 
 .connect-button:hover:not(:disabled) {
-  transform: scale(1.035);
+  transform: scale(1.025);
   box-shadow:
-    0 0 52px rgba(0, 255, 255, 0.42),
+    0 0 42px rgba(0, 255, 255, 0.32),
     inset 0 0 24px rgba(255, 255, 255, 0.2);
 }
 
@@ -689,7 +691,7 @@ onUnmounted(() => {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .stat-card span {
@@ -702,7 +704,7 @@ onUnmounted(() => {
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
-  gap: 16px;
+  gap: 18px;
 }
 
 .panel-title {
@@ -737,7 +739,7 @@ onUnmounted(() => {
   padding: 14px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.62);
+  background: rgba(9, 17, 32, 0.68);
 }
 
 .empty-state {
@@ -759,7 +761,7 @@ onUnmounted(() => {
   padding: 12px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.58);
+  background: rgba(9, 17, 32, 0.56);
 }
 
 .tunnel-main {
@@ -813,7 +815,7 @@ onUnmounted(() => {
   padding: 12px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(9, 17, 32, 0.56);
 }
 
 .capability-item div {
@@ -833,13 +835,13 @@ onUnmounted(() => {
 }
 
 .log-terminal {
-  height: 184px;
+  height: 190px;
   overflow: auto;
   padding: 14px;
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(0, 255, 255, 0.16);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.72);
-  color: #10b981;
+  color: #24e6a1;
   font-family: Consolas, 'SFMono-Regular', monospace;
   font-size: 12px;
 }
