@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -28,7 +29,8 @@ type Manager struct {
 	tunnelsMu sync.RWMutex
 	tunnels   map[string]*Tunnel
 
-	p2pEngine P2PEngine
+	p2pEngine      P2PEngine
+	workConnOpener WorkConnOpener // optional: QUIC or TCP work connection opener
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -49,7 +51,7 @@ func NewManager(cfg TunnelClientConfig) *Manager {
 		cfg.HeartbeatInterval = 30 * time.Second
 	}
 
-	logger := slog.New(slog.NewTextHandler(nil, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	m := &Manager{
 		config:  cfg,
@@ -73,6 +75,17 @@ func (m *Manager) SetLogger(logger *slog.Logger) {
 // SetP2PEngine sets the P2P engine for direct connections.
 func (m *Manager) SetP2PEngine(engine P2PEngine) {
 	m.p2pEngine = engine
+}
+
+// SetWorkConnOpener sets the transport used for opening work connections.
+// When nil (default), TCP is used. Set to QUICWorkConnOpener for QUIC streams.
+func (m *Manager) SetWorkConnOpener(opener WorkConnOpener) {
+	m.workConnOpener = opener
+}
+
+// GetWorkConnOpener returns the current work connection opener.
+func (m *Manager) GetWorkConnOpener() WorkConnOpener {
+	return m.workConnOpener
 }
 
 // GetP2PState returns the P2P engine state, or empty if no engine is set.

@@ -245,20 +245,24 @@ func TestHealthChecker_ProbeReachable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	checker.Start(ctx)
 
-	// Wait for at least two probe cycles
-	time.Sleep(500 * time.Millisecond)
+	// Wait for at least 3 full probe cycles (100ms interval → 300ms+)
+	// Add buffer for goroutine scheduling
+	time.Sleep(800 * time.Millisecond)
+	// Let any in-flight probe complete before stopping
+	time.Sleep(50 * time.Millisecond)
 	checker.Stop()
 	cancel()
 
 	if node.GetStatus() != StatusHealthy {
 		t.Errorf("status = %q, want %q", node.GetStatus(), StatusHealthy)
 	}
-	// Allow probe to have completed at least once
-	if node.Latency == 0 {
-		t.Error("expected non-zero latency from health probe")
+	// ConsecutiveOKs uses atomic int - safe to read across goroutines
+	oks := node.ConsecutiveOKs()
+	if oks < 1 {
+		t.Errorf("ConsecutiveOKs = %d, want >= 1 (timing-sensitive, check DirectProbe for deterministic result)", oks)
 	}
 
-	t.Logf("Health check: status=%s oks=%d latency=%v", node.GetStatus(), node.ConsecutiveOKs(), node.Latency)
+	t.Logf("Health check: status=%s oks=%d", node.GetStatus(), oks)
 }
 
 func TestHealthChecker_ProbeUnreachable(t *testing.T) {
@@ -288,6 +292,46 @@ func TestHealthChecker_ProbeUnreachable(t *testing.T) {
 	}
 
 	t.Logf("Unreachable node: status=%s fails=%d", node.GetStatus(), node.ConsecutiveFails())
+}
+
+func TestHealthChecker_DirectProbe(t *testing.T) {
+	// Deterministic test: directly invoke probeNode without relying on timer
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	cfg := DefaultEdgeConfig()
+	reg := NewRegistry()
+	node, _ := NewEdgeNode("direct-1", ln.Addr().String(), "test", RoleFull, 100)
+	_ = reg.Register(node)
+
+	checker := NewHealthChecker(cfg, reg)
+	ctx := context.Background()
+
+	// Directly call probeNode 3 times
+	for i := 0; i < 3; i++ {
+		checker.probeNode(ctx, node)
+	}
+
+	if node.GetStatus() != StatusHealthy {
+		t.Errorf("status = %q, want %q", node.GetStatus(), StatusHealthy)
+	}
+	if node.ConsecutiveOKs() != 3 {
+		t.Errorf("ConsecutiveOKs = %d, want 3", node.ConsecutiveOKs())
+	}
+	t.Logf("Direct probe: status=%s oks=%d", node.GetStatus(), node.ConsecutiveOKs())
 }
 
 func TestDeployCompose_Generate(t *testing.T) {

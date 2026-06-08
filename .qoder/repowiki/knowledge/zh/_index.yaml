@@ -1,0 +1,15 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+exported_at: "2026-06-07T06:36:29Z"
+modules:
+    desktop_app:
+        dir_name: NexTunnel 桌面客户端
+        title: NexTunnel 桌面客户端
+        scope:
+            - desktop/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

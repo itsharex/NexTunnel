@@ -12,6 +12,7 @@ type ControlPlaneConfig struct {
 	NodeTimeout       time.Duration
 	KeyRotationPeriod time.Duration
 	ACLEvalTimeout    time.Duration
+	StorePath         string // SQLite database path; empty = MemoryStore
 	Logger            *slog.Logger
 }
 
@@ -41,6 +42,12 @@ func WithKeyRotation(d time.Duration) ControlPlaneOption {
 // WithCPLogger sets the logger.
 func WithCPLogger(l *slog.Logger) ControlPlaneOption {
 	return func(c *ControlPlaneConfig) { c.Logger = l }
+}
+
+// WithStorePath sets the SQLite database path for persistent storage.
+// When empty, the server uses an in-memory MemoryStore (suitable for testing).
+func WithStorePath(path string) ControlPlaneOption {
+	return func(c *ControlPlaneConfig) { c.StorePath = path }
 }
 
 // DefaultControlPlaneConfig returns sensible defaults.

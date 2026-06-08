@@ -23,6 +23,12 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
+	// Validate config (security baseline: require auth token for non-localhost)
+	if err := cfg.Validate(); err != nil {
+		logger.Error("configuration error", "error", err)
+		os.Exit(1)
+	}
+
 	server := relay.NewServer(cfg, logger)
 
 	if err := server.Run(); err != nil {

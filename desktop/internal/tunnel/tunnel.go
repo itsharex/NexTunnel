@@ -45,26 +45,34 @@ func (t *Tunnel) handleStartWorkConn(sessionID string) {
 }
 
 // openWorkConn dials the server, sends a WorkConn message, dials the local service,
-// and bridges the two connections.
+// and bridges the two connections. Uses QUIC work conn opener when available.
 func (t *Tunnel) openWorkConn(sessionID string) error {
-	// Dial server for work connection
-	serverConn, err := net.DialTimeout("tcp", t.manager.config.ServerAddr, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("dial server for work conn: %w", err)
-	}
+	var serverConn net.Conn
+	var err error
 
-	pconn := protocol.NewConn(serverConn)
+	// Use WorkConnOpener if available (e.g., QUIC), otherwise fall back to TCP
+	if opener := t.manager.GetWorkConnOpener(); opener != nil {
+		serverConn, err = opener.OpenWorkConn(t.def.Name, sessionID, t.manager.config.AuthToken)
+		if err != nil {
+			return fmt.Errorf("open work conn via opener: %w", err)
+		}
+	} else {
+		// Legacy TCP path
+		serverConn, err = net.DialTimeout("tcp", t.manager.config.ServerAddr, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("dial server for work conn: %w", err)
+		}
 
-	// Send WorkConn message to identify this connection
-	workMsg, err := protocol.NewWorkConnMessageWithToken(t.def.Name, sessionID, t.manager.config.AuthToken)
-	if err != nil {
-		serverConn.Close()
-		return fmt.Errorf("create work conn message: %w", err)
-	}
-
-	if err := pconn.Write(workMsg); err != nil {
-		serverConn.Close()
-		return fmt.Errorf("send work conn message: %w", err)
+		pconn := protocol.NewConn(serverConn)
+		workMsg, err := protocol.NewWorkConnMessageWithToken(t.def.Name, sessionID, t.manager.config.AuthToken)
+		if err != nil {
+			serverConn.Close()
+			return fmt.Errorf("create work conn message: %w", err)
+		}
+		if err := pconn.Write(workMsg); err != nil {
+			serverConn.Close()
+			return fmt.Errorf("send work conn message: %w", err)
+		}
 	}
 
 	// Dial local service

@@ -244,3 +244,65 @@ func TestDashboard_Users(t *testing.T) {
 		t.Fatalf("list users: %d", w.Code)
 	}
 }
+
+func TestDashboard_SecurityRejectsEmptySecret(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "" // empty secret
+	cfg.Auth.DefaultPass = "some-password"
+	srv := NewServer(cfg)
+	if err := srv.Start(); err == nil {
+		srv.Stop()
+		t.Fatal("expected error for empty secret key")
+	}
+}
+
+func TestDashboard_SecurityRejectsWeakPassword(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "test-secret"
+	cfg.Auth.DefaultPass = "admin" // weak password
+	srv := NewServer(cfg)
+	if err := srv.Start(); err == nil {
+		srv.Stop()
+		t.Fatal("expected error for weak 'admin' password")
+	}
+}
+
+func TestDashboard_SecurityRejectsEmptyPassword(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "test-secret"
+	cfg.Auth.DefaultAdmin = "admin"
+	cfg.Auth.DefaultPass = "" // empty password with admin user
+	srv := NewServer(cfg)
+	if err := srv.Start(); err == nil {
+		srv.Stop()
+		t.Fatal("expected error for empty admin password")
+	}
+}
+
+func TestDashboard_BcryptPasswordHashing(t *testing.T) {
+	am := NewAuthManager(AuthConfig{
+		SecretKey:    "test-secret",
+		TokenExpiry:  time.Hour,
+		DefaultAdmin: "",
+	})
+
+	err := am.AddUserWithPassword(&User{ID: "u1", Username: "testuser", Role: "admin"}, "secure-password")
+	if err != nil {
+		t.Fatalf("AddUserWithPassword: %v", err)
+	}
+
+	// Wrong password should fail
+	_, err = am.Login(LoginRequest{Username: "testuser", Password: "wrong"})
+	if err == nil {
+		t.Error("expected login failure with wrong password")
+	}
+
+	// Correct password should succeed
+	resp, err := am.Login(LoginRequest{Username: "testuser", Password: "secure-password"})
+	if err != nil {
+		t.Fatalf("Login with correct password: %v", err)
+	}
+	if resp.Token == "" {
+		t.Error("expected non-empty token")
+	}
+}

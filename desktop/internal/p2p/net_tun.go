@@ -2,19 +2,23 @@ package p2p
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// netTun implements tun.Device without creating a real OS TUN interface.
-// 当前实现是 userspace MVP/测试通道，用于验证 WireGuard 设备编排和包流转；
-// 生产版需要在平台层替换为 Windows/macOS/Linux 的真实 TUN 或 userspace netstack。
+// netTun implements both tun.Device (for wireguard-go) and TUNDevice (for platform abstraction).
+// It is a userspace MVP/test channel that validates WireGuard device orchestration and packet flow.
+// Production deployments should use platform-specific TUN (Wintun/utun/dev-net-tun) or a
+// userspace netstack (gvisor/netstack) for full IP routing.
 type netTun struct {
 	events   chan tun.Event
 	incoming chan []byte // packets from the application -> WireGuard reads them
 	mtu      int
 	closed   bool
+	localIP  net.IP
+	peerIP   net.IP
 }
 
 // newNetTun creates a virtual TUN device.
@@ -26,6 +30,8 @@ func newNetTun(mtu int) *netTun {
 		events:   make(chan tun.Event, 1),
 		incoming: make(chan []byte, 256),
 		mtu:      mtu,
+		localIP:  net.ParseIP("10.7.0.1"),
+		peerIP:   net.ParseIP("10.7.0.2"),
 	}
 }
 
@@ -77,6 +83,36 @@ func (t *netTun) Close() error {
 }
 
 func (t *netTun) BatchSize() int { return 1 }
+
+// LocalAddr returns the local IP address of this TUN device.
+func (t *netTun) LocalAddr() net.IP { return t.localIP }
+
+// PeerAddr returns the peer IP address of this TUN device.
+func (t *netTun) PeerAddr() net.IP { return t.peerIP }
+
+// ReadPacket reads a single packet from the TUN device (TUNDevice interface).
+func (t *netTun) ReadPacket(buf []byte) (int, error) {
+	data, ok := <-t.incoming
+	if !ok {
+		return 0, os.ErrClosed
+	}
+	return copy(buf, data), nil
+}
+
+// WritePacket writes a single packet to the TUN device (TUNDevice interface).
+func (t *netTun) WritePacket(buf []byte) (int, error) {
+	if t.closed {
+		return 0, os.ErrClosed
+	}
+	pkt := make([]byte, len(buf))
+	copy(pkt, buf)
+	select {
+	case t.incoming <- pkt:
+		return len(buf), nil
+	default:
+		return 0, fmt.Errorf("tun input buffer full")
+	}
+}
 
 // WriteFromApp feeds a packet from the application into WireGuard.
 func (t *netTun) WriteFromApp(data []byte) error {
