@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: server
-title: NexTunnel 服务端核心与边缘网络引擎
+title: NexTunnel 服务端核心与多角色运行时
 scope:
     - server/
 source_files: []
