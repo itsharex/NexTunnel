@@ -29,6 +29,15 @@ nextunnel-server/
 
 ## 方式一：Linux 一键部署（推荐）
 
+公开仓库可直接从 tag 源码下载 Linux 脚本。该地址保持 LF 换行，适合在 Linux 服务器直接执行：
+
+```bash
+curl -fL -o /tmp/nextunnel-install.sh \
+  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.0.1-alpha/deploy/server/install.sh
+chmod +x /tmp/nextunnel-install.sh
+sudo /tmp/nextunnel-install.sh install --version v0.0.1-alpha
+```
+
 ```bash
 cd deploy/server
 chmod +x install.sh
