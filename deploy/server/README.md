@@ -27,84 +27,7 @@ nextunnel-server/
 
 `.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包和对应 `.sha256` 文件。后续桌面端或其他终端可继续作为附件发布到同一个 GitHub Release。
 
-当前仓库若保持私有，匿名访问 Release 附件会返回 `404`。腾讯云服务器需要使用只读 GitHub Token 通过 GitHub API 下载，或把服务端包同步到腾讯云 COS/内网源后用 `--package-url` 指定。
-
 ## 方式一：Linux 一键部署（推荐）
-
-公开 Release 可直接下载脚本后部署：
-
-```bash
-curl -fL -o /tmp/nextunnel-install.sh \
-  https://github.com/Lee-zg/NexTunnel/releases/download/v0.0.1-alpha/install.sh
-chmod +x /tmp/nextunnel-install.sh
-sudo /tmp/nextunnel-install.sh install --version v0.0.1-alpha
-```
-
-私有 Release 在腾讯云服务器上先用 GitHub Token 下载 `install.sh`，再让脚本继续通过同一个 Token 下载服务端包：
-
-```bash
-read -rsp 'GitHub Token: ' GITHUB_TOKEN
-echo
-export GITHUB_TOKEN
-export NEXTUNNEL_VERSION='v0.0.1-alpha'
-
-release_json="$(mktemp)"
-curl -fsSL \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/Lee-zg/NexTunnel/releases/tags/${NEXTUNNEL_VERSION}" \
-  -o "${release_json}"
-
-install_asset_url="$(awk -v expected_name='install.sh' '
-  /"url": "https:\/\/api\.github\.com\/repos\/.*\/releases\/assets\// {
-    current_url = $0
-    sub(/.*"url": "/, "", current_url)
-    sub(/".*/, "", current_url)
-  }
-  /"name": "/ {
-    current_name = $0
-    sub(/.*"name": "/, "", current_name)
-    sub(/".*/, "", current_name)
-    if (current_name == expected_name && current_url != "") {
-      print current_url
-      exit
-    }
-  }
-' "${release_json}")"
-rm -f "${release_json}"
-
-test -n "${install_asset_url}"
-curl -fsSL \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "Accept: application/octet-stream" \
-  -o /tmp/nextunnel-install.sh \
-  "${install_asset_url}"
-chmod +x /tmp/nextunnel-install.sh
-
-sudo env \
-  GITHUB_TOKEN="${GITHUB_TOKEN}" \
-  NON_INTERACTIVE=true \
-  NEXTUNNEL_PUBLIC_HOST=150.158.18.55 \
-  RELAY_AUTH_TOKEN="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" \
-  CONTROL_PLANE_API_TOKEN="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" \
-  /tmp/nextunnel-install.sh install --version "${NEXTUNNEL_VERSION}" \
-  --sha256 3dee25957bd1916faa68c4410f5bbc4b903c1d0338ff5673919c8a9810d2950b
-```
-
-如果服务器无法访问 GitHub，建议把 `nextunnel-server-linux-amd64.tar.gz` 上传到腾讯云 COS 或 1Panel 文件目录，再指定包地址：
-
-```bash
-sudo env \
-  NON_INTERACTIVE=true \
-  NEXTUNNEL_PUBLIC_HOST=150.158.18.55 \
-  RELAY_AUTH_TOKEN='replace-with-strong-token' \
-  CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
-  /tmp/nextunnel-install.sh install \
-  --package-url 'https://example.cos.ap-guangzhou.myqcloud.com/nextunnel-server-linux-amd64.tar.gz' \
-  --sha256 3dee25957bd1916faa68c4410f5bbc4b903c1d0338ff5673919c8a9810d2950b
-```
-
-仓库源码环境也可以直接在 `deploy/server` 下执行：
 
 ```bash
 cd deploy/server
@@ -219,7 +142,6 @@ sudo ./install.sh install
 | `NEXTUNNEL_RELEASE_BASE_URL` | 自定义 Release 下载基址 |
 | `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |
 | `NEXTUNNEL_PACKAGE_SHA256` | 可选，服务端包 SHA256 校验值 |
-| `NEXTUNNEL_GITHUB_TOKEN` | 私有 GitHub Release 读取 Token；也可使用 `GITHUB_TOKEN` |
 | `NEXTUNNEL_PUBLIC_HOST` | 客户端访问的公网 IP 或域名 |
 | `RELAY_AUTH_TOKEN` | Relay 客户端共享认证令牌 |
 | `CONTROL_PLANE_API_TOKEN` | Control Plane Bearer Token |
