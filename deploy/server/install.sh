@@ -25,6 +25,7 @@ RELEASE_BASE_URL="${NEXTUNNEL_RELEASE_BASE_URL:-}"
 PACKAGE_URL="${NEXTUNNEL_PACKAGE_URL:-}"
 PACKAGE_SHA256="${NEXTUNNEL_PACKAGE_SHA256:-}"
 ARCH="${NEXTUNNEL_ARCH:-}"
+GITHUB_TOKEN_VALUE="${NEXTUNNEL_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
 INSTALL_DIR="${NEXTUNNEL_INSTALL_DIR:-/opt/nextunnel}"
 CONFIG_DIR="${NEXTUNNEL_CONFIG_DIR:-/etc/nextunnel}"
 DATA_DIR="${NEXTUNNEL_DATA_DIR:-/var/lib/nextunnel}"
@@ -70,6 +71,7 @@ usage() {
   --sha256 HASH            可选，校验服务端 Release 包 SHA256
   --version VERSION        指定 GitHub Release 版本，例如 v0.1.0；默认 latest
   --release-base-url URL   指定 Release 下载基址；默认使用 GitHub Releases
+  --github-token TOKEN     私有 GitHub Release 下载 Token；也可用 NEXTUNNEL_GITHUB_TOKEN/GITHUB_TOKEN
   --arch ARCH              指定架构 amd64/arm64；默认自动识别
   --public-host HOST       指定客户端访问的公网 IP 或域名
   --relay-token TOKEN      指定 Relay 认证 Token
@@ -105,6 +107,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --repository)
       REPOSITORY="${2:?--repository 需要参数}"
+      shift 2
+      ;;
+    --github-token)
+      GITHUB_TOKEN_VALUE="${2:?--github-token 需要参数}"
       shift 2
       ;;
     --arch)
@@ -279,29 +285,72 @@ resolve_release_base_url() {
   fi
 }
 
+resolve_github_release_api_url() {
+  if [[ "${VERSION}" == "latest" ]]; then
+    printf 'https://api.github.com/repos/%s/releases/latest' "${REPOSITORY}"
+  else
+    printf 'https://api.github.com/repos/%s/releases/tags/%s' "${REPOSITORY}" "${VERSION}"
+  fi
+}
+
+resolve_package_asset_name() {
+  local resolved_arch
+  resolved_arch="$(normalize_arch "${ARCH}")"
+  printf 'nextunnel-server-linux-%s.tar.gz' "${resolved_arch}"
+}
+
 resolve_package_url() {
   if [[ -n "${PACKAGE_URL}" ]]; then
     printf '%s' "${PACKAGE_URL}"
     return
   fi
-  local resolved_arch
-  resolved_arch="$(normalize_arch "${ARCH}")"
-  printf '%s/nextunnel-server-linux-%s.tar.gz' "$(resolve_release_base_url)" "${resolved_arch}"
+  printf '%s/%s' "$(resolve_release_base_url)" "$(resolve_package_asset_name)"
+}
+
+download_http_file() {
+  local source="$1"
+  local target="$2"
+  local auth_token="${3:-}"
+  local accept_header="${4:-}"
+  if command -v curl >/dev/null 2>&1; then
+    local curl_args=(-fL --retry 3 --connect-timeout 15)
+    if [[ -n "${auth_token}" ]]; then
+      curl_args+=(-H "Authorization: Bearer ${auth_token}" -H "X-GitHub-Api-Version: 2022-11-28")
+    fi
+    if [[ -n "${accept_header}" ]]; then
+      curl_args+=(-H "Accept: ${accept_header}")
+    fi
+    curl "${curl_args[@]}" -o "${target}" "${source}"
+    return
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    local wget_args=()
+    if [[ -n "${auth_token}" ]]; then
+      wget_args+=(--header="Authorization: Bearer ${auth_token}" --header="X-GitHub-Api-Version: 2022-11-28")
+    fi
+    if [[ -n "${accept_header}" ]]; then
+      wget_args+=(--header="Accept: ${accept_header}")
+    fi
+    wget "${wget_args[@]}" -O "${target}" "${source}"
+    return
+  fi
+  printf '缺少 curl 或 wget，无法下载 Release 包。\n' >&2
+  exit 1
 }
 
 download_file() {
   local source="$1"
   local target="$2"
   case "${source}" in
-    http://*|https://*)
-      if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 3 --connect-timeout 15 -o "${target}" "${source}"
-      elif command -v wget >/dev/null 2>&1; then
-        wget -O "${target}" "${source}"
-      else
-        printf '缺少 curl 或 wget，无法下载 Release 包。\n' >&2
+    https://api.github.com/*/releases/assets/*)
+      if [[ -z "${GITHUB_TOKEN_VALUE}" ]]; then
+        printf 'GitHub API 资产地址需要 NEXTUNNEL_GITHUB_TOKEN 或 GITHUB_TOKEN。\n' >&2
         exit 1
       fi
+      download_http_file "${source}" "${target}" "${GITHUB_TOKEN_VALUE}" "application/octet-stream"
+      ;;
+    http://*|https://*)
+      download_http_file "${source}" "${target}"
       ;;
     file://*)
       cp "${source#file://}" "${target}"
@@ -315,6 +364,68 @@ download_file() {
       fi
       ;;
   esac
+}
+
+parse_github_asset_api_url() {
+  local release_json="$1"
+  local asset_name="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg name "${asset_name}" '.assets[] | select(.name == $name) | .url' "${release_json}" | head -n 1
+    return
+  fi
+
+  # 兼容未安装 jq 的最小化服务器，按 GitHub API 稳定字段名提取资产 API URL。
+  awk -v expected_name="${asset_name}" '
+    /"url": "https:\/\/api\.github\.com\/repos\/.*\/releases\/assets\// {
+      current_url = $0
+      sub(/.*"url": "/, "", current_url)
+      sub(/".*/, "", current_url)
+    }
+    /"name": "/ {
+      current_name = $0
+      sub(/.*"name": "/, "", current_name)
+      sub(/".*/, "", current_name)
+      if (current_name == expected_name && current_url != "") {
+        print current_url
+        exit
+      }
+    }
+  ' "${release_json}"
+}
+
+resolve_github_asset_api_url() {
+  local asset_name="$1"
+  local release_api_url
+  local release_json
+  local asset_api_url
+
+  if [[ -z "${GITHUB_TOKEN_VALUE}" ]]; then
+    printf '私有 GitHub Release 需要 NEXTUNNEL_GITHUB_TOKEN 或 GITHUB_TOKEN。\n' >&2
+    exit 1
+  fi
+
+  release_api_url="$(resolve_github_release_api_url)"
+  release_json="$(mktemp)"
+  if ! download_http_file "${release_api_url}" "${release_json}" "${GITHUB_TOKEN_VALUE}" "application/vnd.github+json"; then
+    rm -f "${release_json}"
+    exit 1
+  fi
+
+  asset_api_url="$(parse_github_asset_api_url "${release_json}" "${asset_name}")"
+  rm -f "${release_json}"
+  if [[ -z "${asset_api_url}" || "${asset_api_url}" == "null" ]]; then
+    printf 'GitHub Release 中未找到资产：%s，请确认版本 %s 已发布。\n' "${asset_name}" "${VERSION}" >&2
+    exit 1
+  fi
+  printf '%s' "${asset_api_url}"
+}
+
+download_github_release_asset() {
+  local asset_name="$1"
+  local target="$2"
+  local asset_api_url
+  asset_api_url="$(resolve_github_asset_api_url "${asset_name}")"
+  download_http_file "${asset_api_url}" "${target}" "${GITHUB_TOKEN_VALUE}" "application/octet-stream"
 }
 
 verify_file_checksum() {
@@ -456,19 +567,26 @@ install_release_package() {
   local tmp_dir
   local archive_path
   local extract_dir
+  local asset_name
   local relay_binary
   local control_binary
   local nat_binary
 
   resolved_package_url="$(resolve_package_url)"
+  asset_name="$(resolve_package_asset_name)"
   tmp_dir="$(mktemp -d)"
   archive_path="${tmp_dir}/nextunnel-server.tar.gz"
   extract_dir="${tmp_dir}/extract"
   mkdir -p "${extract_dir}"
   trap "rm -rf '${tmp_dir}'" EXIT
 
-  log "下载服务端 Release 包：${resolved_package_url}"
-  download_file "${resolved_package_url}" "${archive_path}"
+  if [[ -n "${GITHUB_TOKEN_VALUE}" && -z "${PACKAGE_URL}" && -z "${RELEASE_BASE_URL}" ]]; then
+    log "通过 GitHub API 下载私有 Release 资产：${asset_name}"
+    download_github_release_asset "${asset_name}" "${archive_path}"
+  else
+    log "下载服务端 Release 包：${resolved_package_url}"
+    download_file "${resolved_package_url}" "${archive_path}"
+  fi
   verify_file_checksum "${archive_path}"
 
   log "解压并校验服务端二进制"
