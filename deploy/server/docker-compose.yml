@@ -4,7 +4,7 @@ name: ${COMPOSE_PROJECT_NAME:-nextunnel}
 # Linux 生产一键部署优先使用 install.sh 下载 Release 二进制并交给 systemd 管理。
 services:
   relay-server:
-    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/nextunnel/server:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-relay
     command:
       - --bind
@@ -32,7 +32,7 @@ services:
       start_period: 10s
 
   control-plane:
-    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/nextunnel/server:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-control-plane
     entrypoint: ["/app/control-plane"]
     command:
@@ -57,7 +57,7 @@ services:
       start_period: 10s
 
   nat-detector:
-    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/nextunnel/server:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-nat-detector
     entrypoint: ["/app/nat-detector"]
     command:

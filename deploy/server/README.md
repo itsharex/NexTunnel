@@ -9,9 +9,9 @@
 服务端 Release 包默认从项目仓库发布页下载：
 
 ```text
-https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-linux-amd64.tar.gz
-https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-linux-arm64.tar.gz
-https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-windows-amd64.zip
+https://github.com/Lee-zg/NexTunnel/releases/latest/download/nextunnel-server-linux-amd64.tar.gz
+https://github.com/Lee-zg/NexTunnel/releases/latest/download/nextunnel-server-linux-arm64.tar.gz
+https://github.com/Lee-zg/NexTunnel/releases/latest/download/nextunnel-server-windows-amd64.zip
 ```
 
 包内至少包含：
@@ -137,7 +137,7 @@ sudo ./install.sh install
 
 | 变量 | 说明 |
 |:---|:---|
-| `NEXTUNNEL_REPOSITORY` | GitHub Release 仓库，默认 `Lee-zg/frp-plus` |
+| `NEXTUNNEL_REPOSITORY` | GitHub Release 仓库，默认 `Lee-zg/NexTunnel` |
 | `NEXTUNNEL_VERSION` | Release 版本，默认 `latest` |
 | `NEXTUNNEL_RELEASE_BASE_URL` | 自定义 Release 下载基址 |
 | `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |

@@ -18,7 +18,7 @@ if [[ $# -gt 0 && "${1}" != --* ]]; then
   shift
 fi
 
-DEFAULT_REPOSITORY="Lee-zg/frp-plus"
+DEFAULT_REPOSITORY="Lee-zg/NexTunnel"
 REPOSITORY="${NEXTUNNEL_REPOSITORY:-${DEFAULT_REPOSITORY}}"
 VERSION="${NEXTUNNEL_VERSION:-latest}"
 RELEASE_BASE_URL="${NEXTUNNEL_RELEASE_BASE_URL:-}"
