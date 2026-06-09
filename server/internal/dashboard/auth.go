@@ -167,6 +167,20 @@ func (a *AuthManager) ListUsers() []*User {
 	return result
 }
 
+// ReplaceUsers 用持久化用户表重建内存索引，服务重启后仍可继续登录。
+func (a *AuthManager) ReplaceUsers(users []*User) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.users = make(map[string]*User, len(users))
+	for _, user := range users {
+		if user == nil || user.Username == "" {
+			continue
+		}
+		cloned := *user
+		a.users[cloned.Username] = &cloned
+	}
+}
+
 func (a *AuthManager) generateToken(userID string) string {
 	h := hmac.New(sha256.New, []byte(a.config.SecretKey))
 	h.Write([]byte(userID))
@@ -177,8 +191,11 @@ func (a *AuthManager) generateToken(userID string) string {
 // AuthMiddleware is an HTTP middleware that validates JWT-like tokens.
 func (a *AuthManager) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for login and health endpoints
-		if r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/health" {
+		// 静态资源、预检请求、登录和健康检查必须允许匿名访问，其他 API 保持鉴权。
+		if !strings.HasPrefix(r.URL.Path, "/api/") ||
+			r.Method == http.MethodOptions ||
+			r.URL.Path == "/api/v1/auth/login" ||
+			r.URL.Path == "/api/v1/health" {
 			next.ServeHTTP(w, r)
 			return
 		}

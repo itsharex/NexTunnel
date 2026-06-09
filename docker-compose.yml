@@ -40,6 +40,32 @@ services:
       - "./server/data:/data"
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    entrypoint: ["/app/dashboard"]
+    ports:
+      - "8080:8080"
+    command:
+      - "--listen"
+      - "0.0.0.0:8080"
+      - "--secret-key"
+      - "${DASHBOARD_SECRET_KEY:-dev-dashboard-secret}"
+      - "--admin-user"
+      - "${DASHBOARD_ADMIN_USER:-admin}"
+      - "--admin-password"
+      - "${DASHBOARD_ADMIN_PASSWORD:-dev-dashboard-password}"
+      - "--allowed-origins"
+      - "${DASHBOARD_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}"
+      - "--store-path"
+      - "/data/dashboard.db"
+      - "--static-dir"
+      - "/app/web/dashboard"
+    volumes:
+      - "./server/data:/data"
+    restart: unless-stopped
+
   nat-detector:
     build:
       context: .

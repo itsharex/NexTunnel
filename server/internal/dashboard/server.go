@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	urlpath "path"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +20,8 @@ type ServerConfig struct {
 	AllowedOrigins []string
 	Auth           AuthConfig
 	Logger         *slog.Logger
+	Store          DashboardStore
+	StaticDir      string
 }
 
 // DefaultServerConfig returns sensible defaults.
@@ -34,8 +40,11 @@ type Server struct {
 	auth        *AuthManager
 	mux         *http.ServeMux
 	store       *DataStore
+	dbStore     DashboardStore
 	alertEngine *AlertEngine
 	server      *http.Server
+	initErr     error
+	hasUsers    bool
 }
 
 // DataStore holds dashboard data in-memory.
@@ -59,12 +68,20 @@ func NewDataStore() *DataStore {
 
 // NewServer creates a new dashboard server.
 func NewServer(cfg ServerConfig) *Server {
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
 	s := &Server{
 		config:      cfg,
 		auth:        NewAuthManager(cfg.Auth),
 		mux:         http.NewServeMux(),
 		store:       NewDataStore(),
+		dbStore:     cfg.Store,
 		alertEngine: NewAlertEngine(cfg.Logger),
+	}
+	if cfg.Store != nil {
+		// 生产模式下优先从持久化 Store 恢复用户，避免重启后账号状态丢失。
+		s.initErr = s.syncAuthUsers()
 	}
 	s.registerRoutes()
 	return s
@@ -102,10 +119,13 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) validateRuntimeConfig() error {
+	if s.initErr != nil {
+		return s.initErr
+	}
 	if s.config.Auth.SecretKey == "" {
 		return fmt.Errorf("dashboard auth secret key must be configured")
 	}
-	if s.config.Auth.DefaultAdmin != "" && s.config.Auth.DefaultPass == "" {
+	if s.config.Auth.DefaultAdmin != "" && s.config.Auth.DefaultPass == "" && !s.hasUsers {
 		return fmt.Errorf("dashboard default admin password must not be empty")
 	}
 	if s.config.Auth.DefaultPass == "admin" {
@@ -151,6 +171,10 @@ func (s *Server) registerRoutes() {
 
 	// Health
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+
+	if s.config.StaticDir != "" {
+		s.mux.HandleFunc("GET /", s.handleStaticAssets)
+	}
 }
 
 func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
@@ -184,6 +208,69 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, APIResponse{Success: false, Error: msg})
 }
 
+func (s *Server) syncAuthUsers() error {
+	storedUsers, err := s.dbStore.ListUsers()
+	if err != nil {
+		return fmt.Errorf("load dashboard users: %w", err)
+	}
+	if len(storedUsers) > 0 {
+		s.hasUsers = true
+		s.auth.ReplaceUsers(storedUsers)
+		return nil
+	}
+	for _, user := range s.auth.ListUsers() {
+		if err := s.dbStore.SaveUser(user); err != nil {
+			return fmt.Errorf("seed dashboard user %q: %w", user.Username, err)
+		}
+	}
+	return nil
+}
+
+func (s *Server) serveStoreError(w http.ResponseWriter, operation string, err error) {
+	s.config.Logger.Error("dashboard store operation failed", "operation", operation, "error", err)
+	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
+func (s *Server) handleStaticAssets(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		writeError(w, http.StatusNotFound, "api route not found")
+		return
+	}
+	staticRoot, err := filepath.Abs(s.config.StaticDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid static directory")
+		return
+	}
+	// URL 路径统一用 slash 规范化，再转换成本机文件路径，保证 Windows/Linux 行为一致。
+	relativePath := filepath.FromSlash(strings.TrimPrefix(urlpath.Clean("/"+r.URL.Path), "/"))
+	if relativePath == "." || relativePath == "" {
+		relativePath = "index.html"
+	}
+	targetPath := filepath.Join(staticRoot, relativePath)
+	if !isPathInside(staticRoot, targetPath) {
+		writeError(w, http.StatusBadRequest, "invalid asset path")
+		return
+	}
+	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
+		http.ServeFile(w, r, targetPath)
+		return
+	}
+	indexPath := filepath.Join(staticRoot, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		writeError(w, http.StatusNotFound, "dashboard web assets not found")
+		return
+	}
+	http.ServeFile(w, r, indexPath)
+}
+
+func isPathInside(root, target string) bool {
+	relativePath, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return relativePath == "." || (!strings.HasPrefix(relativePath, "..") && !filepath.IsAbs(relativePath))
+}
+
 // --- Auth handler ---
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +290,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // --- Node handlers ---
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
+	if s.dbStore != nil {
+		nodes, err := s.dbStore.ListNodes()
+		if err != nil {
+			s.serveStoreError(w, "list_nodes", err)
+			return
+		}
+		writeSuccess(w, nodes)
+		return
+	}
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
 	nodes := make([]*NodeStatus, 0, len(s.store.nodes))
@@ -214,6 +310,15 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.dbStore != nil {
+		node, err := s.dbStore.GetNode(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("node %q not found", id))
+			return
+		}
+		writeSuccess(w, node)
+		return
+	}
 	s.store.mu.RLock()
 	node, ok := s.store.nodes[id]
 	s.store.mu.RUnlock()
@@ -226,6 +331,18 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.dbStore != nil {
+		if _, err := s.dbStore.GetNode(id); err != nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("node %q not found", id))
+			return
+		}
+		if err := s.dbStore.DeleteNode(id); err != nil {
+			s.serveStoreError(w, "delete_node", err)
+			return
+		}
+		writeSuccess(w, map[string]string{"deleted": id})
+		return
+	}
 	s.store.mu.Lock()
 	_, ok := s.store.nodes[id]
 	if ok {
@@ -266,6 +383,15 @@ func (s *Server) handleGetNodeStats(w http.ResponseWriter, r *http.Request) {
 // --- ACL handlers ---
 
 func (s *Server) handleListACL(w http.ResponseWriter, r *http.Request) {
+	if s.dbStore != nil {
+		rules, err := s.dbStore.ListACLs()
+		if err != nil {
+			s.serveStoreError(w, "list_acl", err)
+			return
+		}
+		writeSuccess(w, rules)
+		return
+	}
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
 	rules := make([]*ACLRuleView, 0, len(s.store.acls))
@@ -282,6 +408,14 @@ func (s *Server) handleCreateACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule.CreatedAt = time.Now()
+	if s.dbStore != nil {
+		if err := s.dbStore.SaveACL(&rule); err != nil {
+			s.serveStoreError(w, "create_acl", err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, APIResponse{Success: true, Data: &rule})
+		return
+	}
 	s.store.mu.Lock()
 	s.store.acls[rule.ID] = &rule
 	s.store.mu.Unlock()
@@ -290,6 +424,18 @@ func (s *Server) handleCreateACL(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteACL(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.dbStore != nil {
+		if _, err := s.dbStore.GetACL(id); err != nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("acl rule %q not found", id))
+			return
+		}
+		if err := s.dbStore.DeleteACL(id); err != nil {
+			s.serveStoreError(w, "delete_acl", err)
+			return
+		}
+		writeSuccess(w, map[string]string{"deleted": id})
+		return
+	}
 	s.store.mu.Lock()
 	_, ok := s.store.acls[id]
 	if ok {
@@ -313,6 +459,15 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fallback: legacy DataStore alerts
+	if s.dbStore != nil {
+		alerts, err := s.dbStore.ListAlerts()
+		if err != nil {
+			s.serveStoreError(w, "list_alerts", err)
+			return
+		}
+		writeSuccess(w, alerts)
+		return
+	}
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
 	alerts := make([]*Alert, 0, len(s.store.alerts))
@@ -332,6 +487,14 @@ func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		req.AckedBy = r.Header.Get("X-User-ID")
 	}
 	if err := s.alertEngine.AckEvent(id, req.AckedBy); err != nil {
+		if s.dbStore != nil {
+			if err := s.dbStore.AckAlert(id); err != nil {
+				writeError(w, http.StatusNotFound, fmt.Sprintf("alert %q not found", id))
+				return
+			}
+			writeSuccess(w, map[string]string{"acked": id})
+			return
+		}
 		// Fallback to legacy DataStore alerts
 		s.store.mu.Lock()
 		alert, ok := s.store.alerts[id]
@@ -417,6 +580,15 @@ func (s *Server) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 // --- User handlers ---
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if s.dbStore != nil {
+		users, err := s.dbStore.ListUsers()
+		if err != nil {
+			s.serveStoreError(w, "list_users", err)
+			return
+		}
+		writeSuccess(w, users)
+		return
+	}
 	writeSuccess(w, s.auth.ListUsers())
 }
 

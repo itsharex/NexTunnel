@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	_ "modernc.org/sqlite"
@@ -377,6 +376,3 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
-
-// Ensure json import is used (for potential future serialization needs)
-var _ = json.Marshal

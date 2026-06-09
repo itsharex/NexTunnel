@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -18,7 +20,12 @@ func newTestServer() *Server {
 
 func doLogin(t *testing.T, s *Server) string {
 	t.Helper()
-	body, _ := json.Marshal(LoginRequest{Username: "admin", Password: "admin-test-password"})
+	return doLoginWithPassword(t, s, "admin-test-password")
+}
+
+func doLoginWithPassword(t *testing.T, s *Server, password string) string {
+	t.Helper()
+	body, _ := json.Marshal(LoginRequest{Username: "admin", Password: password})
 	req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -242,6 +249,123 @@ func TestDashboard_Users(t *testing.T) {
 	s.Handler().ServeHTTP(w, authReq("GET", "/api/v1/users", token, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("list users: %d", w.Code)
+	}
+}
+
+func TestDashboard_PersistentStoreRestoresUsers(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "dashboard.db")
+	store, err := NewSQLiteDashboardStore(storePath)
+	if err != nil {
+		t.Fatalf("NewSQLiteDashboardStore: %v", err)
+	}
+	storeClosed := false
+	defer func() {
+		if !storeClosed {
+			store.Close()
+		}
+	}()
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "first-secure-password"
+	cfg.Store = store
+	s := NewServer(cfg)
+
+	token := doLoginWithPassword(t, s, "first-secure-password")
+	if token == "" {
+		t.Fatal("expected login token")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close dashboard store: %v", err)
+	}
+	storeClosed = true
+
+	reopenedStore, err := NewSQLiteDashboardStore(storePath)
+	if err != nil {
+		t.Fatalf("reopen NewSQLiteDashboardStore: %v", err)
+	}
+	defer reopenedStore.Close()
+	cfg.Auth.DefaultPass = ""
+	cfg.Store = reopenedStore
+	reopenedServer := NewServer(cfg)
+
+	body, _ := json.Marshal(LoginRequest{Username: "admin", Password: "first-secure-password"})
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	reopenedServer.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login with persisted user failed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDashboard_PersistentStoreACLAPI(t *testing.T) {
+	store := newTestDashStore(t)
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.Store = store
+	s := NewServer(cfg)
+	token := doLogin(t, s)
+
+	rule := ACLRuleView{
+		ID: "persisted-rule", Source: "*", Target: "node-A",
+		Action: "allow", Protocol: "tcp", Priority: 10, Enabled: true,
+	}
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq("POST", "/api/v1/acl", token, rule))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create persisted ACL: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := store.GetACL("persisted-rule"); err != nil {
+		t.Fatalf("expected ACL saved to store: %v", err)
+	}
+
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq("DELETE", "/api/v1/acl/persisted-rule", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete persisted ACL: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := store.GetACL("persisted-rule"); err == nil {
+		t.Fatal("expected ACL deleted from store")
+	}
+}
+
+func TestDashboard_StaticAssetsAllowAnonymousAccess(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<main>NexTunnel</main>"), 0o600); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.StaticDir = staticDir
+	s := NewServer(cfg)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("static index: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDashboard_StaticAssetsDoNotMaskUnknownAPI(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<main>NexTunnel</main>"), 0o600); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.StaticDir = staticDir
+	s := NewServer(cfg)
+	token := doLogin(t, s)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq("GET", "/api/v1/missing-route", token, nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown API route should not serve SPA index: %d %s", w.Code, w.Body.String())
 	}
 }
 

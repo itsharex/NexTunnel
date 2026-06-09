@@ -43,6 +43,12 @@ RELAY_REQUIRE_AUTH="${RELAY_REQUIRE_AUTH:-true}"
 RELAY_STATS_INTERVAL="${RELAY_STATS_INTERVAL:-30s}"
 CONTROL_PLANE_PORT="${CONTROL_PLANE_PORT:-9090}"
 CONTROL_PLANE_API_TOKEN="${CONTROL_PLANE_API_TOKEN:-}"
+DASHBOARD_ENABLED="${DASHBOARD_ENABLED:-true}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
+DASHBOARD_SECRET_KEY="${DASHBOARD_SECRET_KEY:-}"
+DASHBOARD_ADMIN_USER="${DASHBOARD_ADMIN_USER:-admin}"
+DASHBOARD_ADMIN_PASSWORD="${DASHBOARD_ADMIN_PASSWORD:-}"
+DASHBOARD_ALLOWED_ORIGINS="${DASHBOARD_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}"
 NAT_PRIMARY_ADDR="${NAT_PRIMARY_ADDR:-0.0.0.0}"
 NAT_ALT_ADDR="${NAT_ALT_ADDR:-127.0.0.1}"
 NAT_PORT="${NAT_PORT:-3478}"
@@ -50,7 +56,9 @@ NAT_REALM="${NAT_REALM:-nextunnel.local}"
 
 ENV_FILE="${CONFIG_DIR%/}/server.env"
 BIN_DIR="${INSTALL_DIR%/}/bin"
+WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
 SERVICE_NAMES=(nextunnel-control-plane.service nextunnel-relay.service nextunnel-nat-detector.service)
+DASHBOARD_SERVICE_NAME=nextunnel-dashboard.service
 
 log() {
   printf '[NexTunnel] %s\n' "$1"
@@ -74,6 +82,9 @@ usage() {
   --public-host HOST       指定客户端访问的公网 IP 或域名
   --relay-token TOKEN      指定 Relay 认证 Token
   --control-token TOKEN    指定 Control Plane API Token
+  --dashboard-port PORT    指定 Dashboard HTTP 端口，默认 8080
+  --dashboard-password PWD 指定 Dashboard 默认管理员密码，首次初始化必需
+  --dashboard-disabled     仅部署核心服务，不启动 Dashboard
   --service-user USER      指定 systemd 服务运行用户，默认 nextunnel
   --service-group GROUP    指定 systemd 服务运行用户组，默认与用户同名
   --non-interactive        使用环境变量/默认值，不进入交互输入
@@ -114,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --install-dir)
       INSTALL_DIR="${2:?--install-dir 需要参数}"
       BIN_DIR="${INSTALL_DIR%/}/bin"
+      WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
       shift 2
       ;;
     --config-dir)
@@ -141,6 +153,10 @@ while [[ $# -gt 0 ]]; do
       CONTROL_PLANE_PORT="${2:?--control-plane-port 需要参数}"
       shift 2
       ;;
+    --dashboard-port)
+      DASHBOARD_PORT="${2:?--dashboard-port 需要参数}"
+      shift 2
+      ;;
     --nat-port)
       NAT_PORT="${2:?--nat-port 需要参数}"
       shift 2
@@ -152,6 +168,26 @@ while [[ $# -gt 0 ]]; do
     --control-token)
       CONTROL_PLANE_API_TOKEN="${2:?--control-token 需要参数}"
       shift 2
+      ;;
+    --dashboard-secret)
+      DASHBOARD_SECRET_KEY="${2:?--dashboard-secret 需要参数}"
+      shift 2
+      ;;
+    --dashboard-admin)
+      DASHBOARD_ADMIN_USER="${2:?--dashboard-admin 需要参数}"
+      shift 2
+      ;;
+    --dashboard-password)
+      DASHBOARD_ADMIN_PASSWORD="${2:?--dashboard-password 需要参数}"
+      shift 2
+      ;;
+    --dashboard-origins)
+      DASHBOARD_ALLOWED_ORIGINS="${2:?--dashboard-origins 需要参数}"
+      shift 2
+      ;;
+    --dashboard-disabled)
+      DASHBOARD_ENABLED="false"
+      shift
       ;;
     --service-user)
       SERVICE_USER="${2:?--service-user 需要参数}"
@@ -343,6 +379,38 @@ find_binary() {
   printf '%s' "${found_path}"
 }
 
+optional_find_binary() {
+  local root_dir="$1"
+  local binary_name="$2"
+  find "${root_dir}" -type f \( -path "*/bin/${binary_name}" -o -name "${binary_name}" \) -print -quit
+}
+
+find_dashboard_web_dir() {
+  local root_dir="$1"
+  local found_dir
+  found_dir="$(find "${root_dir}" -type f -path "*/web/dashboard/index.html" -print -quit)"
+  if [[ -n "${found_dir}" ]]; then
+    dirname "${found_dir}"
+  fi
+}
+
+runtime_service_names() {
+  printf '%s\n' "${SERVICE_NAMES[@]}"
+  if [[ "${DASHBOARD_ENABLED}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
+    printf '%s\n' "${DASHBOARD_SERVICE_NAME}"
+  fi
+}
+
+collect_runtime_services() {
+  if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+  fi
+  mapfile -t RUNTIME_SERVICE_NAMES < <(runtime_service_names)
+}
+
 create_system_user() {
   if [[ -z "${SERVICE_USER}" || "${SERVICE_USER}" == "root" ]]; then
     SERVICE_USER="root"
@@ -389,29 +457,43 @@ generate_env() {
   local relay_port="${RELAY_CONTROL_PORT}"
   local relay_quic_port="${RELAY_QUIC_PORT}"
   local control_port="${CONTROL_PLANE_PORT}"
+  local dashboard_port="${DASHBOARD_PORT}"
   local nat_port="${NAT_PORT}"
   local relay_token="${RELAY_AUTH_TOKEN:-$(random_secret)}"
   local control_token="${CONTROL_PLANE_API_TOKEN:-$(random_secret)}"
+  local dashboard_secret="${DASHBOARD_SECRET_KEY:-$(random_secret)}"
+  local dashboard_password="${DASHBOARD_ADMIN_PASSWORD:-$(random_secret)}"
 
   public_host="$(read_setting '公网 IP 或域名' "${public_host}")"
   relay_port="$(read_setting 'Relay TCP 端口' "${relay_port}")"
   relay_quic_port="$(read_setting 'Relay QUIC UDP 端口' "${relay_quic_port}")"
   control_port="$(read_setting 'Control Plane HTTP 端口' "${control_port}")"
+  if [[ "${DASHBOARD_ENABLED}" == "true" ]]; then
+    dashboard_port="$(read_setting 'Dashboard HTTP 端口' "${dashboard_port}")"
+  fi
   nat_port="$(read_setting 'NAT Detector UDP 端口' "${nat_port}")"
 
   if [[ "${NON_INTERACTIVE}" != "true" ]]; then
     relay_token="$(read_setting 'Relay 共享认证 Token' "${relay_token}")"
     control_token="$(read_setting 'Control Plane Bearer Token' "${control_token}")"
+    if [[ "${DASHBOARD_ENABLED}" == "true" ]]; then
+      dashboard_password="$(read_setting 'Dashboard 管理员密码' "${dashboard_password}")"
+    fi
   fi
 
   if [[ -z "${relay_token}" || -z "${control_token}" ]]; then
     printf 'RelayToken 和 ControlToken 不能为空。\n' >&2
     exit 1
   fi
+  if [[ "${DASHBOARD_ENABLED}" == "true" && ( -z "${dashboard_secret}" || -z "${dashboard_password}" ) ]]; then
+    printf 'DashboardSecret 和 DashboardAdminPassword 不能为空。\n' >&2
+    exit 1
+  fi
 
   validate_port RELAY_CONTROL_PORT "${relay_port}"
   validate_port RELAY_QUIC_PORT "${relay_quic_port}"
   validate_port CONTROL_PLANE_PORT "${control_port}"
+  validate_port DASHBOARD_PORT "${dashboard_port}"
   validate_port NAT_PORT "${nat_port}"
 
   mkdir -p "${CONFIG_DIR}" "${DATA_DIR}"
@@ -428,6 +510,15 @@ generate_env() {
     write_env_line CONTROL_PLANE_PORT "${control_port}"
     write_env_line CONTROL_PLANE_API_TOKEN "${control_token}"
     write_env_line CONTROL_PLANE_STORE_PATH "${DATA_DIR%/}/control-plane.db"
+    write_env_line DASHBOARD_ENABLED "${DASHBOARD_ENABLED}"
+    write_env_line DASHBOARD_LISTEN "0.0.0.0:${dashboard_port}"
+    write_env_line DASHBOARD_PORT "${dashboard_port}"
+    write_env_line DASHBOARD_SECRET_KEY "${dashboard_secret}"
+    write_env_line DASHBOARD_ADMIN_USER "${DASHBOARD_ADMIN_USER}"
+    write_env_line DASHBOARD_ADMIN_PASSWORD "${dashboard_password}"
+    write_env_line DASHBOARD_ALLOWED_ORIGINS "${DASHBOARD_ALLOWED_ORIGINS},http://${public_host}:${dashboard_port}"
+    write_env_line DASHBOARD_STORE_PATH "${DATA_DIR%/}/dashboard.db"
+    write_env_line DASHBOARD_STATIC_DIR "${WEB_DIR}"
     write_env_line NAT_PRIMARY_ADDR "${NAT_PRIMARY_ADDR}"
     write_env_line NAT_ALT_ADDR "${NAT_ALT_ADDR}"
     write_env_line NAT_PORT "${nat_port}"
@@ -459,6 +550,8 @@ install_release_package() {
   local relay_binary
   local control_binary
   local nat_binary
+  local dashboard_binary
+  local dashboard_web_dir
 
   resolved_package_url="$(resolve_package_url)"
   tmp_dir="$(mktemp -d)"
@@ -476,11 +569,24 @@ install_release_package() {
   relay_binary="$(find_binary "${extract_dir}" relay-server)"
   control_binary="$(find_binary "${extract_dir}" control-plane)"
   nat_binary="$(find_binary "${extract_dir}" nat-detector)"
+  dashboard_binary="$(optional_find_binary "${extract_dir}" dashboard)"
+  dashboard_web_dir="$(find_dashboard_web_dir "${extract_dir}")"
 
-  mkdir -p "${BIN_DIR}"
+  mkdir -p "${BIN_DIR}" "${WEB_DIR}"
   install -m 0755 "${relay_binary}" "${BIN_DIR}/relay-server"
   install -m 0755 "${control_binary}" "${BIN_DIR}/control-plane"
   install -m 0755 "${nat_binary}" "${BIN_DIR}/nat-detector"
+  if [[ -n "${dashboard_binary}" ]]; then
+    install -m 0755 "${dashboard_binary}" "${BIN_DIR}/dashboard"
+  else
+    warn "Release 包未包含 dashboard 二进制，本次仅安装核心三服务。"
+  fi
+  if [[ -n "${dashboard_web_dir}" ]]; then
+    rm -rf "${WEB_DIR:?}/"*
+    cp -a "${dashboard_web_dir}/." "${WEB_DIR}/"
+  else
+    warn "Release 包未包含 Dashboard Web 静态资源。"
+  fi
   rm -rf "${tmp_dir}"
   trap - EXIT
   log "服务端二进制已安装到：${BIN_DIR}"
@@ -560,13 +666,41 @@ ProtectSystem=full
 WantedBy=multi-user.target
 EOF
 
+  if [[ "${DASHBOARD_ENABLED}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
+    cat >/etc/systemd/system/nextunnel-dashboard.service <<EOF
+[Unit]
+Description=NexTunnel Dashboard
+After=network-online.target nextunnel-control-plane.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+EnvironmentFile=${ENV_FILE}
+ExecStart=${BIN_DIR}/dashboard --listen \${DASHBOARD_LISTEN} --secret-key \${DASHBOARD_SECRET_KEY} --admin-user \${DASHBOARD_ADMIN_USER} --admin-password \${DASHBOARD_ADMIN_PASSWORD} --allowed-origins \${DASHBOARD_ALLOWED_ORIGINS} --store-path \${DASHBOARD_STORE_PATH} --static-dir \${DASHBOARD_STATIC_DIR}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=${DATA_DIR}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  else
+    rm -f /etc/systemd/system/nextunnel-dashboard.service
+  fi
+
   systemctl daemon-reload
   log "systemd 服务文件已写入 /etc/systemd/system"
 }
 
 prepare_permissions() {
   create_system_user
-  mkdir -p "${INSTALL_DIR}" "${BIN_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
+  mkdir -p "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
   chmod 750 "${CONFIG_DIR}"
   chmod 750 "${DATA_DIR}"
   if [[ "${SERVICE_USER}" != "root" ]]; then
@@ -590,6 +724,10 @@ print_connection_info() {
   printf '  Relay QUIC UDP:  %s:%s\n' "${NEXTUNNEL_PUBLIC_HOST}" "${RELAY_QUIC_PORT}"
   printf '  NAT UDP:         %s:%s\n' "${NEXTUNNEL_PUBLIC_HOST}" "${NAT_PORT}"
   printf '  Control Plane:   http://%s:%s\n' "${NEXTUNNEL_PUBLIC_HOST}" "${CONTROL_PLANE_PORT}"
+  if [[ "${DASHBOARD_ENABLED:-false}" == "true" ]]; then
+    printf '  Dashboard:       http://%s:%s\n' "${NEXTUNNEL_PUBLIC_HOST}" "${DASHBOARD_PORT}"
+    printf '  Dashboard User:  %s\n' "${DASHBOARD_ADMIN_USER}"
+  fi
   printf '  Relay Token:     %s\n' "${RELAY_AUTH_TOKEN}"
   printf '  Control Token:   %s\n' "${CONTROL_PLANE_API_TOKEN}"
 }
@@ -605,6 +743,10 @@ health_check() {
   else
     timeout 3 bash -c "</dev/tcp/127.0.0.1/${RELAY_CONTROL_PORT}"
   fi
+  if [[ "${DASHBOARD_ENABLED:-false}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
+    log "检查 Dashboard 健康状态"
+    curl -fsS "http://127.0.0.1:${DASHBOARD_PORT}/api/v1/health" >/dev/null
+  fi
   log "健康检查通过"
 }
 
@@ -615,7 +757,8 @@ install_stack() {
   generate_env
   install_release_package
   write_systemd_units
-  systemctl enable --now "${SERVICE_NAMES[@]}"
+  collect_runtime_services
+  systemctl enable --now "${RUNTIME_SERVICE_NAMES[@]}"
   print_connection_info
 }
 
@@ -626,17 +769,20 @@ update_stack() {
   [[ -f "${ENV_FILE}" ]] || generate_env
   install_release_package
   write_systemd_units
-  systemctl restart "${SERVICE_NAMES[@]}"
+  collect_runtime_services
+  systemctl restart "${RUNTIME_SERVICE_NAMES[@]}"
   print_connection_info
 }
 
 uninstall_stack() {
   require_root
   require_command systemctl
-  systemctl disable --now "${SERVICE_NAMES[@]}" >/dev/null 2>&1 || true
+  collect_runtime_services
+  systemctl disable --now "${RUNTIME_SERVICE_NAMES[@]}" >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/nextunnel-relay.service \
         /etc/systemd/system/nextunnel-control-plane.service \
-        /etc/systemd/system/nextunnel-nat-detector.service
+        /etc/systemd/system/nextunnel-nat-detector.service \
+        /etc/systemd/system/nextunnel-dashboard.service
   systemctl daemon-reload
   if [[ "${PURGE}" == "true" ]]; then
     assert_safe_remove_path "${INSTALL_DIR}"
@@ -656,25 +802,34 @@ case "${ACTION}" in
   up)
     require_root
     require_command systemctl
-    systemctl start "${SERVICE_NAMES[@]}"
+    collect_runtime_services
+    systemctl start "${RUNTIME_SERVICE_NAMES[@]}"
     ;;
   down)
     require_root
     require_command systemctl
-    systemctl stop "${SERVICE_NAMES[@]}"
+    collect_runtime_services
+    systemctl stop "${RUNTIME_SERVICE_NAMES[@]}"
     ;;
   restart)
     require_root
     require_command systemctl
-    systemctl restart "${SERVICE_NAMES[@]}"
+    collect_runtime_services
+    systemctl restart "${RUNTIME_SERVICE_NAMES[@]}"
     ;;
   status)
     require_command systemctl
-    systemctl --no-pager status "${SERVICE_NAMES[@]}"
+    collect_runtime_services
+    systemctl --no-pager status "${RUNTIME_SERVICE_NAMES[@]}"
     ;;
   logs)
     require_command journalctl
-    journalctl -f -n 200 -u nextunnel-control-plane.service -u nextunnel-relay.service -u nextunnel-nat-detector.service
+    collect_runtime_services
+    journalctl_args=()
+    for service_name in "${RUNTIME_SERVICE_NAMES[@]}"; do
+      journalctl_args+=(-u "${service_name}")
+    done
+    journalctl -f -n 200 "${journalctl_args[@]}"
     ;;
   health)
     health_check

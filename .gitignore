@@ -18,6 +18,7 @@ desktop/build/windows/*
 *.db
 *.db-journal
 runtime/
+.tmp/
 server/data/
 desktop/data/
 desktop/runtime/

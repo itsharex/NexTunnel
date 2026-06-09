@@ -41,6 +41,19 @@ jobs:
         with:
           go-version: '1.25.0'
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/web/package-lock.json
+
+      - name: Build dashboard web
+        working-directory: server/web
+        run: |
+          npm ci
+          npm run build
+
       - name: Build server binaries
         working-directory: server
         env:
@@ -53,16 +66,19 @@ jobs:
           mkdir -p "${package_dir}/bin"
           suffix=""
           if [ "${GOOS}" = "windows" ]; then suffix=".exe"; fi
-          # 服务端 Release 包固定包含三个核心进程，部署脚本按这些名称校验包完整性。
+          # 服务端 Release 包固定包含核心进程和 Dashboard，部署脚本按这些名称校验包完整性。
           go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/control-plane${suffix}" ./cmd/control-plane
           go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/relay-server${suffix}" ./cmd/relay
           go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/nat-detector${suffix}" ./cmd/nat-detector
+          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/dashboard${suffix}" ./cmd/dashboard
 
       - name: Add package metadata
         shell: bash
         run: |
           set -euo pipefail
           package_dir="dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "${package_dir}/web/dashboard"
+          cp -R server/web/dist/. "${package_dir}/web/dashboard/"
           cp deploy/server/.env.example "${package_dir}/.env.example"
           cp deploy/server/README.md "${package_dir}/README.md"
           cat > "${package_dir}/MANIFEST.txt" <<EOF
@@ -72,6 +88,9 @@ jobs:
             bin/control-plane
             bin/relay-server
             bin/nat-detector
+            bin/dashboard
+          Web:
+            web/dashboard
           EOF
 
       - name: Archive tar.gz

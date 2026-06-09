@@ -29,6 +29,7 @@ build-server:
 	cd server && go build -o ../build/control-plane ./cmd/control-plane
 	cd server && go build -o ../build/relay-server ./cmd/relay
 	cd server && go build -o ../build/nat-detector ./cmd/nat-detector
+	cd server && go build -o ../build/dashboard ./cmd/dashboard
 
 ## lint: Run all linters
 lint: lint-go lint-frontend

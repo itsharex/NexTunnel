@@ -16,7 +16,13 @@ param(
     [int]$RelayPort = 7000,
     [int]$RelayQuicPort = 7443,
     [int]$ControlPlanePort = 9090,
+    [int]$DashboardPort = 8080,
+    [string]$DashboardSecret = '',
+    [string]$DashboardAdmin = 'admin',
+    [string]$DashboardPassword = '',
+    [string]$DashboardOrigins = '',
     [int]$NatPort = 3478,
+    [switch]$DashboardDisabled,
     [switch]$NonInteractive,
     [switch]$Force,
     [switch]$Purge
@@ -214,6 +220,37 @@ function Find-Binary {
     return $match.FullName
 }
 
+function Find-OptionalBinary {
+    param([string]$RootPath, [string]$BinaryName)
+    $expectedNames = @($BinaryName, "$BinaryName.exe")
+    $match = Get-ChildItem -LiteralPath $RootPath -Recurse -File |
+        Where-Object { $expectedNames -contains $_.Name } |
+        Select-Object -First 1
+    if ($match) {
+        return $match.FullName
+    }
+    return ''
+}
+
+function Find-DashboardWebDir {
+    param([string]$RootPath)
+    $indexFile = Get-ChildItem -LiteralPath $RootPath -Recurse -File -Filter 'index.html' |
+        Where-Object { $_.FullName -match '[\\/]web[\\/]dashboard[\\/]index\.html$' } |
+        Select-Object -First 1
+    if ($indexFile) {
+        return $indexFile.Directory.FullName
+    }
+    return ''
+}
+
+function Test-Truthy {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    return -not (@('false', '0', 'no', 'off') -contains $Value.ToLowerInvariant())
+}
+
 function Get-BinaryPath {
     param([string]$BinaryName)
     $windowsPath = Join-Path $script:BinDir "$BinaryName.exe"
@@ -241,11 +278,25 @@ function Install-ReleasePackage {
         $relayBinary = Find-Binary -RootPath $extractPath -BinaryName 'relay-server'
         $controlPlaneBinary = Find-Binary -RootPath $extractPath -BinaryName 'control-plane'
         $natDetectorBinary = Find-Binary -RootPath $extractPath -BinaryName 'nat-detector'
+        $dashboardBinary = Find-OptionalBinary -RootPath $extractPath -BinaryName 'dashboard'
+        $dashboardWebDir = Find-DashboardWebDir -RootPath $extractPath
 
-        New-Item -ItemType Directory -Force -Path $script:BinDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $script:BinDir, $script:WebDir | Out-Null
         Copy-Item -LiteralPath $relayBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($relayBinary))) -Force
         Copy-Item -LiteralPath $controlPlaneBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($controlPlaneBinary))) -Force
         Copy-Item -LiteralPath $natDetectorBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($natDetectorBinary))) -Force
+        if ($dashboardBinary) {
+            Copy-Item -LiteralPath $dashboardBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($dashboardBinary))) -Force
+        } else {
+            Write-Warn 'Release package does not include dashboard binary. Core services only.'
+        }
+        if ($dashboardWebDir) {
+            Get-ChildItem -LiteralPath $script:WebDir -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force
+            Copy-Item -Path (Join-Path $dashboardWebDir '*') -Destination $script:WebDir -Recurse -Force
+        } else {
+            Write-Warn 'Release package does not include Dashboard web assets.'
+        }
         Write-Step "Installed server binaries: $script:BinDir"
     } finally {
         if (Test-Path -LiteralPath $temporaryRoot) {
@@ -266,25 +317,41 @@ function Write-EnvFile {
     $resolvedRelayPort = [int](Get-ConfigValue $script:LocalEnv 'RELAY_CONTROL_PORT' "$RelayPort")
     $resolvedRelayQuicPort = [int](Get-ConfigValue $script:LocalEnv 'RELAY_QUIC_PORT' "$RelayQuicPort")
     $resolvedControlPlanePort = [int](Get-ConfigValue $script:LocalEnv 'CONTROL_PLANE_PORT' "$ControlPlanePort")
+    $resolvedDashboardEnabled = if ($DashboardDisabled) { 'false' } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ENABLED' 'true' }
+    $resolvedDashboardPort = [int](Get-ConfigValue $script:LocalEnv 'DASHBOARD_PORT' "$DashboardPort")
+    $resolvedDashboardSecret = if ($DashboardSecret) { $DashboardSecret } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_SECRET_KEY' (New-RandomSecret) }
+    $resolvedDashboardAdmin = if ($DashboardAdmin) { $DashboardAdmin } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ADMIN_USER' 'admin' }
+    $resolvedDashboardPassword = if ($DashboardPassword) { $DashboardPassword } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ADMIN_PASSWORD' (New-RandomSecret) }
+    $resolvedDashboardOrigins = if ($DashboardOrigins) { $DashboardOrigins } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ALLOWED_ORIGINS' 'http://127.0.0.1:8080,http://localhost:8080' }
     $resolvedNatPort = [int](Get-ConfigValue $script:LocalEnv 'NAT_PORT' "$NatPort")
 
     $resolvedPublicHost = Read-Setting -Prompt 'Public IP or domain' -DefaultValue $resolvedPublicHost
     $resolvedRelayPort = [int](Read-Setting -Prompt 'Relay TCP port' -DefaultValue "$resolvedRelayPort")
     $resolvedRelayQuicPort = [int](Read-Setting -Prompt 'Relay QUIC UDP port' -DefaultValue "$resolvedRelayQuicPort")
     $resolvedControlPlanePort = [int](Read-Setting -Prompt 'Control Plane HTTP port' -DefaultValue "$resolvedControlPlanePort")
+    if (Test-Truthy $resolvedDashboardEnabled) {
+        $resolvedDashboardPort = [int](Read-Setting -Prompt 'Dashboard HTTP port' -DefaultValue "$resolvedDashboardPort")
+    }
     $resolvedNatPort = [int](Read-Setting -Prompt 'NAT Detector UDP port' -DefaultValue "$resolvedNatPort")
     $resolvedRelayToken = Read-Setting -Prompt 'Relay auth token' -DefaultValue $resolvedRelayToken -Secret
     $resolvedControlToken = Read-Setting -Prompt 'Control Plane Bearer Token' -DefaultValue $resolvedControlToken -Secret
+    if (Test-Truthy $resolvedDashboardEnabled) {
+        $resolvedDashboardPassword = Read-Setting -Prompt 'Dashboard admin password' -DefaultValue $resolvedDashboardPassword -Secret
+    }
 
     if ([string]::IsNullOrWhiteSpace($resolvedRelayToken) -or [string]::IsNullOrWhiteSpace($resolvedControlToken)) {
         throw 'RelayToken and ControlToken cannot be empty.'
     }
+    if ((Test-Truthy $resolvedDashboardEnabled) -and ([string]::IsNullOrWhiteSpace($resolvedDashboardSecret) -or [string]::IsNullOrWhiteSpace($resolvedDashboardPassword))) {
+        throw 'DashboardSecret and DashboardAdminPassword cannot be empty.'
+    }
     Assert-Port 'RELAY_CONTROL_PORT' $resolvedRelayPort
     Assert-Port 'RELAY_QUIC_PORT' $resolvedRelayQuicPort
     Assert-Port 'CONTROL_PLANE_PORT' $resolvedControlPlanePort
+    Assert-Port 'DASHBOARD_PORT' $resolvedDashboardPort
     Assert-Port 'NAT_PORT' $resolvedNatPort
 
-    New-Item -ItemType Directory -Force -Path $script:ConfigDir, $script:DataDir, $script:LogDir, $script:RunDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $script:ConfigDir, $script:DataDir, $script:LogDir, $script:RunDir, $script:WebDir | Out-Null
     $lines = @(
         '# NexTunnel server runtime config generated by deploy/server/install.ps1',
         (Convert-ToEnvLine 'NEXTUNNEL_PUBLIC_HOST' $resolvedPublicHost),
@@ -298,6 +365,15 @@ function Write-EnvFile {
         (Convert-ToEnvLine 'CONTROL_PLANE_PORT' "$resolvedControlPlanePort"),
         (Convert-ToEnvLine 'CONTROL_PLANE_API_TOKEN' $resolvedControlToken),
         (Convert-ToEnvLine 'CONTROL_PLANE_STORE_PATH' (Join-Path $script:DataDir 'control-plane.db')),
+        (Convert-ToEnvLine 'DASHBOARD_ENABLED' $resolvedDashboardEnabled),
+        (Convert-ToEnvLine 'DASHBOARD_LISTEN' "0.0.0.0:$resolvedDashboardPort"),
+        (Convert-ToEnvLine 'DASHBOARD_PORT' "$resolvedDashboardPort"),
+        (Convert-ToEnvLine 'DASHBOARD_SECRET_KEY' $resolvedDashboardSecret),
+        (Convert-ToEnvLine 'DASHBOARD_ADMIN_USER' $resolvedDashboardAdmin),
+        (Convert-ToEnvLine 'DASHBOARD_ADMIN_PASSWORD' $resolvedDashboardPassword),
+        (Convert-ToEnvLine 'DASHBOARD_ALLOWED_ORIGINS' "$resolvedDashboardOrigins,http://${resolvedPublicHost}:$resolvedDashboardPort"),
+        (Convert-ToEnvLine 'DASHBOARD_STORE_PATH' (Join-Path $script:DataDir 'dashboard.db')),
+        (Convert-ToEnvLine 'DASHBOARD_STATIC_DIR' $script:WebDir),
         (Convert-ToEnvLine 'NAT_PRIMARY_ADDR' (Get-ConfigValue $script:LocalEnv 'NAT_PRIMARY_ADDR' '0.0.0.0')),
         (Convert-ToEnvLine 'NAT_ALT_ADDR' (Get-ConfigValue $script:LocalEnv 'NAT_ALT_ADDR' '127.0.0.1')),
         (Convert-ToEnvLine 'NAT_PORT' "$resolvedNatPort"),
@@ -397,16 +473,30 @@ function Start-Stack {
         '--port', $envMap['NAT_PORT'],
         '--realm', $envMap['NAT_REALM']
     )
+    if ((Test-Truthy $envMap['DASHBOARD_ENABLED']) -and (Test-Path -LiteralPath (Get-BinaryPath 'dashboard'))) {
+        Start-ManagedProcess -Name 'dashboard' -FilePath (Get-BinaryPath 'dashboard') -Arguments @(
+            '--listen', $envMap['DASHBOARD_LISTEN'],
+            '--secret-key', $envMap['DASHBOARD_SECRET_KEY'],
+            '--admin-user', $envMap['DASHBOARD_ADMIN_USER'],
+            '--admin-password', $envMap['DASHBOARD_ADMIN_PASSWORD'],
+            '--allowed-origins', $envMap['DASHBOARD_ALLOWED_ORIGINS'],
+            '--store-path', $envMap['DASHBOARD_STORE_PATH'],
+            '--static-dir', $envMap['DASHBOARD_STATIC_DIR']
+        )
+    } elseif (Test-Truthy $envMap['DASHBOARD_ENABLED']) {
+        Write-Warn 'Dashboard is enabled, but dashboard binary is not installed. Core services are running only.'
+    }
 }
 
 function Stop-Stack {
+    Stop-ManagedProcess 'dashboard'
     Stop-ManagedProcess 'nat-detector'
     Stop-ManagedProcess 'relay-server'
     Stop-ManagedProcess 'control-plane'
 }
 
 function Show-Status {
-    foreach ($name in @('control-plane', 'relay-server', 'nat-detector')) {
+    foreach ($name in @('control-plane', 'relay-server', 'nat-detector', 'dashboard')) {
         $pidPath = Get-PidPath $name
         if (-not (Test-Path -LiteralPath $pidPath)) {
             Write-Host "$name stopped"
@@ -426,7 +516,8 @@ function Show-Logs {
     $paths = @(
         (Join-Path $script:LogDir 'control-plane.log'),
         (Join-Path $script:LogDir 'relay-server.log'),
-        (Join-Path $script:LogDir 'nat-detector.log')
+        (Join-Path $script:LogDir 'nat-detector.log'),
+        (Join-Path $script:LogDir 'dashboard.log')
     ) | Where-Object { Test-Path -LiteralPath $_ }
     if ($paths.Count -eq 0) {
         throw "No log files found in $script:LogDir"
@@ -446,6 +537,10 @@ function Show-ConnectionInfo {
     Write-Host "  Relay QUIC UDP:  ${hostName}:$($envMap['RELAY_QUIC_PORT'])"
     Write-Host "  NAT UDP:         ${hostName}:$($envMap['NAT_PORT'])"
     Write-Host "  Control Plane:   http://${hostName}:$($envMap['CONTROL_PLANE_PORT'])"
+    if (Test-Truthy $envMap['DASHBOARD_ENABLED']) {
+        Write-Host "  Dashboard:       http://${hostName}:$($envMap['DASHBOARD_PORT'])"
+        Write-Host "  Dashboard User:  $($envMap['DASHBOARD_ADMIN_USER'])"
+    }
     Write-Host "  Relay Token:     $($envMap['RELAY_AUTH_TOKEN'])"
     Write-Host "  Control Token:   $($envMap['CONTROL_PLANE_API_TOKEN'])"
 }
@@ -465,6 +560,10 @@ function Test-Health {
         $tcpClient.Close()
     }
     Write-Host "Relay TCP $($envMap['RELAY_CONTROL_PORT']) is reachable" -ForegroundColor Green
+    if ((Test-Truthy $envMap['DASHBOARD_ENABLED']) -and (Test-Path -LiteralPath (Get-BinaryPath 'dashboard'))) {
+        Write-Step 'Checking Dashboard health'
+        Invoke-WebRequest -Uri "http://127.0.0.1:$($envMap['DASHBOARD_PORT'])/api/v1/health" -UseBasicParsing | Select-Object StatusCode, StatusDescription
+    }
 }
 
 function Invoke-Install {
@@ -483,6 +582,7 @@ $script:InstallDir = if ($InstallDir) { $InstallDir } else { Get-ConfigValue $sc
 $script:ConfigDir = if ($ConfigDir) { $ConfigDir } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_CONFIG_DIR' (Join-Path $programDataRoot 'config') }
 $script:DataDir = if ($DataDir) { $DataDir } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_DATA_DIR' (Join-Path $programDataRoot 'data') }
 $script:BinDir = Join-Path $script:InstallDir 'bin'
+$script:WebDir = Join-Path (Join-Path $script:InstallDir 'web') 'dashboard'
 $script:LogDir = Join-Path $script:InstallDir 'logs'
 $script:RunDir = Join-Path $script:InstallDir 'run'
 $script:EnvPath = Join-Path $script:ConfigDir 'server.env'
