@@ -2,12 +2,13 @@
 schema_version: 1
 locale: zh-CN
 branch: main
-exported_at: "2026-06-09T08:49:21Z"
+exported_at: "2026-06-09T09:19:51Z"
 modules:
     "":
         dir_name: NexTunnel 分布式 P2P 隧道平台
         title: NexTunnel 分布式 P2P 隧道平台
         scope:
+            - .gitattributes
             - .github\workflows\ci.yml
             - .github\workflows\release.yml
             - .gitignore
@@ -7827,12 +7828,13 @@ modules:
             - .qoder\repowiki\knowledge\zh\NexTunnel 分布式 P2P 隧道平台\_module.yaml
             - .qoder\repowiki\knowledge\zh\NexTunnel 分布式 P2P 隧道平台\架构设计.md
             - .qoder\repowiki\knowledge\zh\NexTunnel 分布式 P2P 隧道平台\概述.md
-            - .qoder\repowiki\knowledge\zh\NexTunnel 分布式 P2P 隧道平台\特殊配置与命令.md
-            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与边缘网络引擎\_module.yaml
-            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与边缘网络引擎\技术栈.md
-            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与边缘网络引擎\架构设计.md
-            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与边缘网络引擎\概述.md
-            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与边缘网络引擎\编码规范.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 分布式 P2P 隧道平台\编码规范.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\_module.yaml
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\技术栈.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\架构设计.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\概述.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\特殊配置与命令.md
+            - .qoder\repowiki\knowledge\zh\NexTunnel 服务端核心与多角色运行时\编码规范.md
             - .qoder\repowiki\knowledge\zh\NexTunnel 核心协议与加密工具库\_module.yaml
             - .qoder\repowiki\knowledge\zh\NexTunnel 核心协议与加密工具库\技术栈.md
             - .qoder\repowiki\knowledge\zh\NexTunnel 核心协议与加密工具库\架构设计.md
@@ -7923,6 +7925,14 @@ modules:
             - desktop\frontend\src\api\app.ts
             - desktop\frontend\src\api\window.ts
             - desktop\frontend\src\assets\logo.png
+            - desktop\frontend\src\assets\logo\black-logo-soucre.png
+            - desktop\frontend\src\assets\logo\blcak-logo.png
+            - desktop\frontend\src\assets\logo\default-logo-soucre.png
+            - desktop\frontend\src\assets\logo\default-logo.png
+            - desktop\frontend\src\assets\logo\white-logo-soucre.png
+            - desktop\frontend\src\assets\logo\white-logo.png
+            - desktop\frontend\src\assets\nextunnel-logo-black.svg
+            - desktop\frontend\src\assets\nextunnel-logo-gradient.svg
             - desktop\frontend\src\assets\palette.png
             - desktop\frontend\src\assets\text-logo.png
             - desktop\frontend\src\i18n.ts
@@ -9998,16 +10008,6 @@ modules:
             - server\.gocache-test-root\a7\a72d1e272c23e45c4de6e24dee7cfe91944a1cb9612e640c5f21a3d39d96ff78-a
             - server\.gocache-test-root\a7\a73ca040cdaeac8e13b118355459ecec31b59b1d3deccbade72c57e33eeceb5a-a
             - server\.gocache-test-root\a7\a750359a087ca7d7e1b15a9d51d7663d6c15418c546dbfbedadb202de3fd49ba-d
-            - server\.gocache-test-root\a7\a774404b0b8efd2cfefc20ab7bd369c58dcfcab6337c4bc8dff077e85f3b4c2d-d
-            - server\.gocache-test-root\a7\a7afc040d392b8fc5ab5929ef99436605acda01b54510adba5907d44127990ae-a
-            - server\.gocache-test-root\a7\a7caafe53c8fe7f2f47cd441a53c24fbba64f60969a75d3f8268e0839ebd0b8b-a
-            - server\.gocache-test-root\a8\a81d7da116a6c7023d4c917a19f8c30ad90433be9e6a76e1ae0445188f6f3c4d-d
-            - server\.gocache-test-root\a8\a8412c8450cdd5510fbae27dceb54d4d1372fb14f42973994f776bfc5966397b-d
-            - server\.gocache-test-root\a8\a84c811af4a237621d4098eecadabf225aa877c131469c29d576e24958cb8068-d
-            - server\.gocache-test-root\a8\a85b454b0caf82754813566e65542363d61bb0b59885045f9f3316643aa5cf62-a
-            - server\.gocache-test-root\a8\a8b5c38146d392d08368bea0e8caf5c97883c2c54145e659bc83a4050ef186e1-a
-            - server\.gocache-test-root\a8\a8c72b71e6bf9ef196dfb7187eba5f9008bfdc8863e5f06edf3eda6da17abd3c-a
-            - server\.gocache-test-root\a8\a8d334fd1e7e8cd9a1674ad065dd4a27fc2eebe3838705ee79c045c9498f0c90-a
         source_files: []
         children: []
         depends_on: []
