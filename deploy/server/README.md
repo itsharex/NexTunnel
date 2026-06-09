@@ -1,0 +1,264 @@
+# NexTunnel 服务端一键部署
+
+本目录提供服务端核心链路的生产部署方案，覆盖 Relay Server、Control Plane 和 NAT Detector。生产部署默认使用 GitHub Release 发布包，不在服务器上拉源码构建；脚本会下载服务端包、生成运行配置、安装二进制并启动服务。
+
+> 当前 Dashboard 后端尚未提供独立 `cmd/dashboard` 启动入口，因此本部署方案先覆盖“可连接使用”的服务端核心链路。Dashboard 接入后可作为独立服务加入同一发布包或镜像。
+
+## Release 包约定
+
+服务端 Release 包默认从项目仓库发布页下载：
+
+```text
+https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-linux-amd64.tar.gz
+https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-linux-arm64.tar.gz
+https://github.com/Lee-zg/frp-plus/releases/latest/download/nextunnel-server-windows-amd64.zip
+```
+
+包内至少包含：
+
+```text
+nextunnel-server/
+  bin/relay-server
+  bin/control-plane
+  bin/nat-detector
+  .env.example
+  README.md
+```
+
+`.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包和对应 `.sha256` 文件。后续桌面端或其他终端可继续作为附件发布到同一个 GitHub Release。
+
+## 方式一：Linux 一键部署（推荐）
+
+```bash
+cd deploy/server
+chmod +x install.sh
+sudo ./install.sh install
+```
+
+非交互部署：
+
+```bash
+cd deploy/server
+sudo NON_INTERACTIVE=true \
+  NEXTUNNEL_PUBLIC_HOST=your-domain.example \
+  RELAY_AUTH_TOKEN='replace-with-strong-token' \
+  CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
+  ./install.sh install
+```
+
+指定版本或源地址：
+
+```bash
+sudo ./install.sh install --version v0.1.0
+sudo ./install.sh install --package-url https://mirror.example.com/nextunnel-server-linux-amd64.tar.gz
+sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
+sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
+```
+
+常用管理命令：
+
+```bash
+sudo ./install.sh status
+sudo ./install.sh logs
+sudo ./install.sh health
+sudo ./install.sh restart
+sudo ./install.sh update --version v0.1.1
+sudo ./install.sh down
+sudo ./install.sh uninstall
+sudo ./install.sh uninstall --purge
+```
+
+Linux 默认路径：
+
+| 用途 | 路径 |
+|:---|:---|
+| 二进制 | `/opt/nextunnel/bin` |
+| 配置 | `/etc/nextunnel/server.env` |
+| 数据 | `/var/lib/nextunnel/control-plane.db` |
+| 服务 | `nextunnel-relay.service`、`nextunnel-control-plane.service`、`nextunnel-nat-detector.service` |
+| 日志 | `journalctl -u nextunnel-relay.service -u nextunnel-control-plane.service -u nextunnel-nat-detector.service` |
+
+## 方式二：Windows / PowerShell 部署
+
+PowerShell 版本用于 Windows Server 或本地验证，默认下载 `nextunnel-server-windows-amd64.zip`，解压到 `ProgramData\NexTunnel\server`，通过 PID 文件管理三个进程。
+
+```powershell
+Set-Location .\deploy\server
+.\install.ps1 -Action install
+```
+
+非交互部署：
+
+```powershell
+$env:NEXTUNNEL_PUBLIC_HOST = "your-domain.example"
+$env:RELAY_AUTH_TOKEN = "replace-with-strong-token"
+$env:CONTROL_PLANE_API_TOKEN = "replace-with-strong-token"
+.\install.ps1 -Action install -NonInteractive
+```
+
+指定源地址：
+
+```powershell
+.\install.ps1 -Action install -Version v0.1.0
+.\install.ps1 -Action install -PackageUrl "https://mirror.example.com/nextunnel-server-windows-amd64.zip"
+.\install.ps1 -Action install -PackageUrl "C:\Temp\nextunnel-server-windows-amd64.zip" -PackageSha256 "<sha256>"
+```
+
+常用管理命令：
+
+```powershell
+.\install.ps1 -Action status
+.\install.ps1 -Action logs
+.\install.ps1 -Action health
+.\install.ps1 -Action restart
+.\install.ps1 -Action update -Version v0.1.1
+.\install.ps1 -Action down
+.\install.ps1 -Action uninstall
+```
+
+## 方式三：配置文件部署
+
+可复制 `.env.example` 为 `.env` 后编辑，再执行脚本：
+
+```bash
+cd deploy/server
+cp .env.example .env
+vim .env
+sudo ./install.sh install
+```
+
+配置优先级：
+
+```text
+命令行选项 > 环境变量 > deploy/server/.env > 交互输入/默认值
+```
+
+关键变量：
+
+| 变量 | 说明 |
+|:---|:---|
+| `NEXTUNNEL_REPOSITORY` | GitHub Release 仓库，默认 `Lee-zg/frp-plus` |
+| `NEXTUNNEL_VERSION` | Release 版本，默认 `latest` |
+| `NEXTUNNEL_RELEASE_BASE_URL` | 自定义 Release 下载基址 |
+| `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |
+| `NEXTUNNEL_PACKAGE_SHA256` | 可选，服务端包 SHA256 校验值 |
+| `NEXTUNNEL_PUBLIC_HOST` | 客户端访问的公网 IP 或域名 |
+| `RELAY_AUTH_TOKEN` | Relay 客户端共享认证令牌 |
+| `CONTROL_PLANE_API_TOKEN` | Control Plane Bearer Token |
+
+## 方式四：1Panel 部署配置
+
+1Panel 官方文档显示，`主机 - 终端` 可直接连接本地服务器并执行命令；`计划任务` 支持 Shell 脚本和手动执行；`容器 - 编排` 支持 Web 编辑器、路径选择和编排模版三种 Compose 创建方式。
+
+参考：
+
+- [1Panel 终端文档](https://1panel.cn/docs/v1/user_manual/hosts/terminal/)
+- [1Panel 计划任务文档](https://1panel.cn/docs/v1/user_manual/cronjobs/)
+- [1Panel 容器编排文档](https://1panel.cn/docs/v1/user_manual/containers/compose/)
+
+### 1Panel 方式 A：终端执行一键脚本（推荐）
+
+1. 在 1Panel 打开 `主机 - 终端`，连接当前服务器。
+2. 准备脚本目录，例如上传仓库中的 `deploy/server/install.sh` 到 `/opt/nextunnel-deploy/install.sh`。
+3. 执行：
+
+```bash
+cd /opt/nextunnel-deploy
+chmod +x install.sh
+sudo NON_INTERACTIVE=true \
+  NEXTUNNEL_PUBLIC_HOST=your-domain.example \
+  RELAY_AUTH_TOKEN='replace-with-strong-token' \
+  CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
+  ./install.sh install --version v0.1.0
+```
+
+如果使用自建源：
+
+```bash
+sudo ./install.sh install --package-url https://mirror.example.com/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
+```
+
+### 1Panel 方式 B：文件上传离线包
+
+1. 在 1Panel `主机 - 文件` 上传服务端包到 `/opt/packages/nextunnel-server-linux-amd64.tar.gz`。
+2. 在 `主机 - 终端` 执行：
+
+```bash
+cd /opt/nextunnel-deploy
+sudo NON_INTERACTIVE=true \
+  NEXTUNNEL_PUBLIC_HOST=your-domain.example \
+  RELAY_AUTH_TOKEN='replace-with-strong-token' \
+  CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
+  ./install.sh install --package-url /opt/packages/nextunnel-server-linux-amd64.tar.gz
+```
+
+### 1Panel 方式 C：计划任务升级
+
+在 `计划任务` 创建 Shell 脚本任务，可手动执行或定时执行升级命令：
+
+```bash
+cd /opt/nextunnel-deploy
+sudo ./install.sh update --version v0.1.1
+sudo ./install.sh health
+```
+
+建议不要把 token 写入计划任务脚本；首次安装后 token 已保存在 `/etc/nextunnel/server.env`，升级只需要指定版本或包地址。
+
+### 1Panel 方式 D：容器编排模板
+
+`docker-compose.yml` 不再执行源码构建，仅作为后续官方镜像发布后的 1Panel Compose 模板。发布镜像后可在 1Panel `容器 - 编排` 中选择 Web 编辑或路径选择部署：
+
+```bash
+cp deploy/server/.env.example deploy/server/.env
+# 编辑 NEXTUNNEL_IMAGE、NEXTUNNEL_PUBLIC_HOST、RELAY_AUTH_TOKEN、CONTROL_PLANE_API_TOKEN
+docker compose --env-file deploy/server/.env -f deploy/server/docker-compose.yml up -d
+```
+
+当前可连接生产部署仍优先使用 Release 包 + systemd。
+
+## 默认端口
+
+| 服务 | 协议 | 默认端口 | 说明 |
+|:---|:---:|:---:|:---|
+| Relay Server | TCP | 7000 | 客户端控制连接和工作连接 |
+| Relay QUIC | UDP | 7443 | QUIC Relay 传输 |
+| Control Plane | TCP/HTTP | 9090 | 节点、ACL、密钥 API |
+| NAT Detector | UDP | 3478 | STUN/TURN NAT 检测 |
+
+生产服务器需要在防火墙、安全组或 1Panel 防火墙中放行以上端口。仅试用 TCP Relay 时，至少放行 `7000/tcp`。
+
+## 连接信息
+
+部署完成后，脚本会输出：
+
+```text
+Relay TCP:       <host>:7000
+Relay QUIC UDP:  <host>:7443
+NAT UDP:         <host>:3478
+Control Plane:   http://<host>:9090
+Relay Token:     <generated-token>
+Control Token:   <generated-token>
+```
+
+桌面端先使用 `Relay TCP` 地址和 `Relay Token` 进行最小连接验证。
+
+## 健康检查
+
+```bash
+sudo ./install.sh health
+```
+
+健康检查包含：
+
+- `GET /healthz` 验证 Control Plane。
+- TCP 端口探测验证 Relay Server。
+
+NAT Detector 使用 UDP 服务，通常通过客户端 STUN 检测流程验证。
+
+## 安全建议
+
+- 生产环境必须替换 `.env.example` 中的默认 token。
+- 建议使用 `NEXTUNNEL_PACKAGE_SHA256` 或 `--sha256` 校验离线包和镜像源下载包。
+- 建议将 Control Plane 放在反向代理、VPN 或内网访问范围后面。
+- 建议使用系统防火墙、云安全组或 1Panel 防火墙只开放必要端口。
+- 后续启用 Dashboard 时，应配置 HTTPS、强密码、CORS 白名单和持久化存储。

@@ -1,0 +1,81 @@
+name: ${COMPOSE_PROJECT_NAME:-nextunnel}
+
+# 该 Compose 文件用于 1Panel 或手工容器编排，前提是官方服务端镜像已随 Release 发布。
+# Linux 生产一键部署优先使用 install.sh 下载 Release 二进制并交给 systemd 管理。
+services:
+  relay-server:
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-relay
+    command:
+      - --bind
+      - ${RELAY_BIND:-0.0.0.0}
+      - --control-port
+      - ${RELAY_CONTROL_PORT:-7000}
+      - --quic-port
+      - ${RELAY_QUIC_PORT:-7443}
+      - --auth-token
+      - ${RELAY_AUTH_TOKEN:?RELAY_AUTH_TOKEN is required}
+      - --require-auth
+      - --stats-interval
+      - ${RELAY_STATS_INTERVAL:-30s}
+    ports:
+      - "${RELAY_CONTROL_PORT:-7000}:${RELAY_CONTROL_PORT:-7000}/tcp"
+      - "${RELAY_QUIC_PORT:-7443}:${RELAY_QUIC_PORT:-7443}/udp"
+    restart: unless-stopped
+    networks:
+      - nextunnel
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 ${RELAY_CONTROL_PORT:-7000} || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  control-plane:
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-control-plane
+    entrypoint: ["/app/control-plane"]
+    command:
+      - --listen
+      - 0.0.0.0:9090
+      - --api-token
+      - ${CONTROL_PLANE_API_TOKEN:?CONTROL_PLANE_API_TOKEN is required}
+      - --store-path
+      - ${CONTROL_PLANE_STORE_PATH:-/data/control-plane.db}
+    ports:
+      - "${CONTROL_PLANE_PORT:-9090}:9090/tcp"
+    volumes:
+      - ${NEXTUNNEL_DATA_DIR:-./data}:/data
+    restart: unless-stopped
+    networks:
+      - nextunnel
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9090/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nat-detector:
+    image: ${NEXTUNNEL_IMAGE:-ghcr.io/lee-zg/frp-plus/server:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-nextunnel}-nat-detector
+    entrypoint: ["/app/nat-detector"]
+    command:
+      - --primary-addr
+      - ${NAT_PRIMARY_ADDR:-0.0.0.0}
+      - --alt-addr
+      - ${NAT_ALT_ADDR:-127.0.0.1}
+      - --port
+      - ${NAT_PORT:-3478}
+      - --realm
+      - ${NAT_REALM:-nextunnel.local}
+    ports:
+      - "${NAT_PORT:-3478}:${NAT_PORT:-3478}/udp"
+    restart: unless-stopped
+    networks:
+      - nextunnel
+
+networks:
+  nextunnel:
+    name: ${NEXTUNNEL_NETWORK:-nextunnel-net}
+    driver: bridge

@@ -26,7 +26,7 @@ type Loader struct {
 // NewLoader creates a new eBPF loader (stub on non-Linux).
 func NewLoader(cfg EBPFConfig) *Loader {
 	return &Loader{
-		config: cfg,
+		config: normalizeConfig(cfg),
 		mode:   ModeUserspace,
 	}
 }
@@ -71,4 +71,12 @@ func (l *Loader) RecordForward(bytes int) {
 // RecordDrop records a dropped packet.
 func (l *Loader) RecordDrop() {
 	l.packetsDropped.Add(1)
+}
+
+// ConfigureRuleMap keeps the API consistent with Linux; non-Linux always uses userspace rules.
+func (l *Loader) ConfigureRuleMap(ruleMap *RuleMap) error {
+	if ruleMap == nil {
+		return nil
+	}
+	return nil
 }

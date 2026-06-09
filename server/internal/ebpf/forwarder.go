@@ -11,15 +11,15 @@ import (
 // In kernel mode, these rules are synced to BPF maps.
 // In userspace mode, they are used directly for packet processing.
 type ForwardingRule struct {
-	ID       uint32 `json:"id"`
-	SrcAddr  string `json:"src_addr"`  // source IP or CIDR
-	DstAddr  string `json:"dst_addr"`  // destination IP or CIDR
-	SrcPort  uint16 `json:"src_port"`  // 0 = any
-	DstPort  uint16 `json:"dst_port"`  // 0 = any
-	Protocol uint8  `json:"protocol"` // 6=TCP, 17=UDP, 0=any
+	ID       uint32     `json:"id"`
+	SrcAddr  string     `json:"src_addr"` // source IP or CIDR
+	DstAddr  string     `json:"dst_addr"` // destination IP or CIDR
+	SrcPort  uint16     `json:"src_port"` // 0 = any
+	DstPort  uint16     `json:"dst_port"` // 0 = any
+	Protocol uint8      `json:"protocol"` // 6=TCP, 17=UDP, 0=any
 	Action   RuleAction `json:"action"`
-	Target   string `json:"target"`    // forward target address (ip:port)
-	Priority int    `json:"priority"`  // lower = higher priority
+	Target   string     `json:"target"`   // forward target address (ip:port)
+	Priority int        `json:"priority"` // lower = higher priority
 }
 
 // RuleAction defines what to do with a matched packet.
@@ -34,8 +34,8 @@ const (
 // RuleMap manages forwarding rules. In kernel mode, rules are synced to BPF maps.
 // In userspace mode, rules are kept in memory for software-based forwarding.
 type RuleMap struct {
-	mu    sync.RWMutex
-	rules map[uint32]*ForwardingRule
+	mu     sync.RWMutex
+	rules  map[uint32]*ForwardingRule
 	sorted []*ForwardingRule // sorted by priority
 	nextID atomic.Uint32
 
@@ -62,9 +62,8 @@ func (rm *RuleMap) SetKernelSyncCallbacks(onAdd func(*ForwardingRule) error, onR
 // AddRule adds a forwarding rule. Returns the assigned rule ID.
 func (rm *RuleMap) AddRule(rule *ForwardingRule) (uint32, error) {
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
 	if rule.Action == "" {
+		rm.mu.Unlock()
 		return 0, fmt.Errorf("rule action is required")
 	}
 
@@ -72,12 +71,20 @@ func (rm *RuleMap) AddRule(rule *ForwardingRule) (uint32, error) {
 	rule.ID = id
 	rm.rules[id] = rule
 	rm.rebuildSorted()
+	onRuleAdd := rm.onRuleAdd
+	onRuleRemove := rm.onRuleRemove
+	rm.mu.Unlock()
 
-	if rm.onRuleAdd != nil {
-		if err := rm.onRuleAdd(rule); err != nil {
-			// Rollback
+	if onRuleAdd != nil {
+		if err := onRuleAdd(rule); err != nil {
+			// 内核同步失败时回滚内存规则，避免用户态和内核态规则集长期分裂。
+			rm.mu.Lock()
 			delete(rm.rules, id)
 			rm.rebuildSorted()
+			rm.mu.Unlock()
+			if onRuleRemove != nil {
+				_ = onRuleRemove(id)
+			}
 			return 0, fmt.Errorf("sync to kernel: %w", err)
 		}
 	}
@@ -88,16 +95,17 @@ func (rm *RuleMap) AddRule(rule *ForwardingRule) (uint32, error) {
 // RemoveRule removes a rule by ID.
 func (rm *RuleMap) RemoveRule(id uint32) error {
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
 	if _, ok := rm.rules[id]; !ok {
+		rm.mu.Unlock()
 		return fmt.Errorf("rule %d not found", id)
 	}
 	delete(rm.rules, id)
 	rm.rebuildSorted()
+	onRuleRemove := rm.onRuleRemove
+	rm.mu.Unlock()
 
-	if rm.onRuleRemove != nil {
-		_ = rm.onRuleRemove(id) // best effort
+	if onRuleRemove != nil {
+		_ = onRuleRemove(id) // best effort
 	}
 	return nil
 }

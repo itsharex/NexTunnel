@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  server-packages:
+    name: Server packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Build server binaries
+        working-directory: server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          package_dir="../dist/nextunnel-server-${GOOS}-${GOARCH}"
+          mkdir -p "${package_dir}/bin"
+          suffix=""
+          if [ "${GOOS}" = "windows" ]; then suffix=".exe"; fi
+          # 服务端 Release 包固定包含三个核心进程，部署脚本按这些名称校验包完整性。
+          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/control-plane${suffix}" ./cmd/control-plane
+          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/relay-server${suffix}" ./cmd/relay
+          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/nat-detector${suffix}" ./cmd/nat-detector
+
+      - name: Add package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cp deploy/server/.env.example "${package_dir}/.env.example"
+          cp deploy/server/README.md "${package_dir}/README.md"
+          cat > "${package_dir}/MANIFEST.txt" <<EOF
+          NexTunnel server package
+          Target: ${{ matrix.goos }}-${{ matrix.goarch }}
+          Binaries:
+            bin/control-plane
+            bin/relay-server
+            bin/nat-detector
+          EOF
+
+      - name: Archive tar.gz
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          tar -czf "nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" "nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+      - name: Archive zip
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}" -DestinationPath "dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.zip" -Force
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }} > nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}.sha256
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          files: |
+            dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+            dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}.sha256

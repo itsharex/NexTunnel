@@ -2,29 +2,25 @@
 
 <cite>
 **本文档引用的文件**
+- [README.md](file://README.md)
+- [main.go](file://desktop/main.go)
+- [app.go](file://desktop/app.go)
+- [manager.go](file://desktop/internal/tunnel/manager.go)
+- [tunnel.go](file://desktop/internal/tunnel/tunnel.go)
+- [server.go](file://server/internal/relay/server.go)
+- [message.go](file://pkg/protocol/message.go)
+- [store.go](file://desktop/internal/config/store.go)
+- [config.go](file://server/internal/ebpf/config.go)
 - [forwarder.go](file://server/internal/ebpf/forwarder.go)
 - [loader_linux.go](file://server/internal/ebpf/loader_linux.go)
 - [loader_other.go](file://server/internal/ebpf/loader_other.go)
-- [config.go](file://server/internal/ebpf/config.go)
 - [forwarder_test.go](file://server/internal/ebpf/forwarder_test.go)
-- [tunnel.go](file://desktop/internal/tunnel/tunnel.go)
-- [manager.go](file://desktop/internal/tunnel/manager.go)
-- [config.go](file://desktop/internal/tunnel/config.go)
-- [message.go](file://pkg/protocol/message.go)
-- [main.go](file://server/cmd/control-plane/main.go)
-- [app.go](file://desktop/app.go)
-- [tunnel.ts](file://desktop/frontend/src/stores/tunnel.ts)
+- [loader_test.go](file://server/internal/ebpf/loader_test.go)
+- [main.go](file://server/cmd/relay/main.go)
 </cite>
 
-## 更新摘要
-**所做更改**
-- 更新了规则匹配系统章节，反映新的高级数据包转发规则和优先级匹配机制
-- 新增了TCP和UDP协议过滤支持的说明
-- 更新了内核模式集成和用户态回退机制的描述
-- 增强了性能考虑和故障排除指南
-
 ## 目录
-1. [项目概述](#项目概述)
+1. [简介](#简介)
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
@@ -34,463 +30,428 @@
 8. [故障排除指南](#故障排除指南)
 9. [结论](#结论)
 
-## 项目概述
+## 简介
 
-NexTunnel是一个基于eBPF技术的高性能网络包转发系统，旨在提供高效的TCP隧道服务和智能路径选择功能。该系统采用客户端-服务器架构，结合eBPF内核加速和用户态软件转发两种模式，确保在不同平台环境下的兼容性和性能。
+NexTunnel是一个开源的内网穿透和P2P直连现代化网络工具，采用Go + Vue 3 + Wails技术栈构建。该项目的核心目标是超越传统的FRP/NPS等"客户端→中转服务器"的TCP转发模式，打造下一代智能组网方案。
 
-系统的核心特性包括：
-- eBPF XDP程序实现内核级包转发加速
-- 用户态软件转发作为降级方案
-- 智能隧道管理和服务发现
-- 实时流量统计和监控
-- 跨平台支持（Linux/非Linux）
-- **新增**：高级数据包转发规则和优先级匹配机制
-- **新增**：TCP和UDP协议过滤支持
-- **新增**：内核模式集成和用户态回退机制
+**项目愿景**：让内网穿透从"能连上"进化为"智能直连"——用户无需理解端口、NAT、UDP、Tunnel等底层概念，设备自动发现、自动组网、自动加速、自动直连。
 
 ## 项目结构
 
-整个项目采用模块化的组织方式，主要分为以下几个核心部分：
+NexTunnel项目采用模块化设计，主要包含以下核心部分：
 
 ```mermaid
 graph TB
-subgraph "服务器端 (server)"
-EBPF[eBPF包转发模块<br/>server/internal/ebpf]
-CONTROL[控制平面<br/>server/internal/controlplane]
-RELAY[中继服务<br/>server/internal/relay]
-EDGE[边缘节点<br/>server/internal/edge]
+subgraph "桌面端 (desktop/)"
+DesktopMain[main.go<br/>应用入口]
+App[app.go<br/>Wails应用]
+Tunnel[tunnel/<br/>隧道管理]
+Config[config/<br/>配置管理]
+P2P[p2p/<br/>P2P引擎]
+NAT[nat/<br/>NAT穿透]
+Relay[relay/<br/>中继客户端]
+Scheduler[scheduler/<br/>链路调度]
 end
-subgraph "桌面客户端 (desktop)"
-TUNNEL[tunnel模块<br/>desktop/internal/tunnel]
-FRONTEND[前端界面<br/>desktop/frontend]
-APP[应用入口<br/>desktop/app.go]
+subgraph "服务端 (server/)"
+ServerMain[cmd/relay/main.go<br/>中继服务入口]
+ControlPlane[cmd/control-plane/main.go<br/>控制面入口]
+RelayServer[internal/relay/<br/>中继服务]
+ControlPlaneServer[internal/controlplane/<br/>控制面逻辑]
+EBPF[internal/ebpf/<br/>eBPF加速模块]
 end
-subgraph "公共库 (pkg)"
-PROTOCOL[协议定义<br/>pkg/protocol]
-TYPES[类型定义<br/>pkg/types]
-CRYPTO[加密工具<br/>pkg/crypto]
+subgraph "公共包 (pkg/)"
+Protocol[protocol/<br/>协议定义]
+Crypto[crypto/<br/>加密工具]
+Types[types/<br/>共享类型]
 end
-EBPF --> PROTOCOL
-TUNNEL --> PROTOCOL
-CONTROL --> PROTOCOL
-RELAY --> PROTOCOL
-EDGE --> PROTOCOL
-FRONTEND --> APP
-APP --> TUNNEL
+DesktopMain --> App
+App --> Tunnel
+App --> Config
+App --> P2P
+App --> NAT
+App --> Relay
+App --> Scheduler
+ServerMain --> RelayServer
+ControlPlane --> ControlPlaneServer
+RelayServer --> EBPF
+RelayServer --> Protocol
+Tunnel --> Protocol
+Config --> Types
 ```
 
 **图表来源**
-- [forwarder.go:1-243](file://server/internal/ebpf/forwarder.go#L1-L243)
-- [tunnel.go:1-138](file://desktop/internal/tunnel/tunnel.go#L1-L138)
-- [message.go:1-480](file://pkg/protocol/message.go#L1-L480)
+- [README.md:54-111](file://README.md#L54-L111)
+- [main.go:15-39](file://desktop/main.go#L15-L39)
+- [server.go:14-46](file://server/internal/relay/server.go#L14-L46)
 
 **章节来源**
-- [forwarder.go:1-243](file://server/internal/ebpf/forwarder.go#L1-L243)
-- [tunnel.go:1-138](file://desktop/internal/tunnel/tunnel.go#L1-L138)
-- [message.go:1-480](file://pkg/protocol/message.go#L1-L480)
+- [README.md:54-111](file://README.md#L54-L111)
+- [main.go:15-39](file://desktop/main.go#L15-L39)
+- [server.go:14-46](file://server/internal/relay/server.go#L14-L46)
 
 ## 核心组件
 
-### eBPF包转发引擎
+### eBPF加速模块
 
-eBPF包转发引擎是系统的核心组件，负责在网络层进行高效的数据包处理。它提供了两种工作模式：内核模式（使用eBPF XDP程序）和用户态模式（软件转发）。
-
-#### 主要功能
-- **规则匹配**：基于源IP、目标IP、源端口、目标端口和协议类型的多维度规则匹配
-- **动作执行**：支持转发、丢弃、透传到内核栈等操作
-- **统计收集**：实时收集转发、丢弃、字节计数等性能指标
-- **模式切换**：根据eBPF可用性自动在内核模式和用户态模式间切换
-- **协议支持**：支持TCP（6）和UDP（17）协议过滤
-- **优先级匹配**：基于优先级的规则匹配机制，优先级数值越小表示优先级越高
-
-#### 关键数据结构
-- `ForwardingRule`：定义单个转发规则，包含ID、源地址、目标地址、源端口、目标端口、协议类型、动作、目标地址和优先级
-- `RuleMap`：管理转发规则集合，支持内核同步回调和优先级排序
-- `UserspaceForwarder`：用户态转发器
-- `Loader`：eBPF程序生命周期管理
+eBPF加速模块是NexTunnel服务端的重要组成部分，提供了内核级别的包转发加速功能。该模块支持Linux平台的eBPF/XDP程序加载，并在非Linux平台上优雅降级到用户空间转发。
 
 **章节来源**
-- [forwarder.go:10-243](file://server/internal/ebpf/forwarder.go#L10-L243)
-- [config.go:8-81](file://server/internal/ebpf/config.go#L8-L81)
+- [config.go:1-51](file://server/internal/ebpf/config.go#L1-L51)
+- [forwarder.go:1-242](file://server/internal/ebpf/forwarder.go#L1-L242)
 
 ### 隧道管理系统
 
-桌面端的隧道管理系统负责客户端侧的隧道配置、管理和状态监控。
-
-#### 主要职责
-- **隧道配置管理**：创建、删除、修改隧道配置
-- **连接管理**：维护与服务器的控制连接
-- **动态隧道**：支持运行时动态添加和移除隧道
-- **状态监控**：实时跟踪隧道状态和流量统计
-
-#### 核心组件
-- `Manager`：隧道管理器，协调所有隧道实例
-- `Tunnel`：单个隧道实例，处理具体的数据转发
-- `TunnelDef`：隧道配置定义
+桌面端的隧道管理系统负责管理TCP/HTTP隧道的创建、启动、停止和删除操作。它提供了完整的生命周期管理，包括自动重连机制和状态跟踪。
 
 **章节来源**
-- [manager.go:22-368](file://desktop/internal/tunnel/manager.go#L22-L368)
-- [tunnel.go:16-138](file://desktop/internal/tunnel/tunnel.go#L16-L138)
-- [config.go:6-40](file://desktop/internal/tunnel/config.go#L6-L40)
+- [manager.go:1-381](file://desktop/internal/tunnel/manager.go#L1-L381)
+- [tunnel.go:1-146](file://desktop/internal/tunnel/tunnel.go#L1-L146)
 
-### 协议通信层
+### 协议处理系统
 
-系统采用自定义的二进制协议进行客户端-服务器间的通信，支持多种消息类型和负载格式。
-
-#### 消息类型
-- **认证消息**：客户端身份验证
-- **隧道管理**：新建、关闭、心跳等隧道相关操作
-- **工作连接**：实际的数据传输连接
-- **P2P信令**：点对点连接建立的信令消息
-
-#### 协议特点
-- 基于JSON的负载格式，便于调试和扩展
-- 支持版本控制，保证向前兼容
-- 内置错误处理和响应机制
+协议处理系统定义了客户端和服务端之间的通信协议，包括认证、隧道注册、工作连接建立等消息类型。该系统支持扩展的P2P信令和智能调度消息。
 
 **章节来源**
-- [message.go:6-480](file://pkg/protocol/message.go#L6-L480)
+- [message.go:1-480](file://pkg/protocol/message.go#L1-L480)
 
 ## 架构概览
 
-系统采用分层架构设计，从底层的eBPF包转发到上层的应用界面，各层之间通过清晰的接口进行交互。
+NexTunnel采用分层架构设计，实现了从表现层到数据面的完整网络传输链路：
 
 ```mermaid
 graph TB
-subgraph "应用界面层"
-UI[Vue前端界面]
-STORE[Pinia状态管理]
+subgraph "表现层 (Presentation Layer)"
+UI[Vue 3 + Vite<br/>桌面UI]
+Bridge[Wails Bridge<br/>Go↔JS IPC]
 end
-subgraph "应用逻辑层"
-APP[Wails应用入口]
-MANAGER[tunnel.Manager]
-TUNNEL[Tunnel实例]
+subgraph "应用层 (Application Layer)"
+TunnelMgr[Tunnel Manager<br/>隧道编排]
+P2PEngine[P2P Engine<br/>连接建立]
+ConfigMgr[Config Manager<br/>配置管理]
 end
-subgraph "通信协议层"
-PROTO[协议编解码]
-MSG[消息处理]
+subgraph "传输层 (Transport Layer)"
+QUIC[QUIC Transport<br/>快速传输]
+TCP[TCP Transport<br/>可靠传输]
+UDP[UDP Transport<br/>低延迟传输]
 end
-subgraph "eBPF转发层"
-LOADER[Loader加载器]
-RULEMAP[RuleMap规则映射]
-FORWARDER[UserspaceForwarder]
+subgraph "内核层 (Kernel Layer)"
+EBPFKernel[eBPF Kernel<br/>XDP加速]
+Userspace[Userspace Forwarding<br/>软件转发]
 end
-subgraph "内核接口层"
-EBPF[eBPF XDP程序]
-KERNEL[内核网络栈]
+subgraph "存储层 (Storage Layer)"
+SQLite[SQLite<br/>本地配置]
 end
-UI --> STORE
-STORE --> APP
-APP --> MANAGER
-MANAGER --> TUNNEL
-TUNNEL --> PROTO
-PROTO --> MSG
-MSG --> LOADER
-LOADER --> RULEMAP
-RULEMAP --> FORWARDER
-FORWARDER --> EBPF
-EBPF --> KERNEL
+UI --> Bridge
+Bridge --> TunnelMgr
+TunnelMgr --> P2PEngine
+TunnelMgr --> ConfigMgr
+P2PEngine --> QUIC
+P2PEngine --> TCP
+P2PEngine --> UDP
+QUIC --> EBPFKernel
+TCP --> EBPFKernel
+UDP --> EBPFKernel
+EBPFKernel --> Userspace
+ConfigMgr --> SQLite
 ```
 
 **图表来源**
-- [app.go:25-354](file://desktop/app.go#L25-L354)
-- [manager.go:22-368](file://desktop/internal/tunnel/manager.go#L22-L368)
-- [forwarder.go:199-243](file://server/internal/ebpf/forwarder.go#L199-L243)
-- [loader_linux.go:13-129](file://server/internal/ebpf/loader_linux.go#L13-L129)
+- [README.md:147-163](file://README.md#L147-L163)
+- [app.go:25-34](file://desktop/app.go#L25-L34)
 
 ## 详细组件分析
 
-### eBPF规则匹配系统
+### eBPF加载器组件
 
-规则匹配系统是eBPF包转发的核心，实现了灵活而高效的包过滤机制。
+eBPF加载器是系统的核心组件之一，负责管理eBPF程序的生命周期和转发规则的同步。
 
-#### 规则匹配算法
+```mermaid
+classDiagram
+class Loader {
+-EBPFConfig config
+-Mutex mu
+-ForwardingMode mode
+-Uint64 packetsForwarded
+-Uint64 bytesForwarded
+-Uint64 packetsDropped
+-Context cancel
+-WaitGroup wg
++Load() error
++Unload() error
++GetMode() ForwardingMode
++RecordForward(bytes uint64)
++RecordDrop()
++Stats() ForwardingStats
++StartStats(ctx Context)
+}
+class RuleMap {
+-RWMutex mu
+-map[uint32]*ForwardingRule rules
+-[]*ForwardingRule sorted
+-AtomicUint32 nextID
++AddRule(rule *ForwardingRule) (uint32, error)
++GetRule(id uint32) (*ForwardingRule, bool)
++RemoveRule(id uint32) error
++Match(srcIP, dstIP string, srcPort, dstPort uint16, protocol uint8) *ForwardingRule
++ListRules() []*ForwardingRule
++RuleCount() int
++SetKernelSyncCallbacks(addCb, removeCb)
+}
+class UserspaceForwarder {
+-RuleMap ruleMap
+-Loader loader
++ProcessPacket(srcIP, dstIP string, srcPort, dstPort uint16, protocol uint8, packetSize int) (string, error)
++RuleMap() *RuleMap
+}
+class EBPFConfig {
++bool Enabled
++string InterfaceName
++string XDPMode
++Duration StatsInterval
++Logger *slog.Logger
+}
+Loader --> EBPFConfig : "使用"
+UserspaceForwarder --> RuleMap : "管理"
+UserspaceForwarder --> Loader : "记录统计"
+RuleMap --> ForwardingRule : "维护"
+```
+
+**图表来源**
+- [forwarder.go:10-242](file://server/internal/ebpf/forwarder.go#L10-L242)
+- [config.go:16-31](file://server/internal/ebpf/config.go#L16-L31)
+
+#### Linux平台实现
+
+在Linux平台上，eBPF加载器提供了完整的eBPF程序加载和管理功能：
+
+```mermaid
+sequenceDiagram
+participant App as 应用程序
+participant Loader as eBPF加载器
+participant Kernel as 内核
+participant BPF as BPF映射
+App->>Loader : NewLoader(config)
+App->>Loader : Load()
+alt eBPF启用且可用
+Loader->>Kernel : 加载XDP程序
+Kernel->>BPF : 创建转发规则映射
+Kernel->>Kernel : 附加到网络接口
+Loader->>Loader : 设置模式为kernel
+else eBPF不可用
+Loader->>Loader : 降级到userspace模式
+end
+App->>Loader : ProcessPacket(...)
+alt kernel模式
+Kernel->>BPF : 查找匹配规则
+BPF-->>Kernel : 返回目标地址
+Kernel->>Kernel : 转发数据包
+else userspace模式
+Loader->>Loader : 记录转发统计
+end
+```
+
+**图表来源**
+- [loader_linux.go:36-55](file://server/internal/ebpf/loader_linux.go#L36-L55)
+- [forwarder.go:219-242](file://server/internal/ebpf/forwarder.go#L219-L242)
+
+#### 非Linux平台实现
+
+在非Linux平台上，eBPF模块优雅降级为用户空间转发：
+
+**章节来源**
+- [loader_other.go:11-57](file://server/internal/ebpf/loader_other.go#L11-L57)
+
+### 隧道管理器组件
+
+隧道管理器负责协调多个隧道实例的生命周期管理和状态同步：
 
 ```mermaid
 flowchart TD
-START[开始包处理] --> MATCHMODE{检查规则匹配}
-MATCHMODE --> |匹配| CHECKPROTO[检查协议匹配]
-MATCHMODE --> |不匹配| DEFAULTACTION[默认转发]
-CHECKPROTO --> |不匹配| NEXTRULE[检查下一个规则]
-CHECKPROTO --> |匹配| CHECKPORT[检查端口匹配]
-CHECKPORT --> |不匹配| NEXTRULE
-CHECKPORT --> |匹配| CHECKIP[检查IP匹配]
-CHECKIP --> |不匹配| NEXTRULE
-CHECKIP --> |匹配| EXECUTEACTION[执行动作]
-NEXTRULE --> RULEEXISTS{还有规则吗}
-RULEEXISTS --> |是| MATCHMODE
-RULEEXISTS --> |否| DEFAULTACTION
-EXECUTEACTION --> RECORDSTATS[记录统计信息]
-RECORDSTATS --> END[结束]
-DEFAULTACTION --> RECORDSTATS
+Start([启动管理器]) --> InitConfig["初始化配置<br/>设置默认参数"]
+InitConfig --> CreateTunnels["创建隧道实例<br/>从配置预创建"]
+CreateTunnels --> StartLoop["启动主循环<br/>连接+注册+心跳"]
+StartLoop --> Connect["建立控制连接<br/>连接到中继服务器"]
+Connect --> Register["注册所有隧道<br/>发送NewProxy消息"]
+Register --> Heartbeat["启动心跳循环<br/>定期发送心跳"]
+Heartbeat --> MessageLoop["消息处理循环<br/>处理服务器消息"]
+MessageLoop --> StartWorkConn["处理StartWorkConn<br/>建立工作连接"]
+MessageLoop --> HeartbeatResp["处理心跳响应<br/>保持连接活跃"]
+MessageLoop --> NewProxyResp["处理动态注册<br/>更新隧道状态"]
+StartWorkConn --> OpenWorkConn["打开工作连接<br/>连接到本地服务"]
+OpenWorkConn --> Bridge["桥接连接<br/>双向数据转发"]
+Bridge --> StatsUpdate["更新统计信息<br/>字节计数"]
+StatsUpdate --> MessageLoop
+HeartbeatResp --> MessageLoop
+NewProxyResp --> MessageLoop
+MessageLoop --> Disconnect{"连接断开?"}
+Disconnect --> |是| Reconnect["执行指数退避重连"]
+Disconnect --> |否| MessageLoop
+Reconnect --> StartLoop
 ```
 
 **图表来源**
-- [forwarder.go:129-165](file://server/internal/ebpf/forwarder.go#L129-L165)
-
-#### 规则优先级机制
-
-系统支持基于优先级的规则匹配，优先级数值越小表示优先级越高。规则按优先级排序，确保高优先级规则优先被匹配。
-
-**更新** 新增了完整的优先级匹配机制，支持TCP和UDP协议过滤
+- [manager.go:107-154](file://desktop/internal/tunnel/manager.go#L107-L154)
+- [tunnel.go:38-93](file://desktop/internal/tunnel/tunnel.go#L38-L93)
 
 **章节来源**
-- [forwarder.go:184-197](file://server/internal/ebpf/forwarder.go#L184-L197)
+- [manager.go:107-154](file://desktop/internal/tunnel/manager.go#L107-L154)
+- [tunnel.go:38-93](file://desktop/internal/tunnel/tunnel.go#L38-L93)
 
-### Loader生命周期管理
+### 协议消息处理
 
-Loader负责eBPF程序的完整生命周期管理，包括加载、卸载和状态监控。
-
-#### 加载流程
+协议系统定义了完整的消息类型和处理流程：
 
 ```mermaid
 sequenceDiagram
-participant APP as 应用程序
-participant LOADER as Loader
-participant EBPF as eBPF程序
-participant STATS as 统计系统
-APP->>LOADER : Load()
-LOADER->>LOADER : 检查配置
-alt eBPF可用
-LOADER->>EBPF : 编译加载
-EBPF-->>LOADER : 加载成功
-LOADER->>LOADER : 设置模式=内核模式
-else eBPF不可用
-LOADER->>LOADER : 设置模式=用户态模式
+participant Client as 客户端
+participant Server as 服务端
+participant Proxy as 代理实例
+Client->>Server : TypeAuth (认证)
+Server->>Client : TypeAuthResp (认证响应)
+Client->>Server : TypeNewProxy (新隧道注册)
+Server->>Client : TypeNewProxyResp (注册响应)
+Note over Client,Server : 隧道建立成功
+Server->>Client : TypeStartWorkConn (启动工作连接)
+Client->>Server : TypeWorkConn (工作连接)
+Client->>Proxy : 连接到本地服务
+Proxy->>Server : 桥接数据包
+loop 心跳
+Client->>Server : TypeHeartbeat
+Server->>Client : TypeHeartbeatResp
 end
-LOADER->>STATS : StartStats()
-STATS-->>LOADER : 开始统计
-LOADER-->>APP : 返回结果
 ```
 
 **图表来源**
-- [loader_linux.go:36-82](file://server/internal/ebpf/loader_linux.go#L36-L82)
-- [loader_other.go:34-53](file://server/internal/ebpf/loader_other.go#L34-L53)
-
-#### 统计收集机制
-
-Loader内置了完整的统计收集机制，实时监控包转发性能指标。
-
-**更新** 增强了统计功能，支持内核模式和用户态模式的性能监控
+- [message.go:9-42](file://pkg/protocol/message.go#L9-L42)
+- [server.go:118-174](file://server/internal/relay/server.go#L118-L174)
 
 **章节来源**
-- [loader_linux.go:84-129](file://server/internal/ebpf/loader_linux.go#L84-L129)
-- [loader_other.go:52-75](file://server/internal/ebpf/loader_other.go#L52-L75)
-
-### 隧道管理器
-
-隧道管理器是桌面端的核心组件，负责协调多个隧道实例的生命周期管理。
-
-#### 连接管理流程
-
-```mermaid
-sequenceDiagram
-participant UI as 用户界面
-participant APP as 应用程序
-participant MANAGER as Manager
-participant SERVER as 服务器
-participant TUNNEL as 隧道实例
-UI->>APP : StartTunnel()
-APP->>MANAGER : AddTunnel()
-MANAGER->>SERVER : 发送NewProxy消息
-SERVER-->>MANAGER : 返回NewProxyResp
-alt 注册成功
-MANAGER->>TUNNEL : 设置远程端口
-MANAGER->>TUNNEL : 更新状态为Active
-else 注册失败
-MANAGER->>TUNNEL : 更新状态为Error
-end
-Note over SERVER,TUNNEL : 数据传输阶段
-SERVER->>MANAGER : 发送StartWorkConn
-MANAGER->>TUNNEL : handleStartWorkConn()
-TUNNEL->>SERVER : 建立工作连接
-TUNNEL->>TUNNEL : 桥接数据流
-```
-
-**图表来源**
-- [manager.go:94-141](file://desktop/internal/tunnel/manager.go#L94-L141)
-- [tunnel.go:38-85](file://desktop/internal/tunnel/tunnel.go#L38-L85)
-
-**章节来源**
-- [manager.go:94-247](file://desktop/internal/tunnel/manager.go#L94-L247)
-- [tunnel.go:38-124](file://desktop/internal/tunnel/tunnel.go#L38-L124)
-
-### 前端状态管理
-
-前端使用Pinia进行状态管理，提供了响应式的用户界面更新机制。
-
-#### 状态流转
-
-```mermaid
-stateDiagram-v2
-[*] --> Disconnected
-Disconnected --> Connecting : connectServer()
-Connecting --> Connected : 连接成功
-Connecting --> Disconnected : 连接失败
-Connected --> Running : 启动隧道
-Running --> Stopped : 停止隧道
-Running --> Disconnected : 断开连接
-Stopped --> Running : 重新启动
-Stopped --> Disconnected : 断开连接
-Disconnected --> [*]
-```
-
-**图表来源**
-- [tunnel.ts:36-199](file://desktop/frontend/src/stores/tunnel.ts#L36-L199)
-
-**章节来源**
-- [tunnel.ts:36-199](file://desktop/frontend/src/stores/tunnel.ts#L36-L199)
+- [message.go:9-42](file://pkg/protocol/message.go#L9-L42)
+- [server.go:118-174](file://server/internal/relay/server.go#L118-L174)
 
 ## 依赖关系分析
 
-系统采用模块化设计，各组件之间的依赖关系清晰明确。
+NexTunnel项目的依赖关系体现了清晰的分层架构：
 
 ```mermaid
 graph TB
 subgraph "外部依赖"
-GO1[Go标准库]
-NET[网络库]
-SYNC[并发库]
-LOG[日志库]
+Go[Go 1.25]
+Wails[Wails v2]
+Vue[Vue 3 + Vite]
+SQLite[SQLite]
+BPF[eBPF]
 end
 subgraph "内部模块"
-EBPF[server/internal/ebpf]
-TUNNEL[desktop/internal/tunnel]
-PROTOCOL[pkg/protocol]
-TYPES[pkg/types]
+Desktop[desktop/]
+Server[server/]
+Pkg[pkg/]
 end
-subgraph "应用层"
-DESKTOP[desktop]
-SERVER[server]
+subgraph "桌面端依赖"
+Desktop --> Wails
+Desktop --> Vue
+Desktop --> SQLite
+Desktop --> Pkg
 end
-EBPF --> PROTOCOL
-EBPF --> TYPES
-TUNNEL --> PROTOCOL
-TUNNEL --> TYPES
-DESKTOP --> TUNNEL
-SERVER --> EBPF
-SERVER --> PROTOCOL
-PROTOCOL --> NET
-PROTOCOL --> SYNC
-PROTOCOL --> LOG
-EBPF --> GO1
-TUNNEL --> GO1
+subgraph "服务端依赖"
+Server --> Go
+Server --> BPF
+Server --> Pkg
+end
+subgraph "公共包依赖"
+Pkg --> Go
+end
+Desktop -.->|IPC通信| Server
+Pkg -.->|协议定义| Desktop
+Pkg -.->|协议定义| Server
 ```
 
 **图表来源**
-- [forwarder.go:3-8](file://server/internal/ebpf/forwarder.go#L3-L8)
-- [tunnel.go:3-14](file://desktop/internal/tunnel/tunnel.go#L3-L14)
+- [README.md:22-35](file://README.md#L22-L35)
+- [main.go:3-10](file://desktop/main.go#L3-L10)
 
 **章节来源**
-- [forwarder.go:3-8](file://server/internal/ebpf/forwarder.go#L3-L8)
-- [tunnel.go:3-14](file://desktop/internal/tunnel/tunnel.go#L3-L14)
+- [README.md:22-35](file://README.md#L22-L35)
+- [main.go:3-10](file://desktop/main.go#L3-L10)
 
 ## 性能考虑
 
-### eBPF性能优化
+### eBPF加速优势
 
-系统通过以下方式优化eBPF包转发性能：
+eBPF内核加速相比传统用户空间转发具有显著优势：
 
-1. **零拷贝优化**：利用eBPF的xdp_md结构体减少内存拷贝
-2. **批量处理**：支持批量数据包处理提高吞吐量
-3. **缓存策略**：规则匹配结果缓存减少重复计算
-4. **原子操作**：使用原子操作保证并发安全
-5. **优先级排序**：规则按优先级排序，减少匹配时间
-6. **协议过滤**：支持TCP和UDP协议精确过滤
+1. **零拷贝转发**：数据包直接在内核空间处理，避免用户空间和内核空间之间的数据拷贝
+2. **硬件卸载支持**：现代网卡支持硬件XDP卸载，进一步提升性能
+3. **CPU亲和性**：可以利用CPU亲和性和NUMA拓扑优化
+4. **统计信息收集**：内核级统计信息收集，减少用户空间开销
 
-### 内存管理
+### 优雅降级机制
 
-- 使用sync.Pool复用临时对象
-- 原子计数器避免锁竞争
-- 及时释放不再使用的资源
+系统实现了完善的降级机制，确保在各种环境下都能正常运行：
 
-### 网络优化
+```mermaid
+flowchart TD
+CheckPlatform["检查平台支持"] --> PlatformCheck{"Linux平台?"}
+PlatformCheck --> |是| CheckEBPF{"eBPF可用?"}
+PlatformCheck --> |否| UseUserspace["使用用户空间转发"]
+CheckEBPF --> |是| LoadEBPF["加载eBPF程序"]
+CheckEBPF --> |否| UseUserspace
+LoadEBPF --> UseKernel["使用内核转发"]
+UseUserspace --> Monitor["监控性能指标"]
+UseKernel --> Monitor
+Monitor --> Performance{"性能满足要求?"}
+Performance --> |是| Continue["继续当前模式"]
+Performance --> |否| SwitchMode["切换转发模式"]
+SwitchMode --> CheckEBPF
+```
 
-- 连接池复用TCP连接
-- 异步I/O操作避免阻塞
-- 流量控制防止拥塞
-
-**更新** 增强了性能优化措施，包括优先级排序和协议过滤优化
+**图表来源**
+- [loader_linux.go:36-55](file://server/internal/ebpf/loader_linux.go#L36-L55)
+- [loader_other.go:34-39](file://server/internal/ebpf/loader_other.go#L34-L39)
 
 ## 故障排除指南
 
 ### 常见问题诊断
 
-#### eBPF加载失败
+1. **eBPF加载失败**
+   - 检查内核版本是否支持eBPF
+   - 验证是否有足够的权限加载eBPF程序
+   - 确认网络接口名称正确
 
-**症状**：系统无法加载eBPF程序，自动降级到用户态模式
+2. **隧道连接问题**
+   - 检查防火墙设置
+   - 验证认证令牌配置
+   - 确认服务器地址可达
 
-**可能原因**：
-- 内核版本过低
-- 权限不足
-- 系统配置限制
-- 平台不支持eBPF
-
-**解决方案**：
-1. 检查内核版本是否支持eBPF
-2. 确认应用程序具有足够的权限
-3. 查看系统日志获取详细错误信息
-4. 在非Linux平台会自动使用用户态模式
-
-#### 隧道连接异常
-
-**症状**：隧道无法正常建立或频繁断开
-
-**诊断步骤**：
-1. 检查服务器连接状态
-2. 验证隧道配置参数
-3. 查看网络连通性
-4. 检查防火墙设置
-
-#### 性能问题
-
-**症状**：包转发延迟过高或吞吐量不足
-
-**排查方法**：
-1. 监控eBPF统计信息
-2. 检查规则匹配效率
-3. 分析系统资源使用情况
-4. 优化规则配置
-5. 检查协议过滤设置
-
-#### 规则匹配问题
-
-**症状**：数据包未按预期规则处理
-
-**诊断步骤**：
-1. 检查规则优先级设置
-2. 验证协议类型配置（TCP/UDP）
-3. 确认端口和IP匹配规则
-4. 查看规则匹配日志
-
-**更新** 新增了规则匹配问题的诊断步骤
+3. **性能问题**
+   - 监控eBPF统计信息
+   - 检查内核版本和驱动支持
+   - 验证硬件卸载功能
 
 **章节来源**
-- [loader_linux.go:36-60](file://server/internal/ebpf/loader_linux.go#L36-L60)
-- [manager.go:94-141](file://desktop/internal/tunnel/manager.go#L94-L141)
+- [loader_linux.go:36-55](file://server/internal/ebpf/loader_linux.go#L36-L55)
+- [manager.go:119-122](file://desktop/internal/tunnel/manager.go#L119-L122)
+
+### 日志分析
+
+系统提供了详细的日志记录机制，便于问题诊断：
+
+- **eBPF模块**：记录程序加载、卸载、错误等关键事件
+- **隧道管理器**：记录连接状态变化、错误重连等信息
+- **协议处理**：记录消息收发、解析错误等细节
 
 ## 结论
 
-NexTunnel eBPF包转发系统是一个设计精良的高性能网络解决方案。通过将eBPF内核加速与用户态软件转发相结合，系统在保证跨平台兼容性的同时实现了卓越的性能表现。
+NexTunnel项目展现了现代网络工具的设计理念和技术实现。通过eBPF内核加速、优雅降级机制和模块化架构，系统在保证兼容性的同时提供了高性能的网络转发能力。
 
-### 主要优势
+**主要特点**：
+1. **内核级加速**：利用eBPF/XDP实现高性能包转发
+2. **平台无关性**：在非Linux平台优雅降级到用户空间
+3. **模块化设计**：清晰的分层架构便于维护和扩展
+4. **智能调度**：为未来的P2P直连和智能调度预留接口
 
-1. **高性能**：eBPF内核模式提供接近原生的包转发性能
-2. **高可用**：自动降级机制确保系统稳定性
-3. **易用性**：简洁的API和直观的用户界面
-4. **可扩展性**：模块化设计支持功能扩展和定制
-5. **智能化**：支持高级规则匹配和优先级机制
-6. **协议支持**：完整的TCP和UDP协议过滤能力
-
-### 技术特色
-
-- 完整的跨平台支持
-- 实时性能监控和统计
-- 灵活的规则匹配机制
-- 响应式的用户界面
-- **新增**：智能优先级匹配系统
-- **新增**：精确的协议过滤支持
-
-该系统为现代网络应用提供了可靠的基础设施，适用于各种场景下的数据传输需求。
-
-**更新** 本次更新重点反映了新增的eBPF包转发系统功能，包括高级数据包转发规则、优先级匹配机制、TCP和UDP协议过滤支持，以及内核模式集成和用户态回退机制。这些新特性显著提升了系统的灵活性和性能表现。
+**未来发展方向**：
+- 完善P2P直连功能和TUN/IPAM实现
+- 实现智能调度算法和路径切换
+- 增强安全机制和认证体系
+- 优化性能监控和运维管理

@@ -1,486 +1,865 @@
 <template>
-  <div class="server-shell">
-    <div
-      class="network-background"
-      aria-hidden="true"
-    />
-
-    <aside class="console-sidebar">
-      <div class="brand-block">
+  <div class="dashboard-shell">
+    <aside class="sidebar">
+      <div class="brand">
         <div class="brand-mark">
           NT
         </div>
         <div>
-          <p class="brand-name">
-            NexTunnel
-          </p>
-          <p class="brand-caption">
-            Server Console
-          </p>
+          <strong>NexTunnel</strong>
+          <span>Server Dashboard</span>
         </div>
       </div>
 
       <nav
-        class="sidebar-nav"
-        aria-label="Server navigation"
+        class="nav-list"
+        aria-label="Dashboard navigation"
       >
-        <a
-          class="nav-item active"
-          href="#overview"
-        >
-          <span class="nav-code">01</span>
-          <span>Overview</span>
-        </a>
-        <a
-          class="nav-item"
-          href="#relays"
-        >
-          <span class="nav-code">02</span>
-          <span>Relay Nodes</span>
-        </a>
-        <span class="nav-item disabled">
-          <span class="nav-code">03</span>
-          <span>Access Control</span>
-          <span class="nav-badge">Coming soon</span>
-        </span>
-        <span class="nav-item disabled">
-          <span class="nav-code">04</span>
-          <span>Audit Stream</span>
-          <span class="nav-badge">Coming soon</span>
-        </span>
+        <a href="#overview">总览</a>
+        <a href="#nodes">节点</a>
+        <a href="#traffic">流量</a>
+        <a href="#acl">ACL</a>
+        <a href="#alerts">告警</a>
       </nav>
 
-      <div class="sidebar-status">
-        <span class="status-dot" />
+      <div class="sidebar-health">
+        <span
+          class="health-dot"
+          :class="healthStatusClass"
+        />
         <div>
-          <strong>Control Plane</strong>
-          <p>Visual prototype only</p>
+          <strong>API {{ healthStatus }}</strong>
+          <span>{{ lastRefreshLabel }}</span>
         </div>
       </div>
     </aside>
 
-    <main class="console-main">
-      <header class="console-header">
-        <div>
-          <p class="header-kicker">
-            Server Management Web
-          </p>
-          <h1>Global relay operations and control-plane readiness.</h1>
-        </div>
-        <div class="header-actions">
-          <button
-            class="btn btn-secondary"
-            disabled
-          >
-            Sync API
-          </button>
-          <button
-            class="btn"
-            disabled
-          >
-            Deploy Relay
-          </button>
-        </div>
-      </header>
-
+    <main class="main">
       <section
-        id="overview"
-        class="overview-grid"
+        v-if="!isAuthenticated"
+        class="login-surface"
       >
-        <article
-          v-for="metric in metrics"
-          :key="metric.label"
-          class="metric-card"
-        >
-          <span>{{ metric.label }}</span>
-          <strong>{{ metric.value }}</strong>
-          <p>{{ metric.detail }}</p>
-        </article>
-      </section>
-
-      <section class="map-panel">
-        <div class="panel-header">
+        <div class="login-panel">
           <div>
-            <span class="panel-kicker">Topology</span>
-            <h2>Relay mesh preview</h2>
+            <p class="eyebrow">
+              Dashboard Login
+            </p>
+            <h1>登录管理控制台</h1>
+            <p class="login-copy">
+              使用后端 Dashboard 管理员账户访问节点、流量、ACL 和告警数据。
+            </p>
           </div>
-          <span class="planned-pill">API wiring planned</span>
-        </div>
 
-        <div
-          class="world-map"
-          aria-label="Global relay topology preview"
-        >
-          <div class="route route-primary" />
-          <div class="route route-secondary" />
-          <div class="route route-tertiary" />
-          <span
-            v-for="node in topologyNodes"
-            :key="node.name"
-            class="map-node"
-            :class="node.className"
+          <form
+            class="login-form"
+            @submit.prevent="handleLogin"
           >
-            {{ node.name }}
-          </span>
-        </div>
-      </section>
-
-      <section
-        id="relays"
-        class="content-grid"
-      >
-        <div class="panel relay-panel">
-          <div class="panel-header">
-            <div>
-              <span class="panel-kicker">Relays</span>
-              <h2>Node fleet</h2>
-            </div>
-            <span class="planned-pill">Static data</span>
-          </div>
-
-          <div class="relay-list">
-            <article
-              v-for="node in relayNodes"
-              :key="node.id"
-              class="relay-item"
-            >
-              <div>
-                <strong>{{ node.name }}</strong>
-                <p>{{ node.region }} · {{ node.endpoint }}</p>
-              </div>
-              <div class="relay-stats">
-                <span>{{ node.clients }} clients</span>
-                <span>{{ node.throughput }}</span>
-              </div>
-              <span
-                class="node-state"
-                :class="node.stateClass"
-              >{{ node.state }}</span>
-            </article>
-          </div>
-        </div>
-
-        <div class="panel health-panel">
-          <div class="panel-header">
-            <div>
-              <span class="panel-kicker">Control Plane</span>
-              <h2>Service readiness</h2>
-            </div>
-          </div>
-
-          <div class="service-list">
-            <div
-              v-for="service in services"
-              :key="service.name"
-              class="service-item"
-            >
-              <span
-                class="service-dot"
-                :class="service.stateClass"
-              />
-              <div>
-                <strong>{{ service.name }}</strong>
-                <p>{{ service.detail }}</p>
-              </div>
-              <span class="service-state">{{ service.state }}</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="content-grid lower-grid">
-        <div class="panel acl-panel">
-          <div class="panel-header">
-            <div>
-              <span class="panel-kicker">Security</span>
-              <h2>ACL and token posture</h2>
-            </div>
+            <label>
+              用户名
+              <input
+                v-model.trim="loginForm.username"
+                autocomplete="username"
+                type="text"
+              >
+            </label>
+            <label>
+              密码
+              <input
+                v-model="loginForm.password"
+                autocomplete="current-password"
+                type="password"
+              >
+            </label>
             <button
-              class="btn btn-secondary btn-sm"
-              disabled
+              class="btn primary"
+              type="submit"
+              :disabled="isSubmitting"
             >
-              Configure
+              {{ isSubmitting ? '登录中' : '登录' }}
+            </button>
+          </form>
+
+          <p
+            v-if="errorMessage"
+            class="message error"
+          >
+            {{ errorMessage }}
+          </p>
+        </div>
+      </section>
+
+      <template v-else>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">
+              生产控制台
+            </p>
+            <h1>全球加速运行面板</h1>
+          </div>
+          <div class="topbar-actions">
+            <span class="user-chip">{{ activeUserLabel }}</span>
+            <button
+              class="btn secondary"
+              type="button"
+              :disabled="isLoading"
+              @click="refreshDashboard"
+            >
+              {{ isLoading ? '刷新中' : '刷新' }}
+            </button>
+            <button
+              class="btn ghost"
+              type="button"
+              @click="handleLogout"
+            >
+              退出
             </button>
           </div>
+        </header>
 
-          <div class="acl-summary">
-            <div
-              v-for="item in aclItems"
-              :key="item.label"
-              class="acl-item"
-            >
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              <p>{{ item.detail }}</p>
-            </div>
-          </div>
-        </div>
+        <p
+          v-if="errorMessage"
+          class="message error"
+        >
+          {{ errorMessage }}
+        </p>
+        <p
+          v-if="successMessage"
+          class="message success"
+        >
+          {{ successMessage }}
+        </p>
 
-        <div class="panel alert-panel">
-          <div class="panel-header">
-            <div>
-              <span class="panel-kicker">Alerts</span>
-              <h2>Operational timeline</h2>
-            </div>
-            <span class="planned-pill">Read-only</span>
-          </div>
+        <section
+          id="overview"
+          class="metric-grid"
+          aria-label="Dashboard metrics"
+        >
+          <article
+            v-for="metric in metrics"
+            :key="metric.label"
+            class="metric-card"
+          >
+            <span>{{ metric.label }}</span>
+            <strong>{{ metric.value }}</strong>
+            <p>{{ metric.detail }}</p>
+          </article>
+        </section>
 
-          <div class="alert-list">
-            <div
-              v-for="alert in alerts"
-              :key="alert.title"
-              class="alert-item"
-            >
-              <span class="alert-time">{{ alert.time }}</span>
+        <section class="layout-grid">
+          <article
+            id="nodes"
+            class="panel map-panel"
+          >
+            <div class="panel-header">
               <div>
-                <strong>{{ alert.title }}</strong>
-                <p>{{ alert.detail }}</p>
+                <p class="eyebrow">
+                  节点地图
+                </p>
+                <h2>区域分布与在线状态</h2>
+              </div>
+              <select
+                v-model="selectedRegion"
+                class="select-control"
+                aria-label="筛选区域"
+              >
+                <option
+                  v-for="region in regionOptions"
+                  :key="region"
+                  :value="region"
+                >
+                  {{ region }}
+                </option>
+              </select>
+            </div>
+
+            <div
+              class="node-map"
+              aria-label="节点区域地图"
+            >
+              <span
+                v-for="(node, index) in filteredNodes"
+                :key="node.node_id"
+                class="map-dot"
+                :class="node.online ? 'online' : 'offline'"
+                :style="nodePosition(node, index)"
+                :title="`${node.node_id} · ${node.region}`"
+              />
+            </div>
+
+            <div class="node-table compact">
+              <button
+                v-for="node in filteredNodes"
+                :key="node.node_id"
+                class="node-row"
+                type="button"
+                :class="{ selected: selectedNodeID === node.node_id }"
+                @click="selectNode(node.node_id)"
+              >
+                <span
+                  class="status-pill"
+                  :class="node.online ? 'online' : 'offline'"
+                >
+                  {{ statusLabel(node.online) }}
+                </span>
+                <strong>{{ node.node_id }}</strong>
+                <span>{{ node.region || '未分区' }}</span>
+                <span>{{ formatRelativeTime(node.last_seen) }}</span>
+              </button>
+            </div>
+          </article>
+
+          <article
+            id="traffic"
+            class="panel traffic-panel"
+          >
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">
+                  流量
+                </p>
+                <h2>节点带宽分布</h2>
+              </div>
+              <span class="panel-count">{{ trafficBars.length }} 条样本</span>
+            </div>
+
+            <div class="traffic-bars">
+              <div
+                v-for="bar in trafficBars"
+                :key="bar.label"
+                class="traffic-row"
+              >
+                <div class="traffic-label">
+                  <strong>{{ bar.label }}</strong>
+                  <span>{{ bar.detail }}</span>
+                </div>
+                <div
+                  class="bar-track"
+                  aria-hidden="true"
+                >
+                  <span
+                    class="rx-bar"
+                    :style="{ width: `${bar.rxPercent}%` }"
+                  />
+                  <span
+                    class="tx-bar"
+                    :style="{ width: `${bar.txPercent}%` }"
+                  />
+                </div>
               </div>
             </div>
+          </article>
+        </section>
+
+        <section class="panel node-detail-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">
+                节点清单
+              </p>
+              <h2>Relay 节点管理</h2>
+            </div>
           </div>
-        </div>
-      </section>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>节点</th>
+                  <th>区域</th>
+                  <th>NAT</th>
+                  <th>接收</th>
+                  <th>发送</th>
+                  <th>最后心跳</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="node in filteredNodes"
+                  :key="node.node_id"
+                >
+                  <td>
+                    <span
+                      class="status-pill"
+                      :class="node.online ? 'online' : 'offline'"
+                    >
+                      {{ statusLabel(node.online) }}
+                    </span>
+                    <strong>{{ node.node_id }}</strong>
+                  </td>
+                  <td>{{ node.region || '未分区' }}</td>
+                  <td>{{ node.nat_type || '未知' }}</td>
+                  <td>{{ formatBytes(node.rx_bytes) }}</td>
+                  <td>{{ formatBytes(node.tx_bytes) }}</td>
+                  <td>{{ formatRelativeTime(node.last_seen) }}</td>
+                  <td>
+                    <button
+                      class="btn danger compact-btn"
+                      type="button"
+                      @click="removeNode(node.node_id)"
+                    >
+                      删除
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="layout-grid">
+          <article
+            id="acl"
+            class="panel acl-panel"
+          >
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">
+                  访问控制
+                </p>
+                <h2>ACL 规则</h2>
+              </div>
+              <span class="panel-count">{{ snapshot.aclRules.length }} 条规则</span>
+            </div>
+
+            <form
+              class="acl-form"
+              @submit.prevent="submitACLRule"
+            >
+              <label>
+                来源
+                <input
+                  v-model.trim="aclForm.source"
+                  placeholder="node-a 或 *"
+                  type="text"
+                >
+              </label>
+              <label>
+                目标
+                <input
+                  v-model.trim="aclForm.target"
+                  placeholder="node-b 或 10.0.0.0/24"
+                  type="text"
+                >
+              </label>
+              <label>
+                协议
+                <select v-model="aclForm.protocol">
+                  <option value="tcp">TCP</option>
+                  <option value="udp">UDP</option>
+                  <option value="icmp">ICMP</option>
+                  <option value="any">ANY</option>
+                </select>
+              </label>
+              <label>
+                动作
+                <select v-model="aclForm.action">
+                  <option value="allow">允许</option>
+                  <option value="deny">拒绝</option>
+                </select>
+              </label>
+              <label>
+                优先级
+                <input
+                  v-model.number="aclForm.priority"
+                  min="0"
+                  step="1"
+                  type="number"
+                >
+              </label>
+              <label class="checkbox-label">
+                <input
+                  v-model="aclForm.enabled"
+                  type="checkbox"
+                >
+                启用
+              </label>
+              <button
+                class="btn primary"
+                type="submit"
+                :disabled="isSubmitting"
+              >
+                添加规则
+              </button>
+            </form>
+
+            <div class="acl-list">
+              <div
+                v-for="rule in sortedACLRules"
+                :key="rule.id"
+                class="acl-row"
+              >
+                <span
+                  class="status-pill"
+                  :class="rule.enabled ? 'online' : 'offline'"
+                >
+                  {{ rule.enabled ? '启用' : '停用' }}
+                </span>
+                <strong>{{ rule.source }} → {{ rule.target }}</strong>
+                <span>{{ rule.protocol.toUpperCase() }} · {{ aclActionLabel(rule.action) }} · P{{ rule.priority }}</span>
+                <button
+                  class="btn ghost compact-btn"
+                  type="button"
+                  @click="removeACLRule(rule.id)"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <article
+            id="alerts"
+            class="panel alert-panel"
+          >
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">
+                  告警
+                </p>
+                <h2>待处理事件</h2>
+              </div>
+              <span class="panel-count">{{ unackedAlerts.length }} 未确认</span>
+            </div>
+
+            <div class="alert-list">
+              <div
+                v-for="alert in recentAlerts"
+                :key="alert.id"
+                class="alert-row"
+              >
+                <span
+                  class="severity"
+                  :class="severityClass(alert.level)"
+                >
+                  {{ alert.level }}
+                </span>
+                <div>
+                  <strong>{{ alert.rule_name || alert.message }}</strong>
+                  <p>{{ alert.message }}</p>
+                  <span>{{ alert.node_id || 'global' }} · {{ formatDateTime(alert.created_at) }}</span>
+                </div>
+                <button
+                  class="btn secondary compact-btn"
+                  type="button"
+                  :disabled="alert.acked"
+                  @click="ackAlert(alert.id)"
+                >
+                  {{ alert.acked ? '已确认' : '确认' }}
+                </button>
+              </div>
+            </div>
+          </article>
+        </section>
+      </template>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-interface MetricItem {
-  label: string
-  value: string
-  detail: string
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import {
+  acknowledgeAlert,
+  clearStoredToken,
+  createACLRule,
+  deleteACLRule,
+  deleteNode,
+  fetchDashboardSnapshot,
+  fetchHealth,
+  login,
+  readStoredToken,
+} from './api'
+import { formatBandwidth, formatBytes, formatDateTime, formatNumber, formatRelativeTime, statusLabel } from './formatters'
+import type { ACLFormState, ACLRuleView, DashboardSnapshot, NodeStatus, TrafficStats, User } from './types'
+
+const REFRESH_INTERVAL_MS = 30_000
+const ALL_REGIONS = '全部区域'
+const DEFAULT_ACL_ACTION = 'allow'
+const DEFAULT_ACL_PROTOCOL = 'tcp'
+const MAP_FALLBACK_TOP_OFFSET = 16
+const MAP_FALLBACK_LEFT_OFFSET = 12
+
+const REGION_COORDINATES: Record<string, { left: number; top: number }> = {
+  'us-east': { left: 27, top: 38 },
+  'us-west': { left: 17, top: 42 },
+  'eu-central': { left: 50, top: 35 },
+  'ap-southeast': { left: 73, top: 58 },
+  'ap-northeast': { left: 80, top: 41 },
+  'sa-east': { left: 38, top: 72 },
 }
 
-interface TopologyNode {
-  name: string
-  className: string
+const createEmptySnapshot = (): DashboardSnapshot => ({
+  nodes: [],
+  stats: [],
+  aclRules: [],
+  alerts: [],
+  users: [],
+})
+
+const createEmptyACLForm = (): ACLFormState => ({
+  source: '*',
+  target: '',
+  action: DEFAULT_ACL_ACTION,
+  protocol: DEFAULT_ACL_PROTOCOL,
+  priority: 100,
+  enabled: true,
+})
+
+const token = ref(readStoredToken())
+const authUser = ref<User | null>(null)
+const snapshot = ref<DashboardSnapshot>(createEmptySnapshot())
+const selectedRegion = ref(ALL_REGIONS)
+const selectedNodeID = ref('')
+const healthStatus = ref('检测中')
+const lastRefreshAt = ref('')
+const isLoading = ref(false)
+const isSubmitting = ref(false)
+const errorMessage = ref('')
+const successMessage = ref('')
+const loginForm = reactive({ username: 'admin', password: '' })
+const aclForm = reactive<ACLFormState>(createEmptyACLForm())
+let refreshTimer: number | undefined
+
+const isAuthenticated = computed(() => token.value.length > 0)
+
+const healthStatusClass = computed(() => (healthStatus.value === 'ok' ? 'online' : 'offline'))
+
+const activeUserLabel = computed(() => {
+  if (authUser.value) {
+    return `${authUser.value.username} · ${authUser.value.role}`
+  }
+  return '已认证'
+})
+
+const lastRefreshLabel = computed(() => {
+  if (!lastRefreshAt.value) {
+    return '等待首次刷新'
+  }
+  return `上次刷新 ${formatRelativeTime(lastRefreshAt.value)}`
+})
+
+const onlineNodes = computed(() => snapshot.value.nodes.filter((node) => node.online))
+const offlineNodes = computed(() => snapshot.value.nodes.filter((node) => !node.online))
+const unackedAlerts = computed(() => snapshot.value.alerts.filter((alert) => !alert.acked))
+
+const aggregateStats = computed(() => {
+  const initialValue: TrafficStats = {
+    rx_bytes: 0,
+    tx_bytes: 0,
+    rx_bandwidth_bps: 0,
+    tx_bandwidth_bps: 0,
+    connections: 0,
+    timestamp: new Date().toISOString(),
+  }
+
+  return snapshot.value.stats.reduce<TrafficStats>((total, item) => ({
+    ...total,
+    rx_bytes: total.rx_bytes + item.rx_bytes,
+    tx_bytes: total.tx_bytes + item.tx_bytes,
+    rx_bandwidth_bps: total.rx_bandwidth_bps + item.rx_bandwidth_bps,
+    tx_bandwidth_bps: total.tx_bandwidth_bps + item.tx_bandwidth_bps,
+    connections: total.connections + item.connections,
+  }), initialValue)
+})
+
+const metrics = computed(() => [
+  {
+    label: '在线节点',
+    value: `${onlineNodes.value.length}/${snapshot.value.nodes.length}`,
+    detail: `${offlineNodes.value.length} 个离线节点`,
+  },
+  {
+    label: '活跃连接',
+    value: formatNumber(aggregateStats.value.connections),
+    detail: '来自统计 API 的连接总数',
+  },
+  {
+    label: '实时带宽',
+    value: formatBandwidth(aggregateStats.value.rx_bandwidth_bps + aggregateStats.value.tx_bandwidth_bps),
+    detail: `${formatBytes(aggregateStats.value.rx_bytes + aggregateStats.value.tx_bytes)} 累计流量`,
+  },
+  {
+    label: '告警',
+    value: formatNumber(unackedAlerts.value.length),
+    detail: `${snapshot.value.aclRules.length} 条 ACL 规则`,
+  },
+])
+
+const regionOptions = computed(() => {
+  const regions = new Set(snapshot.value.nodes.map((node) => node.region || '未分区'))
+  return [ALL_REGIONS, ...Array.from(regions).sort()]
+})
+
+const filteredNodes = computed(() => {
+  if (selectedRegion.value === ALL_REGIONS) {
+    return snapshot.value.nodes
+  }
+  return snapshot.value.nodes.filter((node) => (node.region || '未分区') === selectedRegion.value)
+})
+
+const sortedACLRules = computed(() => [...snapshot.value.aclRules].sort((a, b) => a.priority - b.priority))
+
+const recentAlerts = computed(() =>
+  [...snapshot.value.alerts]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 8),
+)
+
+const maxBandwidth = computed(() => {
+  const values = snapshot.value.stats.map((item) => item.rx_bandwidth_bps + item.tx_bandwidth_bps)
+  return Math.max(1, ...values)
+})
+
+const trafficBars = computed(() =>
+  snapshot.value.stats.map((item) => {
+    const totalBandwidth = item.rx_bandwidth_bps + item.tx_bandwidth_bps
+    return {
+      label: item.node_id || 'global',
+      detail: `${formatBandwidth(totalBandwidth)} · ${item.connections} 连接`,
+      rxPercent: Math.max(4, Math.round((item.rx_bandwidth_bps / maxBandwidth.value) * 100)),
+      txPercent: Math.max(4, Math.round((item.tx_bandwidth_bps / maxBandwidth.value) * 100)),
+    }
+  }),
+)
+
+const setFeedback = (type: 'error' | 'success', message: string): void => {
+  errorMessage.value = type === 'error' ? message : ''
+  successMessage.value = type === 'success' ? message : ''
 }
 
-interface RelayNode {
-  id: string
-  name: string
-  region: string
-  endpoint: string
-  clients: number
-  throughput: string
-  state: string
-  stateClass: string
+const describeError = (error: unknown): string => (error instanceof Error ? error.message : '未知错误')
+
+const loadHealth = async (): Promise<void> => {
+  try {
+    healthStatus.value = await fetchHealth()
+  } catch {
+    healthStatus.value = '不可用'
+  }
 }
 
-interface ServiceItem {
-  name: string
-  detail: string
-  state: string
-  stateClass: string
+const loadSnapshot = async (): Promise<void> => {
+  if (!token.value) {
+    return
+  }
+
+  isLoading.value = true
+  try {
+    // 所有核心面板共享同一次快照刷新，避免多个组件重复打 API。
+    snapshot.value = await fetchDashboardSnapshot(token.value)
+    lastRefreshAt.value = new Date().toISOString()
+    if (!authUser.value && snapshot.value.users.length > 0) {
+      authUser.value = snapshot.value.users[0]
+    }
+    setFeedback('success', '数据已刷新')
+  } catch (error) {
+    setFeedback('error', `刷新失败：${describeError(error)}`)
+    if (describeError(error).includes('token')) {
+      clearStoredToken()
+      token.value = ''
+    }
+  } finally {
+    isLoading.value = false
+  }
 }
 
-interface SummaryItem {
-  label: string
-  value: string
-  detail: string
+const refreshDashboard = async (): Promise<void> => {
+  await Promise.all([loadHealth(), loadSnapshot()])
 }
 
-interface AlertItem {
-  time: string
-  title: string
-  detail: string
+const handleLogin = async (): Promise<void> => {
+  if (!loginForm.username || !loginForm.password) {
+    setFeedback('error', '请输入用户名和密码')
+    return
+  }
+
+  isSubmitting.value = true
+  try {
+    const response = await login(loginForm.username, loginForm.password)
+    token.value = response.token
+    authUser.value = response.user
+    loginForm.password = ''
+    setFeedback('success', '登录成功')
+    await refreshDashboard()
+  } catch (error) {
+    setFeedback('error', `登录失败：${describeError(error)}`)
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
-const metrics: MetricItem[] = [
-  { label: 'Relay nodes', value: '8', detail: 'Static preview across four regions' },
-  { label: 'Connected clients', value: '1,284', detail: 'Mocked active sessions' },
-  { label: 'Data throughput', value: '12.8 Gbps', detail: 'Aggregated relay traffic view' },
-  { label: 'Open alerts', value: '3', detail: 'No live alert stream connected' },
-]
+const handleLogout = (): void => {
+  clearStoredToken()
+  token.value = ''
+  authUser.value = null
+  snapshot.value = createEmptySnapshot()
+  setFeedback('success', '已退出登录')
+}
 
-const topologyNodes: TopologyNode[] = [
-  { name: 'SFO', className: 'node-sfo' },
-  { name: 'FRA', className: 'node-fra' },
-  { name: 'SIN', className: 'node-sin' },
-  { name: 'NRT', className: 'node-nrt' },
-  { name: 'GRU', className: 'node-gru' },
-]
+const nodePosition = (node: NodeStatus, index: number): Record<string, string> => {
+  const key = node.region.toLowerCase()
+  const knownPosition = REGION_COORDINATES[key]
+  if (knownPosition) {
+    return { left: `${knownPosition.left}%`, top: `${knownPosition.top}%` }
+  }
 
-const relayNodes: RelayNode[] = [
-  {
-    id: 'relay-sfo-01',
-    name: 'relay-sfo-01',
-    region: 'US West',
-    endpoint: 'sfo.relay.nextunnel.local:7000',
-    clients: 312,
-    throughput: '3.1 Gbps',
-    state: 'Healthy',
-    stateClass: 'healthy',
-  },
-  {
-    id: 'relay-fra-02',
-    name: 'relay-fra-02',
-    region: 'EU Central',
-    endpoint: 'fra.relay.nextunnel.local:7000',
-    clients: 418,
-    throughput: '4.4 Gbps',
-    state: 'Healthy',
-    stateClass: 'healthy',
-  },
-  {
-    id: 'relay-sin-01',
-    name: 'relay-sin-01',
-    region: 'AP Southeast',
-    endpoint: 'sin.relay.nextunnel.local:7000',
-    clients: 276,
-    throughput: '2.8 Gbps',
-    state: 'Degraded',
-    stateClass: 'warning',
-  },
-]
+  // 未知区域使用确定性散列位置，保证刷新后节点不会随机跳动。
+  const left = MAP_FALLBACK_LEFT_OFFSET + ((index * 17) % 72)
+  const top = MAP_FALLBACK_TOP_OFFSET + ((index * 23) % 68)
+  return { left: `${left}%`, top: `${top}%` }
+}
 
-const services: ServiceItem[] = [
-  {
-    name: 'Node registry',
-    detail: 'Registration and heartbeat API will bind here.',
-    state: 'Planned',
-    stateClass: 'planned',
-  },
-  {
-    name: 'Peer directory',
-    detail: 'Peer lookup, key exchange and route policy are not wired yet.',
-    state: 'Planned',
-    stateClass: 'planned',
-  },
-  {
-    name: 'Dashboard API',
-    detail: 'Static console shell is ready for authenticated API integration.',
-    state: 'Prototype',
-    stateClass: 'active',
-  },
-  {
-    name: 'QUIC relay',
-    detail: 'Stream telemetry and limits will use the relay transport layer.',
-    state: 'Coming soon',
-    stateClass: 'planned',
-  },
-]
+const selectNode = (nodeID: string): void => {
+  selectedNodeID.value = selectedNodeID.value === nodeID ? '' : nodeID
+}
 
-const aclItems: SummaryItem[] = [
-  { label: 'Token mode', value: 'Bearer', detail: 'Configured in server runtime, not stored in the Web shell' },
-  { label: 'ACL policies', value: '0', detail: 'Policy editor remains disabled until API schema is stable' },
-  { label: 'CORS mode', value: 'Allowlist', detail: 'Expected production posture for the Dashboard API' },
-]
+const buildACLRule = (): ACLRuleView => ({
+  id: `acl-${Date.now()}`,
+  source: aclForm.source,
+  target: aclForm.target,
+  action: aclForm.action,
+  protocol: aclForm.protocol,
+  priority: Number.isFinite(aclForm.priority) ? aclForm.priority : 100,
+  enabled: aclForm.enabled,
+  created_at: new Date().toISOString(),
+})
 
-const alerts: AlertItem[] = [
-  {
-    time: '09:42',
-    title: 'AP Southeast relay latency elevated',
-    detail: 'Mock alert showing how degraded regions will be presented.',
-  },
-  {
-    time: '08:15',
-    title: 'Control Plane API integration pending',
-    detail: 'The page intentionally avoids live calls until authentication is wired.',
-  },
-  {
-    time: 'Yesterday',
-    title: 'Dashboard shell refreshed',
-    detail: 'Visual system aligned with the NexTunnel desktop application.',
-  },
-]
+const submitACLRule = async (): Promise<void> => {
+  if (!aclForm.source || !aclForm.target) {
+    setFeedback('error', 'ACL 来源和目标不能为空')
+    return
+  }
+
+  isSubmitting.value = true
+  try {
+    await createACLRule(token.value, buildACLRule())
+    Object.assign(aclForm, createEmptyACLForm())
+    setFeedback('success', 'ACL 规则已添加')
+    await loadSnapshot()
+  } catch (error) {
+    setFeedback('error', `添加 ACL 失败：${describeError(error)}`)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const removeACLRule = async (ruleID: string): Promise<void> => {
+  try {
+    await deleteACLRule(token.value, ruleID)
+    setFeedback('success', 'ACL 规则已删除')
+    await loadSnapshot()
+  } catch (error) {
+    setFeedback('error', `删除 ACL 失败：${describeError(error)}`)
+  }
+}
+
+const removeNode = async (nodeID: string): Promise<void> => {
+  try {
+    await deleteNode(token.value, nodeID)
+    setFeedback('success', '节点已删除')
+    await loadSnapshot()
+  } catch (error) {
+    setFeedback('error', `删除节点失败：${describeError(error)}`)
+  }
+}
+
+const ackAlert = async (alertID: string): Promise<void> => {
+  try {
+    await acknowledgeAlert(token.value, alertID, authUser.value?.username ?? 'dashboard')
+    setFeedback('success', '告警已确认')
+    await loadSnapshot()
+  } catch (error) {
+    setFeedback('error', `确认告警失败：${describeError(error)}`)
+  }
+}
+
+const aclActionLabel = (action: string): string => (action === 'deny' ? '拒绝' : '允许')
+
+const severityClass = (level: string): string => {
+  const normalizedLevel = level.toLowerCase()
+  if (normalizedLevel === 'critical') {
+    return 'critical'
+  }
+  if (normalizedLevel === 'warning') {
+    return 'warning'
+  }
+  return 'info'
+}
+
+onMounted(() => {
+  void refreshDashboard()
+  refreshTimer = window.setInterval(() => {
+    void refreshDashboard()
+  }, REFRESH_INTERVAL_MS)
+})
+
+onUnmounted(() => {
+  if (refreshTimer !== undefined) {
+    window.clearInterval(refreshTimer)
+  }
+})
 </script>
 
 <style scoped>
 :global(:root) {
-  --nex-cyan: #00ffff;
-  --tunnel-violet: #8a2be2;
-  --data-blue: #0000ff;
-  --neutral-grey: #a8a9a9;
-  --future-white: #feffff;
-  --shell-bg: #eef4fb;
-  --console-bg: #07111f;
-  --console-panel: #0c1b2d;
-  --console-border: rgba(0, 255, 255, 0.16);
-  --console-border-muted: rgba(168, 169, 169, 0.18);
-  --text-primary: #f7fbff;
-  --text-secondary: #9fb2c7;
-  --text-muted: #6f8298;
-  --status-success: #24e6a1;
-  --status-warning: #ffc857;
-  --status-danger: #ff5c7a;
-  --shadow-shell: 0 24px 80px rgba(7, 17, 31, 0.18);
-  --shadow-panel: 0 16px 42px rgba(0, 0, 0, 0.22);
-  --radius-panel: 8px;
-  --radius-shell: 18px;
-  --sidebar-width: 252px;
+  --bg: #f3f6f8;
+  --surface: #ffffff;
+  --surface-muted: #eef3f5;
+  --sidebar: #101820;
+  --sidebar-soft: #172330;
+  --border: #d9e1e5;
+  --border-strong: #b8c5cc;
+  --text: #10202a;
+  --text-muted: #667883;
+  --text-inverse: #edf7fa;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --success: #138a5b;
+  --warning: #b7791f;
+  --danger: #b42318;
+  --info: #2563eb;
+  --radius: 8px;
+  --shadow: 0 14px 40px rgb(16 32 42 / 0.08);
+  --sidebar-width: 248px;
 }
 
 :global(*) {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 :global(body) {
+  margin: 0;
   min-width: 320px;
   min-height: 100dvh;
-  background: var(--shell-bg);
-  color: var(--text-primary);
+  background: var(--bg);
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-:global(button) {
+:global(button),
+:global(input),
+:global(select) {
   font: inherit;
 }
 
-.server-shell {
-  position: relative;
+.dashboard-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  gap: 18px;
   min-height: 100dvh;
-  padding: 18px;
-  overflow: hidden;
 }
 
-.network-background {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background:
-    radial-gradient(circle at 9% 28%, rgba(0, 255, 255, 0.16), transparent 28%),
-    radial-gradient(circle at 78% 14%, rgba(138, 43, 226, 0.16), transparent 30%),
-    linear-gradient(120deg, rgba(255, 255, 255, 0.94), rgba(237, 245, 253, 0.82)),
-    repeating-linear-gradient(35deg, rgba(7, 17, 31, 0.07) 0 1px, transparent 1px 68px);
-}
-
-.network-background::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.42;
-  background-image:
-    linear-gradient(90deg, rgba(9, 39, 70, 0.08) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(9, 39, 70, 0.08) 1px, transparent 1px);
-  background-size: 88px 88px;
-}
-
-.console-sidebar,
-.console-main {
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  background:
-    linear-gradient(180deg, rgba(10, 24, 42, 0.98), rgba(5, 12, 24, 0.98)),
-    var(--console-bg);
-  box-shadow: var(--shadow-shell);
-}
-
-.console-sidebar {
+.sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  min-width: 0;
-  min-height: calc(100dvh - 36px);
-  padding: 18px;
-  border-radius: var(--radius-shell);
+  gap: 24px;
+  height: 100dvh;
+  padding: 20px;
+  background: var(--sidebar);
+  color: var(--text-inverse);
 }
 
-.brand-block {
+.brand {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -488,564 +867,614 @@ const alerts: AlertItem[] = [
 }
 
 .brand-mark {
-  width: 48px;
-  height: 48px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-panel);
-  background: linear-gradient(135deg, var(--nex-cyan), var(--tunnel-violet));
-  color: #05101f;
-  font-size: 18px;
-  font-weight: 900;
-  box-shadow: 0 12px 28px rgba(0, 255, 255, 0.18);
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 850;
 }
 
-.brand-name {
-  font-size: 20px;
-  font-weight: 800;
-  background: linear-gradient(90deg, var(--nex-cyan), var(--tunnel-violet));
-  background-clip: text;
-  color: transparent;
-  overflow-wrap: anywhere;
+.brand strong,
+.brand span,
+.sidebar-health strong,
+.sidebar-health span {
+  display: block;
 }
 
-.brand-caption {
-  margin-top: 3px;
-  color: var(--text-muted);
+.brand span,
+.sidebar-health span {
+  color: #a9bcc6;
   font-size: 12px;
 }
 
-.sidebar-nav {
+.nav-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
-.nav-item {
-  min-height: 42px;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) minmax(0, auto);
+.nav-list a {
+  min-height: 40px;
+  border-radius: var(--radius);
+  color: #d9e8ed;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-panel);
-  color: var(--text-secondary);
-  font-size: 13px;
+  padding: 0 12px;
   text-decoration: none;
 }
 
-.nav-item.active {
-  border-color: var(--console-border);
-  background: linear-gradient(90deg, rgba(0, 255, 255, 0.14), rgba(138, 43, 226, 0.06));
-  color: var(--text-primary);
+.nav-list a:hover {
+  background: var(--sidebar-soft);
 }
 
-.nav-item.disabled {
-  opacity: 0.6;
-}
-
-.nav-code {
-  color: var(--nex-cyan);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
-}
-
-.nav-badge,
-.planned-pill {
-  min-width: 0;
-  max-width: 100%;
-  border: 1px solid rgba(138, 43, 226, 0.28);
-  border-radius: 999px;
-  background: rgba(138, 43, 226, 0.1);
-  color: #d5b7ff;
-  font-size: 11px;
-  line-height: 1;
-  overflow: hidden;
-  padding: 7px 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-status {
+.sidebar-health {
   margin-top: auto;
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 1px solid rgba(0, 255, 255, 0.12);
-  border-radius: var(--radius-panel);
-  background: rgba(0, 255, 255, 0.06);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: var(--radius);
+  background: var(--sidebar-soft);
   padding: 12px;
 }
 
-.status-dot {
+.health-dot,
+.map-dot {
+  border-radius: 999px;
+}
+
+.health-dot {
   width: 8px;
   height: 8px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--status-warning);
-  box-shadow: 0 0 16px var(--status-warning);
+  margin-top: 6px;
+  background: var(--danger);
 }
 
-.sidebar-status strong {
-  font-size: 13px;
+.health-dot.online {
+  background: var(--success);
 }
 
-.sidebar-status p {
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.console-main {
+.main {
   min-width: 0;
-  min-height: calc(100dvh - 36px);
   padding: 22px;
-  border-radius: var(--radius-shell);
-  overflow: auto;
 }
 
-.console-header {
+.topbar {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 18px;
 }
 
-.header-kicker,
-.panel-kicker,
-.metric-card span {
-  color: var(--nex-cyan);
-  font-size: 11px;
-  font-weight: 760;
+.topbar h1,
+.login-panel h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+  line-height: 1.18;
 }
 
-.console-header h1 {
-  max-width: 760px;
-  margin-top: 6px;
-  font-size: 32px;
-  line-height: 1.12;
-}
-
-.header-actions {
+.topbar-actions {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.user-chip,
+.panel-count,
+.status-pill,
+.severity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.user-chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
 .btn {
-  min-height: 40px;
-  border: 1px solid rgba(0, 255, 255, 0.24);
-  border-radius: var(--radius-panel);
-  background: linear-gradient(90deg, var(--nex-cyan), var(--tunnel-violet));
-  color: #04111f;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  padding: 9px 15px;
-  white-space: nowrap;
+  font-weight: 720;
+  padding: 0 14px;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
 }
 
 .btn:disabled {
   cursor: not-allowed;
-  filter: grayscale(0.4);
-  opacity: 0.48;
+  opacity: 0.55;
 }
 
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
-.btn-sm {
-  min-height: 32px;
-  padding: 6px 12px;
+.btn.secondary {
+  border-color: #b7d8d3;
+  background: #e7f4f2;
+  color: var(--accent-strong);
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.danger {
+  border-color: #f0c7c1;
+  background: #fff1f0;
+  color: var(--danger);
+}
+
+.compact-btn {
+  min-height: 30px;
+  padding: 0 10px;
   font-size: 12px;
 }
 
-.overview-grid {
+.message {
+  margin: 0 0 12px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.message.error {
+  border: 1px solid #f0c7c1;
+  background: #fff1f0;
+  color: var(--danger);
+}
+
+.message.success {
+  border: 1px solid #b9decf;
+  background: #eef9f4;
+  color: var(--success);
+}
+
+.login-surface {
+  display: grid;
+  min-height: calc(100dvh - 44px);
+  place-items: center;
+}
+
+.login-panel {
+  width: min(460px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.login-copy {
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.login-form,
+.acl-form {
+  display: grid;
+  gap: 12px;
+}
+
+.login-form label,
+.acl-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+input,
+select,
+.select-control {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+input:focus,
+select:focus,
+.btn:focus-visible {
+  outline: 2px solid #7dd3c7;
+  outline-offset: 2px;
+}
+
+.metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .metric-card,
 .panel {
-  min-width: 0;
-  border: 1px solid var(--console-border-muted);
-  border-radius: var(--radius-panel);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
-    rgba(10, 25, 43, 0.92);
-  box-shadow: var(--shadow-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 118px;
+  min-height: 112px;
   padding: 16px;
 }
 
+.metric-card span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 740;
+}
+
 .metric-card strong {
-  color: var(--text-primary);
+  display: block;
+  margin-top: 10px;
   font-size: 26px;
   line-height: 1.1;
 }
 
 .metric-card p {
+  margin: 8px 0 0;
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.45;
 }
 
-.map-panel,
+.layout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
 .panel {
-  padding: 18px;
-}
-
-.map-panel {
   min-width: 0;
-  border: 1px solid var(--console-border-muted);
-  border-radius: var(--radius-panel);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
-    rgba(10, 25, 43, 0.92);
-  box-shadow: var(--shadow-panel);
-  margin-bottom: 16px;
+  padding: 16px;
 }
 
 .panel-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 14px;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .panel-header h2 {
-  margin-top: 5px;
-  color: var(--text-primary);
+  margin: 4px 0 0;
   font-size: 18px;
-  line-height: 1.2;
 }
 
-.world-map {
+.panel-count {
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.node-map {
   position: relative;
-  width: 100%;
-  min-width: 0;
-  min-height: 360px;
-  border: 1px solid rgba(0, 255, 255, 0.12);
-  border-radius: var(--radius-panel);
+  min-height: 300px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   background:
-    radial-gradient(ellipse at 28% 46%, rgba(122, 151, 177, 0.34) 0 12%, transparent 13%),
-    radial-gradient(ellipse at 50% 39%, rgba(122, 151, 177, 0.28) 0 15%, transparent 16%),
-    radial-gradient(ellipse at 72% 50%, rgba(122, 151, 177, 0.28) 0 13%, transparent 14%),
-    radial-gradient(ellipse at 55% 68%, rgba(122, 151, 177, 0.18) 0 6%, transparent 7%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 52px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 52px),
-    linear-gradient(120deg, rgba(0, 0, 255, 0.14), rgba(0, 255, 255, 0.06), rgba(138, 43, 226, 0.12));
+    linear-gradient(90deg, rgb(16 32 42 / 0.05) 1px, transparent 1px),
+    linear-gradient(0deg, rgb(16 32 42 / 0.05) 1px, transparent 1px),
+    linear-gradient(180deg, #f9fbfc, #edf4f6);
+  background-size: 56px 56px, 56px 56px, auto;
   overflow: hidden;
 }
 
-.route {
+.node-map::before {
+  content: '';
   position: absolute;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, var(--nex-cyan), var(--tunnel-violet), transparent);
-  transform-origin: left center;
+  inset: 18% 12%;
+  border-radius: 50%;
+  border: 1px dashed rgb(15 118 110 / 0.25);
 }
 
-.route-primary {
-  width: 48%;
-  left: 18%;
-  top: 48%;
-  transform: rotate(-8deg);
-}
-
-.route-secondary {
-  width: 35%;
-  left: 46%;
-  top: 47%;
-  transform: rotate(18deg);
-}
-
-.route-tertiary {
-  width: 42%;
-  left: 25%;
-  top: 64%;
-  transform: rotate(12deg);
-}
-
-.map-node {
+.map-dot {
   position: absolute;
+  width: 15px;
+  height: 15px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 4px rgb(19 138 91 / 0.12);
+}
+
+.map-dot.online {
+  background: var(--success);
+}
+
+.map-dot.offline {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgb(180 35 24 / 0.12);
+}
+
+.node-table.compact {
   display: grid;
-  place-items: center;
-  min-width: 58px;
-  border: 1px solid rgba(0, 255, 255, 0.28);
-  border-radius: 999px;
-  background: rgba(8, 22, 39, 0.94);
-  color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  font-weight: 800;
-  padding: 8px 11px;
-  box-shadow: 0 0 30px rgba(0, 255, 255, 0.16);
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.node-sfo {
-  left: 18%;
-  top: 43%;
-}
-
-.node-fra {
-  left: 48%;
-  top: 36%;
-}
-
-.node-sin {
-  right: 20%;
-  bottom: 25%;
-}
-
-.node-nrt {
-  right: 12%;
-  top: 39%;
-}
-
-.node-gru {
-  left: 35%;
-  bottom: 20%;
-}
-
-.content-grid {
+.node-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.lower-grid {
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-}
-
-.relay-list,
-.service-list,
-.alert-list {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: 72px minmax(0, 1fr) 120px 110px;
   gap: 10px;
-}
-
-.relay-item,
-.service-item,
-.alert-item,
-.acl-item {
-  border: 1px solid rgba(168, 169, 169, 0.14);
-  border-radius: var(--radius-panel);
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.relay-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 14px;
   align-items: center;
-  padding: 13px;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 10px;
+  text-align: left;
 }
 
-.relay-item strong,
-.service-item strong,
-.alert-item strong {
-  color: var(--text-primary);
+.node-row.selected {
+  border-color: var(--accent);
+  background: #effaf8;
+}
+
+.status-pill.online {
+  background: #e9f7f1;
+  color: var(--success);
+}
+
+.status-pill.offline {
+  background: #fff1f0;
+  color: var(--danger);
+}
+
+.traffic-bars {
+  display: grid;
+  gap: 14px;
+}
+
+.traffic-row {
+  display: grid;
+  gap: 8px;
+}
+
+.traffic-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.traffic-label strong {
+  color: var(--text);
+}
+
+.bar-track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.rx-bar,
+.tx-bar {
+  position: absolute;
+  inset-block: 0;
+  border-radius: 999px;
+}
+
+.rx-bar {
+  left: 0;
+  background: var(--accent);
+}
+
+.tx-bar {
+  right: 0;
+  background: #7c8a93;
+  opacity: 0.62;
+}
+
+.node-detail-panel {
+  margin-bottom: 14px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 10px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+th {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+td {
   font-size: 13px;
 }
 
-.relay-item p,
-.service-item p,
-.alert-item p,
-.acl-item p {
-  margin-top: 4px;
+td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acl-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.checkbox-label input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.acl-list,
+.alert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.acl-row,
+.alert-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  padding: 10px;
+}
+
+.acl-row {
+  grid-template-columns: 72px minmax(0, 1fr) minmax(160px, auto) auto;
+}
+
+.acl-row strong,
+.acl-row span,
+.alert-row strong,
+.alert-row span,
+.alert-row p {
+  overflow-wrap: anywhere;
+}
+
+.alert-row {
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+}
+
+.alert-row p {
+  margin: 4px 0;
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.45;
 }
 
-.relay-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-align: right;
-}
-
-.node-state {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 6px 9px;
-}
-
-.node-state.healthy {
-  color: var(--status-success);
-}
-
-.node-state.warning {
-  color: var(--status-warning);
-}
-
-.service-item {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  padding: 13px;
-}
-
-.service-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--status-warning);
-  box-shadow: 0 0 16px currentColor;
-}
-
-.service-dot.active {
-  background: var(--status-success);
-  color: var(--status-success);
-}
-
-.service-dot.planned {
-  background: var(--tunnel-violet);
-  color: var(--tunnel-violet);
-}
-
-.service-state {
-  color: var(--text-secondary);
+.alert-row span {
+  color: var(--text-muted);
   font-size: 12px;
 }
 
-.acl-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.severity.info {
+  background: #eef4ff;
+  color: var(--info);
 }
 
-.acl-item {
-  min-height: 126px;
-  padding: 14px;
+.severity.warning {
+  background: #fff7e6;
+  color: var(--warning);
 }
 
-.acl-item span {
-  color: var(--nex-cyan);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.acl-item strong {
-  display: block;
-  margin-top: 10px;
-  color: var(--text-primary);
-  font-size: 22px;
-}
-
-.alert-item {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px;
-}
-
-.alert-time {
-  color: var(--nex-cyan);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
+.severity.critical {
+  background: #fff1f0;
+  color: var(--danger);
 }
 
 @media (max-width: 1180px) {
-  .overview-grid,
-  .content-grid,
-  .lower-grid {
+  .metric-grid,
+  .layout-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .acl-summary {
+  .acl-form {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 980px) {
-  .server-shell {
+@media (max-width: 900px) {
+  .dashboard-shell {
     grid-template-columns: 1fr;
   }
 
-  .console-sidebar {
-    min-height: auto;
+  .sidebar {
+    position: static;
+    height: auto;
   }
 
-  .sidebar-nav {
+  .nav-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .server-shell {
-    padding: 10px;
-  }
-
-  .console-main,
-  .console-sidebar {
-    min-height: auto;
-    border-radius: 12px;
-  }
-
-  .console-main {
+  .main {
     padding: 14px;
   }
 
-  .console-header,
+  .topbar,
   .panel-header {
     flex-direction: column;
   }
 
-  .console-header h1 {
-    font-size: 25px;
-    overflow-wrap: anywhere;
-  }
-
-  .header-actions,
-  .sidebar-nav,
-  .overview-grid,
-  .content-grid,
-  .lower-grid {
+  .topbar-actions,
+  .metric-grid,
+  .layout-grid,
+  .nav-list {
     grid-template-columns: 1fr;
     width: 100%;
   }
 
-  .header-actions {
+  .topbar-actions {
     display: grid;
   }
 
-  .world-map {
-    min-height: 280px;
-  }
-
-  .relay-item,
-  .service-item,
-  .alert-item {
+  .node-row,
+  .acl-row,
+  .alert-row {
     grid-template-columns: 1fr;
   }
 
-  .relay-stats {
-    text-align: left;
+  .node-map {
+    min-height: 240px;
   }
 }
 </style>

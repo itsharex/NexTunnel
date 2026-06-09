@@ -2,13 +2,290 @@
 schema_version: 1
 locale: zh-CN
 branch: main
-exported_at: "2026-06-07T06:36:29Z"
+exported_at: "2026-06-08T09:50:55Z"
 modules:
+    "":
+        dir_name: NexTunnel 分布式 P2P 隧道平台
+        title: NexTunnel 分布式 P2P 隧道平台
+        scope:
+            - Makefile
+            - go.work
+            - go.work.sum
+            - docker-compose.yml
+            - .gitignore
+            - task-plan.md
+            - .github\workflows\ci.yml
+            - .history\.gitignore_20260529112026
+            - .history\.gitignore_20260529113215
+            - .history\.gitignore_20260529113354
+            - .history\.gitignore_20260529125518
+            - .history\.gitignore_20260529125519
+            - .history\.gitignore_20260529165900
+            - .history\README_20260601111833.md
+            - .history\README_20260601111842.md
+            - .history\开发参考_20260529104948.md
+            - .history\开发参考_20260529105023.md
+            - .qoder\repowiki\zh\content\API接口参考\API接口参考.md
+            - .qoder\repowiki\zh\content\API接口参考\前端API接口.md
+            - .qoder\repowiki\zh\content\API接口参考\协议API接口.md
+            - .qoder\repowiki\zh\content\开发者指南\任务规划文档.md
+            - .qoder\repowiki\zh\content\开发者指南\开发者指南.md
+            - .qoder\repowiki\zh\content\开发者指南\项目进度跟踪.md
+            - .qoder\repowiki\zh\content\快速开始.md
+            - .qoder\repowiki\zh\content\扩展开发.md
+            - .qoder\repowiki\zh\content\故障排除.md
+            - .qoder\repowiki\zh\content\数据模型.md
+            - .qoder\repowiki\zh\content\服务端架构\中继服务器.md
+            - .qoder\repowiki\zh\content\服务端架构\加密工具.md
+            - .qoder\repowiki\zh\content\服务端架构\协议设计.md
+            - .qoder\repowiki\zh\content\服务端架构\服务端架构.md
+            - .qoder\repowiki\zh\content\架构设计\协议设计架构.md
+            - .qoder\repowiki\zh\content\架构设计\数据模型架构.md
+            - .qoder\repowiki\zh\content\架构设计\整体架构概览.md
+            - .qoder\repowiki\zh\content\架构设计\服务端架构设计\中继服务器核心.md
+            - .qoder\repowiki\zh\content\架构设计\服务端架构设计\代理路由机制.md
+            - .qoder\repowiki\zh\content\架构设计\服务端架构设计\会话管理机制.md
+            - .qoder\repowiki\zh\content\架构设计\服务端架构设计\客户端连接处理.md
+            - .qoder\repowiki\zh\content\架构设计\服务端架构设计\服务端架构设计.md
+            - .qoder\repowiki\zh\content\架构设计\架构设计.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\Wails框架集成.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\前端架构设计\Pinia状态管理.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\前端架构设计\Vue应用入口与初始化.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\前端架构设计\Vue组件系统架构.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\前端架构设计\前端架构设计.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\前端架构设计\构建配置与开发环境.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\桌面端架构设计.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\状态管理系统.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\组件系统设计\性能优化策略.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\组件系统设计\核心组件设计.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\组件系统设计\生命周期管理.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\组件系统设计\组件系统设计.md
+            - .qoder\repowiki\zh\content\架构设计\桌面端架构设计\组件系统设计\组件通信机制.md
+            - .qoder\repowiki\zh\content\桌面端应用\NAT检测系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\P2P网络系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\Wails应用框架.md
+            - .qoder\repowiki\zh\content\桌面端应用\前端界面系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\智能调度系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\桌面端应用.md
+            - .qoder\repowiki\zh\content\桌面端应用\认证系统\OIDC认证系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\认证系统\认证系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\配置管理系统.md
+            - .qoder\repowiki\zh\content\桌面端应用\隧道管理系统.md
+            - .qoder\repowiki\zh\content\测试策略.md
+            - .qoder\repowiki\zh\content\部署与运维.md
+            - .qoder\repowiki\zh\content\项目概述\技术栈概览.md
+            - .qoder\repowiki\zh\content\项目概述\架构设计理念.md
+            - .qoder\repowiki\zh\content\项目概述\核心功能特性.md
+            - .qoder\repowiki\zh\content\项目概述\项目介绍.md
+            - .qoder\repowiki\zh\content\项目概述\项目战略规划.md
+            - .qoder\repowiki\zh\content\项目概述\项目概述.md
+            - .qoder\repowiki\zh\meta\repowiki-metadata.json
+            - README.md
+            - desktop\app.go
+            - desktop\frontend\env.d.ts
+            - desktop\frontend\eslint.config.js
+            - desktop\frontend\index.html
+            - desktop\frontend\package-lock.json
+            - desktop\frontend\package.json
+            - desktop\frontend\package.json.md5
+            - desktop\frontend\src\App.vue
+            - desktop\frontend\src\api\app.ts
+            - desktop\frontend\src\api\window.ts
+            - desktop\frontend\src\assets\logo.png
+            - desktop\frontend\src\assets\palette.png
+            - desktop\frontend\src\assets\text-logo.png
+            - desktop\frontend\src\i18n.ts
+            - desktop\frontend\src\main.ts
+            - desktop\frontend\src\stores\tunnel.ts
+            - desktop\frontend\src\views\StatusView.vue
+            - desktop\frontend\tsconfig.json
+            - desktop\frontend\tsconfig.node.json
+            - desktop\frontend\vite.config.ts
+            - desktop\frontend\wailsjs\go\main\App.d.ts
+            - desktop\frontend\wailsjs\go\main\App.js
+            - desktop\frontend\wailsjs\go\models.ts
+            - desktop\frontend\wailsjs\runtime\package.json
+            - desktop\frontend\wailsjs\runtime\runtime.d.ts
+            - desktop\frontend\wailsjs\runtime\runtime.js
+            - desktop\go.mod
+            - desktop\go.sum
+            - desktop\internal\auth\doc.go
+            - desktop\internal\auth\token.go
+            - desktop\internal\auth\token_test.go
+            - desktop\internal\config\db.go
+            - desktop\internal\config\doc.go
+            - desktop\internal\config\store.go
+            - desktop\internal\config\store_test.go
+            - desktop\internal\migration\config.go
+            - desktop\internal\migration\detector.go
+            - desktop\internal\migration\doc.go
+            - desktop\internal\migration\migration.go
+            - desktop\internal\migration\migration_test.go
+            - desktop\internal\nat\detect.go
+            - desktop\internal\nat\detect_test.go
+            - desktop\internal\nat\doc.go
+            - desktop\internal\nat\stun.go
+            - desktop\internal\nat\stun_test.go
+            - desktop\internal\nat\types.go
+            - desktop\internal\oidc\client.go
+            - desktop\internal\oidc\client_test.go
+            - desktop\internal\p2p\doc.go
+            - desktop\internal\p2p\engine.go
+            - desktop\internal\p2p\engine_test.go
+            - desktop\internal\p2p\ice.go
+            - desktop\internal\p2p\ice_test.go
+            - desktop\internal\p2p\mesh.go
+            - desktop\internal\p2p\mesh_test.go
+            - desktop\internal\p2p\net_tun.go
+            - desktop\internal\p2p\punch.go
+            - desktop\internal\p2p\punch_test.go
+            - desktop\internal\p2p\wireguard.go
+            - desktop\internal\probe\bandwidth.go
+            - desktop\internal\probe\config.go
+            - desktop\internal\probe\doc.go
+            - desktop\internal\probe\loss.go
+            - desktop\internal\probe\metrics.go
+            - desktop\internal\probe\probe.go
+            - desktop\internal\probe\probe_test.go
+            - desktop\internal\probe\rtt.go
+            - desktop\internal\quic\config.go
+            - desktop\internal\quic\doc.go
+            - desktop\internal\quic\listener.go
+            - desktop\internal\quic\stream.go
+            - desktop\internal\quic\transport.go
+            - desktop\internal\quic\transport_test.go
+            - desktop\internal\relay\client.go
+            - desktop\internal\relay\config.go
+            - desktop\internal\relay\doc.go
+            - desktop\internal\relay\manager.go
+            - desktop\internal\relay\manager_test.go
+            - desktop\internal\scheduler\config.go
+            - desktop\internal\scheduler\doc.go
+            - desktop\internal\scheduler\path.go
+            - desktop\internal\scheduler\policy.go
+            - desktop\internal\scheduler\scheduler.go
+            - desktop\internal\scheduler\scheduler_test.go
+            - desktop\internal\tunnel\config.go
+            - desktop\internal\tunnel\control.go
+            - desktop\internal\tunnel\integration_test.go
+            - desktop\internal\tunnel\manager.go
+            - desktop\internal\tunnel\reconnect.go
+            - desktop\internal\tunnel\tunnel.go
+            - desktop\internal\tunnel\tunnel_test.go
+            - desktop\main.go
+            - desktop\wails.json
+            - pkg\crypto\doc.go
+            - pkg\crypto\keys.go
+            - pkg\crypto\keys_test.go
+            - pkg\go.mod
+            - pkg\go.sum
+            - pkg\protocol\codec.go
+            - pkg\protocol\codec_test.go
+            - pkg\protocol\errors.go
+            - pkg\protocol\message.go
+            - pkg\types\types.go
+            - progress-tracking.md
+            - project-plan.md
+            - server\Dockerfile
+            - server\cmd\control-plane\main.go
+            - server\cmd\nat-detector\main.go
+            - server\cmd\relay\main.go
+            - server\go.mod
+            - server\go.sum
+            - server\internal\anycast\config.go
+            - server\internal\anycast\doc.go
+            - server\internal\anycast\geoip.go
+            - server\internal\anycast\geoip_test.go
+            - server\internal\anycast\router.go
+            - server\internal\anycast\router_test.go
+            - server\internal\common\doc.go
+            - server\internal\controlplane\config.go
+            - server\internal\controlplane\doc.go
+            - server\internal\controlplane\node_registry.go
+            - server\internal\controlplane\server.go
+            - server\internal\controlplane\server_test.go
+            - server\internal\controlplane\store.go
+            - server\internal\controlplane\store_memory.go
+            - server\internal\dashboard\alerts.go
+            - server\internal\dashboard\alerts_test.go
+            - server\internal\dashboard\auth.go
+            - server\internal\dashboard\doc.go
+            - server\internal\dashboard\models.go
+            - server\internal\dashboard\server.go
+            - server\internal\dashboard\server_test.go
+            - server\internal\ebpf\config.go
+            - server\internal\ebpf\doc.go
+            - server\internal\ebpf\forwarder.go
+            - server\internal\ebpf\forwarder_test.go
+            - server\internal\ebpf\loader_linux.go
+            - server\internal\ebpf\loader_other.go
+            - server\internal\ebpf\loader_test.go
+            - server\internal\edge\config.go
+            - server\internal\edge\controlplane.go
+            - server\internal\edge\controlplane_test.go
+            - server\internal\edge\deploy.go
+            - server\internal\edge\doc.go
+            - server\internal\edge\health.go
+            - server\internal\edge\node.go
+            - server\internal\edge\node_test.go
+            - server\internal\edge\registry.go
+            - server\internal\natdetect\config.go
+            - server\internal\natdetect\doc.go
+            - server\internal\natdetect\server.go
+            - server\internal\relay\client_conn.go
+            - server\internal\relay\config.go
+            - server\internal\relay\proxy.go
+            - server\internal\relay\quic_server.go
+            - server\internal\relay\server.go
+            - server\internal\relay\server_test.go
+            - server\internal\relay\session.go
+            - server\internal\sdwan\classifier.go
+            - server\internal\sdwan\config.go
+            - server\internal\sdwan\doc.go
+            - server\internal\sdwan\policy.go
+            - server\internal\sdwan\policy_test.go
+            - server\internal\sdwan\qos.go
+            - server\internal\sdwan\qos_test.go
+            - server\relay-server
+            - server\web\env.d.ts
+            - server\web\eslint.config.js
+            - server\web\index.html
+            - server\web\package-lock.json
+            - server\web\package.json
+            - server\web\src\App.vue
+            - server\web\src\main.ts
+            - server\web\tsconfig.json
+            - server\web\tsconfig.node.json
+            - server\web\vite.config.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     desktop_app:
         dir_name: NexTunnel 桌面客户端
         title: NexTunnel 桌面客户端
         scope:
             - desktop/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: server
+    server:
+        dir_name: NexTunnel 服务端核心与边缘网络引擎
+        title: NexTunnel 服务端核心与边缘网络引擎
+        scope:
+            - server/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app
+    shared_lib:
+        dir_name: NexTunnel 核心协议与加密工具库
+        title: NexTunnel 核心协议与加密工具库
+        scope:
+            - pkg/
         source_files: []
         children: []
         depends_on: []

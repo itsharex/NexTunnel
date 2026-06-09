@@ -36,6 +36,7 @@ Thumbs.db
 desktop.db
 
 # Go
+.gocache*/
 *.exe
 *.exe~
 *.dll
@@ -52,6 +53,9 @@ desktop/frontend/node_modules/
 *.env.local
 server/config/*.env
 !server/config/*.env.example
+deploy/server/.env
+deploy/server/data/
+deploy/server/logs/
 
 # 日志
 *.log

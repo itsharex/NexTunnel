@@ -39,6 +39,19 @@ func TestLoader_DisabledByConfig(t *testing.T) {
 	}
 }
 
+func TestLoader_EmptyConfigUsesDefaults(t *testing.T) {
+	loader := NewLoader(EBPFConfig{})
+	if err := loader.Load(); err != nil {
+		t.Fatalf("Load with empty config: %v", err)
+	}
+
+	loader.RecordForward(64)
+	stats := loader.Stats()
+	if stats.PacketsForwarded != 1 {
+		t.Fatalf("PacketsForwarded = %d, want 1", stats.PacketsForwarded)
+	}
+}
+
 func TestLoader_Stats(t *testing.T) {
 	loader := NewLoader(DefaultEBPFConfig())
 	_ = loader.Load()

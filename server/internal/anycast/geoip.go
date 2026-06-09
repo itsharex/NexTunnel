@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"sync"
+
+	"github.com/oschwald/maxminddb-golang"
 )
 
 // GeoIPResult holds the result of a GeoIP lookup.
@@ -27,10 +29,11 @@ type GeoIPProvider interface {
 }
 
 // MaxMindAdapter adapts a MaxMind GeoIP2/GeoLite2 database to the GeoIPProvider interface.
-// In production, this would use github.com/oschwald/geoip2-golang to read the .mmdb file.
-// The current implementation provides a configurable mapping for testing and development.
+// When a .mmdb file is available, it uses the real MaxMind database for lookups.
+// When no file is available, it falls back to configurable static mappings.
 type MaxMindAdapter struct {
 	mu       sync.RWMutex
+	db       *maxminddb.Reader // nil when no DB is loaded
 	dbPath   string
 	mappings map[string]*GeoIPResult // IP prefix -> result
 	defaults *GeoIPResult            // fallback for unmatched IPs
@@ -51,7 +54,8 @@ type MaxMindConfig struct {
 }
 
 // NewMaxMindAdapter creates a new MaxMind adapter.
-// In production, this would open the .mmdb file using geoip2.Open(dbPath).
+// If cfg.DBPath is non-empty, it attempts to open the .mmdb database file.
+// If the file is unavailable, the adapter operates in mapping-only mode.
 func NewMaxMindAdapter(cfg MaxMindConfig) (*MaxMindAdapter, error) {
 	a := &MaxMindAdapter{
 		dbPath:   cfg.DBPath,
@@ -63,12 +67,14 @@ func NewMaxMindAdapter(cfg MaxMindConfig) (*MaxMindAdapter, error) {
 		a.mappings[prefix] = result
 	}
 
-	// In production: if cfg.DBPath != "", open the MaxMind database:
-	//   db, err := geoip2.Open(cfg.DBPath)
-	//   if err != nil { return nil, fmt.Errorf("open maxmind db: %w", err) }
-	//   a.db = db
-	//
-	// For now, we log the intent and operate with static mappings.
+	// Attempt to open the MaxMind database if a path is provided
+	if cfg.DBPath != "" {
+		db, err := maxminddb.Open(cfg.DBPath)
+		if err != nil {
+			return nil, fmt.Errorf("open maxmind db %q: %w", cfg.DBPath, err)
+		}
+		a.db = db
+	}
 
 	return a, nil
 }
@@ -99,16 +105,22 @@ func (a *MaxMindAdapter) Lookup(ip string) (*GeoIPResult, error) {
 		}
 	}
 
-	// 3. In production with a loaded DB:
-	//   record, err := a.db.City(parsedIP)
-	//   if err != nil { return nil, err }
-	//   return &GeoIPResult{
-	//       Region:    record.Subdivisions[0].IsoCode,
-	//       Country:   record.Country.IsoCode,
-	//       City:      record.City.Names["en"],
-	//       Latitude:  record.Location.Latitude,
-	//       Longitude: record.Location.Longitude,
-	//   }, nil
+	// 3. Try the loaded MaxMind database
+	if a.db != nil {
+		var record mmCityRecord
+		err := a.db.Lookup(parsedIP, &record)
+		if err == nil {
+			result := &GeoIPResult{
+				Region:    record.subdivisionISO(),
+				Country:   record.Country.ISOCode,
+				City:      record.City.Names.En,
+				Latitude:  record.Location.Latitude,
+				Longitude: record.Location.Longitude,
+			}
+			return result, nil
+		}
+		// If DB lookup fails, fall through to default
+	}
 
 	// 4. Return default if available
 	if a.defaults != nil {
@@ -120,8 +132,44 @@ func (a *MaxMindAdapter) Lookup(ip string) (*GeoIPResult, error) {
 
 // Close releases the MaxMind database resources.
 func (a *MaxMindAdapter) Close() error {
-	// In production: a.db.Close()
+	if a.db != nil {
+		return a.db.Close()
+	}
 	return nil
+}
+
+// HasDatabase returns true if a real .mmdb database is loaded.
+func (a *MaxMindAdapter) HasDatabase() bool {
+	return a.db != nil
+}
+
+// mmCityRecord mirrors the MaxMind GeoIP2-City database record structure.
+type mmCityRecord struct {
+	City struct {
+		Names struct {
+			En string `maxminddb:"en"`
+		} `maxminddb:"names"`
+	} `maxminddb:"city"`
+	Country struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"country"`
+	Subdivisions []mmSubdivision `maxminddb:"subdivisions"`
+	Location     struct {
+		Latitude  float64 `maxminddb:"latitude"`
+		Longitude float64 `maxminddb:"longitude"`
+	} `maxminddb:"location"`
+}
+
+type mmSubdivision struct {
+	ISOCode string `maxminddb:"iso_code"`
+}
+
+// subdivisionISO returns the ISO code of the first subdivision, or empty.
+func (r *mmCityRecord) subdivisionISO() string {
+	if len(r.Subdivisions) > 0 {
+		return r.Subdivisions[0].ISOCode
+	}
+	return ""
 }
 
 // AddMapping adds a runtime IP-to-location mapping.
