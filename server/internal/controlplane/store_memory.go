@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"fmt"
+	"net"
 	"sync"
 )
 
@@ -12,6 +13,7 @@ type MemoryStore struct {
 	nodes map[string]*NodeInfo
 	acls  map[string]*ACLRule
 	keys  map[string]*KeyMaterial
+	ips   map[string]net.IP // nodeID -> allocated IP
 }
 
 // NewMemoryStore creates a new in-memory store.
@@ -20,6 +22,7 @@ func NewMemoryStore() *MemoryStore {
 		nodes: make(map[string]*NodeInfo),
 		acls:  make(map[string]*ACLRule),
 		keys:  make(map[string]*KeyMaterial),
+		ips:   make(map[string]net.IP),
 	}
 }
 
@@ -106,4 +109,38 @@ func (s *MemoryStore) GetKeyMaterial(nodeID string) (*KeyMaterial, error) {
 		return nil, fmt.Errorf("key material not found: %s", nodeID)
 	}
 	return km, nil
+}
+
+func (s *MemoryStore) SaveIPAllocation(nodeID string, ip net.IP) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ips[nodeID] = ip
+	return nil
+}
+
+func (s *MemoryStore) GetIPAllocation(nodeID string) (net.IP, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ip, ok := s.ips[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("IP allocation not found: %s", nodeID)
+	}
+	return ip, nil
+}
+
+func (s *MemoryStore) DeleteIPAllocation(nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.ips, nodeID)
+	return nil
+}
+
+func (s *MemoryStore) ListIPAllocations() (map[string]net.IP, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]net.IP, len(s.ips))
+	for k, v := range s.ips {
+		result[k] = v
+	}
+	return result, nil
 }

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nextunnel/pkg/tlsutil"
 	"github.com/nextunnel/server/internal/controlplane"
 )
 
@@ -17,7 +18,18 @@ func main() {
 	fs.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "HTTP API listen address")
 	fs.StringVar(&cfg.APIToken, "api-token", cfg.APIToken, "optional Bearer token for control plane HTTP APIs")
 	fs.StringVar(&cfg.StorePath, "store-path", cfg.StorePath, "SQLite database path for persistent storage (empty = in-memory)")
+	fs.StringVar(&cfg.AuditLogPath, "audit-log", cfg.AuditLogPath, "JSON Lines audit log path (empty = disabled)")
+
+	var tlsCA, tlsCert, tlsKey string
+	fs.StringVar(&tlsCA, "tls-ca", "", "CA certificate PEM for mTLS (enables TLS when set)")
+	fs.StringVar(&tlsCert, "tls-cert", "", "server certificate PEM for mTLS")
+	fs.StringVar(&tlsKey, "tls-key", "", "server private key PEM for mTLS")
 	fs.Parse(os.Args[1:])
+
+	if tlsCA != "" && tlsCert != "" && tlsKey != "" {
+		cfg.TLSEnabled = true
+		cfg.TLS = tlsutil.TLSConfig{CACert: tlsCA, Cert: tlsCert, Key: tlsKey}
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,

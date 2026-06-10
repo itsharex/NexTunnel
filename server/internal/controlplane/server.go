@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/nextunnel/pkg/audit"
+	"github.com/nextunnel/pkg/tlsutil"
 )
 
 // Server is the control plane server that coordinates node management,
@@ -20,6 +24,7 @@ type Server struct {
 	registry *NodeRegistry
 	acl      *ACLRuleEngine
 	keys     *KeyExchange
+	audit    audit.AuditLogger
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -36,6 +41,15 @@ func NewServer(cfg ControlPlaneConfig, store Store, opts ...ControlPlaneOption) 
 		cfg.Logger = slog.Default()
 	}
 
+	var auditLogger audit.AuditLogger = audit.NopAuditLogger{}
+	if cfg.AuditLogPath != "" {
+		if l, err := audit.NewJSONFileAuditLogger(cfg.AuditLogPath); err != nil {
+			cfg.Logger.Error("failed to create audit logger, using nop", "error", err)
+		} else {
+			auditLogger = l
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		config:   cfg,
@@ -43,6 +57,7 @@ func NewServer(cfg ControlPlaneConfig, store Store, opts ...ControlPlaneOption) 
 		registry: NewNodeRegistry(store, cfg.Logger),
 		acl:      NewACLRuleEngine(store, cfg.Logger),
 		keys:     NewKeyExchange(store, cfg.Logger),
+		audit:    auditLogger,
 		ctx:      ctx,
 		cancel:   cancel,
 		logger:   cfg.Logger,
@@ -57,8 +72,21 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("listen control plane HTTP on %s: %w", s.config.ListenAddr, err)
 	}
+
+	handler := s.authMiddleware(mux)
+
+	// Wrap listener with TLS when mTLS is configured
+	if s.config.TLSEnabled && s.config.TLS.Enabled() {
+		tlsCfg, tlsErr := tlsutil.LoadServerTLS(s.config.TLS.CACert, s.config.TLS.Cert, s.config.TLS.Key)
+		if tlsErr != nil {
+			return fmt.Errorf("load control plane TLS config: %w", tlsErr)
+		}
+		ln = tls.NewListener(ln, tlsCfg)
+		s.logger.Info("control plane mTLS enabled", "ca", s.config.TLS.CACert)
+	}
+
 	s.httpServer = &http.Server{
-		Handler:           s.authMiddleware(mux),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go s.pruneLoop()
@@ -67,7 +95,7 @@ func (s *Server) Start() error {
 			s.logger.Error("control plane HTTP server stopped unexpectedly", "error", err)
 		}
 	}()
-	s.logger.Info("control plane started", "addr", ln.Addr().String())
+	s.logger.Info("control plane started", "addr", ln.Addr().String(), "tls", s.config.TLSEnabled)
 	return nil
 }
 
@@ -103,19 +131,41 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/acl/{id}", s.handleDeleteACL)
 	mux.HandleFunc("POST /api/v1/keys", s.handleRegisterKey)
 	mux.HandleFunc("GET /api/v1/keys/{id}", s.handleGetKey)
+	mux.HandleFunc("GET /api/v1/ipam/allocations", s.handleListIPAllocations)
+	mux.HandleFunc("GET /api/v1/audit", s.handleQueryAudit)
 }
 
-// authMiddleware 为控制面 API 提供轻量 Bearer Token 保护；未配置 token 时保留测试/本地开发兼容性。
+// authMiddleware provides mTLS or Bearer Token authentication for the control plane.
+// When mTLS is enabled, it extracts the client certificate CN as the authenticated identity.
+// Falls back to Bearer Token when TLS is not configured.
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || s.config.APIToken == "" {
+		// Health check is always open
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// mTLS path: extract client identity from certificate CN
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			cn := r.TLS.PeerCertificates[0].Subject.CommonName
+			if cn != "" {
+				r.Header.Set("X-Node-CN", cn)
+				s.logger.Debug("mTLS authenticated", "cn", cn, "path", r.URL.Path)
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Bearer Token fallback (when TLS not configured or no client cert)
+		if s.config.APIToken == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if token == authHeader || subtle.ConstantTimeCompare([]byte(token), []byte(s.config.APIToken)) != 1 {
-			writeAPIError(w, http.StatusUnauthorized, "invalid bearer token")
+			writeAPIError(w, http.StatusUnauthorized, "invalid bearer token or client certificate")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -140,6 +190,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit.Log(audit.NewEvent(extractActor(r), audit.ActionCreate, "nodes", node.NodeID, audit.ResultSuccess))
 	writeJSON(w, http.StatusCreated, &node)
 }
 
@@ -195,15 +246,18 @@ func (s *Server) handleAddACL(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit.Log(audit.NewEvent(extractActor(r), audit.ActionCreate, "acl", rule.ID, audit.ResultSuccess))
 	writeJSON(w, http.StatusCreated, &rule)
 }
 
 func (s *Server) handleDeleteACL(w http.ResponseWriter, r *http.Request) {
-	if err := s.acl.RemoveRule(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := s.acl.RemoveRule(id); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("id")})
+	s.audit.Log(audit.NewEvent(extractActor(r), audit.ActionDelete, "acl", id, audit.ResultSuccess))
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 
 func (s *Server) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +285,7 @@ func (s *Server) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit.Log(audit.NewEvent(extractActor(r), audit.ActionCreate, "keys", req.NodeID, audit.ResultSuccess))
 	key, _ := s.keys.GetPeerKey(req.NodeID)
 	writeJSON(w, http.StatusCreated, key)
 }
@@ -252,6 +307,49 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeAPIError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": fmt.Sprintf("%s", message)})
+}
+
+func (s *Server) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
+	filter := audit.AuditFilter{
+		Actor:    r.URL.Query().Get("actor"),
+		Action:   audit.Action(r.URL.Query().Get("action")),
+		Resource: r.URL.Query().Get("resource"),
+		Limit:    100,
+	}
+	events, err := s.audit.Query(filter)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if events == nil {
+		events = []audit.AuditEvent{}
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) handleListIPAllocations(w http.ResponseWriter, r *http.Request) {
+	allocs, err := s.store.ListIPAllocations()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, allocs)
+}
+
+// extractActor returns the authenticated actor identity from the request.
+// It prefers mTLS CN, then Bearer token label, then remote address.
+func extractActor(r *http.Request) string {
+	if cn := r.Header.Get("X-Node-CN"); cn != "" {
+		return cn
+	}
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return "bearer-token"
+	}
+	if r.RemoteAddr != "" {
+		return r.RemoteAddr
+	}
+	return "unknown"
 }
 
 // Registry returns the node registry.

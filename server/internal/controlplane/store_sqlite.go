@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -44,6 +45,11 @@ CREATE TABLE IF NOT EXISTS key_material (
 
 CREATE INDEX IF NOT EXISTS idx_nodes_region ON nodes(region);
 CREATE INDEX IF NOT EXISTS idx_acl_priority ON acl_rules(priority);
+
+CREATE TABLE IF NOT EXISTS ip_allocations (
+    node_id TEXT PRIMARY KEY,
+    ip      TEXT NOT NULL
+);
 `
 
 // SQLiteStore is a persistent Store implementation backed by SQLite.
@@ -302,4 +308,59 @@ func scanKeyMaterial(row scanner) (*KeyMaterial, error) {
 		return nil, fmt.Errorf("scan key material: %w", err)
 	}
 	return &km, nil
+}
+
+// --- IP allocation methods ---
+
+func (s *SQLiteStore) SaveIPAllocation(nodeID string, ip net.IP) error {
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO ip_allocations (node_id, ip) VALUES (?, ?)`,
+		nodeID, ip.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("save IP allocation: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) GetIPAllocation(nodeID string) (net.IP, error) {
+	var ipStr string
+	err := s.db.QueryRow(`SELECT ip FROM ip_allocations WHERE node_id = ?`, nodeID).Scan(&ipStr)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("IP allocation not found: %s", nodeID)
+		}
+		return nil, fmt.Errorf("get IP allocation: %w", err)
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid IP in database: %s", ipStr)
+	}
+	return ip, nil
+}
+
+func (s *SQLiteStore) DeleteIPAllocation(nodeID string) error {
+	_, err := s.db.Exec(`DELETE FROM ip_allocations WHERE node_id = ?`, nodeID)
+	return err
+}
+
+func (s *SQLiteStore) ListIPAllocations() (map[string]net.IP, error) {
+	rows, err := s.db.Query(`SELECT node_id, ip FROM ip_allocations`)
+	if err != nil {
+		return nil, fmt.Errorf("list IP allocations: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]net.IP)
+	for rows.Next() {
+		var nodeID, ipStr string
+		if err := rows.Scan(&nodeID, &ipStr); err != nil {
+			return nil, fmt.Errorf("scan IP allocation: %w", err)
+		}
+		ip := net.ParseIP(ipStr)
+		if ip != nil {
+			result[nodeID] = ip
+		}
+	}
+	return result, rows.Err()
 }

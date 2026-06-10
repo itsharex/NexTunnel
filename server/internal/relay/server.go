@@ -3,12 +3,14 @@ package relay
 import (
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
 	"sync"
 
 	"github.com/nextunnel/pkg/protocol"
+	"github.com/nextunnel/pkg/tlsutil"
 )
 
 // Server is the main relay server that manages client connections and proxy listeners.
@@ -53,8 +55,20 @@ func (s *Server) Run() error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
+
+	// Wrap listener with TLS when mTLS is configured
+	if s.config.TLSEnabled && s.config.TLS.Enabled() {
+		tlsCfg, tlsErr := tlsutil.LoadServerTLS(s.config.TLS.CACert, s.config.TLS.Cert, s.config.TLS.Key)
+		if tlsErr != nil {
+			ln.Close()
+			return fmt.Errorf("load relay TLS config: %w", tlsErr)
+		}
+		ln = tls.NewListener(ln, tlsCfg)
+		s.logger.Info("relay mTLS enabled", "ca", s.config.TLS.CACert)
+	}
+
 	s.controlListener = ln
-	s.logger.Info("relay server started", "addr", addr)
+	s.logger.Info("relay server started", "addr", addr, "tls", s.config.TLSEnabled)
 
 	go s.acceptLoop()
 	if s.config.QUICPort > 0 {

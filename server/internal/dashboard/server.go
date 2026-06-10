@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nextunnel/pkg/audit"
 )
 
 // ServerConfig configures the dashboard HTTP server.
@@ -22,6 +24,9 @@ type ServerConfig struct {
 	Logger         *slog.Logger
 	Store          DashboardStore
 	StaticDir      string
+	TLSCertFile    string // TLS certificate file path (enables HTTPS when set)
+	TLSKeyFile     string // TLS private key file path
+	AuditLogPath   string // JSON Lines audit log path (empty = disabled)
 }
 
 // DefaultServerConfig returns sensible defaults.
@@ -42,6 +47,7 @@ type Server struct {
 	store       *DataStore
 	dbStore     DashboardStore
 	alertEngine *AlertEngine
+	audit       audit.AuditLogger
 	server      *http.Server
 	initErr     error
 	hasUsers    bool
@@ -71,6 +77,16 @@ func NewServer(cfg ServerConfig) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+
+	var auditLogger audit.AuditLogger = audit.NopAuditLogger{}
+	if cfg.AuditLogPath != "" {
+		if l, err := audit.NewJSONFileAuditLogger(cfg.AuditLogPath); err != nil {
+			cfg.Logger.Error("failed to create audit logger, using nop", "error", err)
+		} else {
+			auditLogger = l
+		}
+	}
+
 	s := &Server{
 		config:      cfg,
 		auth:        NewAuthManager(cfg.Auth),
@@ -78,6 +94,7 @@ func NewServer(cfg ServerConfig) *Server {
 		store:       NewDataStore(),
 		dbStore:     cfg.Store,
 		alertEngine: NewAlertEngine(cfg.Logger),
+		audit:       auditLogger,
 	}
 	if cfg.Store != nil {
 		// 生产模式下优先从持久化 Store 恢复用户，避免重启后账号状态丢失。
@@ -97,11 +114,19 @@ func (s *Server) Start() error {
 	if err := s.validateRuntimeConfig(); err != nil {
 		return err
 	}
+
+	tlsEnabled := s.config.TLSCertFile != "" && s.config.TLSKeyFile != ""
+	handler := s.buildHandler(tlsEnabled)
+
 	s.server = &http.Server{
 		Addr:    s.config.ListenAddr,
-		Handler: s.auth.AuthMiddleware(corsMiddleware(s.config.AllowedOrigins, s.mux)),
+		Handler: handler,
 	}
-	s.config.Logger.Info("dashboard server starting", "addr", s.config.ListenAddr)
+	s.config.Logger.Info("dashboard server starting", "addr", s.config.ListenAddr, "tls", tlsEnabled)
+
+	if tlsEnabled {
+		return s.server.ListenAndServeTLS(s.config.TLSCertFile, s.config.TLSKeyFile)
+	}
 	return s.server.ListenAndServe()
 }
 
@@ -115,7 +140,16 @@ func (s *Server) Stop() error {
 
 // Handler returns the HTTP handler for testing.
 func (s *Server) Handler() http.Handler {
-	return s.auth.AuthMiddleware(corsMiddleware(s.config.AllowedOrigins, s.mux))
+	return s.buildHandler(false)
+}
+
+// buildHandler assembles the middleware chain: CORS -> SecurityHeaders -> Auth -> RBAC -> Routes
+func (s *Server) buildHandler(tlsEnabled bool) http.Handler {
+	cors := corsMiddleware(s.config.AllowedOrigins, s.mux)
+	secured := securityHeadersMiddleware(tlsEnabled, cors)
+	rbac := rbacMiddleware(secured)
+	authed := s.auth.AuthMiddleware(rbac)
+	return authed
 }
 
 func (s *Server) validateRuntimeConfig() error {
@@ -168,6 +202,12 @@ func (s *Server) registerRoutes() {
 
 	// Users
 	s.mux.HandleFunc("GET /api/v1/users", s.handleListUsers)
+	s.mux.HandleFunc("POST /api/v1/users", s.handleCreateUser)
+	s.mux.HandleFunc("PUT /api/v1/users/{username}/role", s.handleUpdateUserRole)
+	s.mux.HandleFunc("DELETE /api/v1/users/{username}", s.handleDeleteUser)
+
+	// Audit
+	s.mux.HandleFunc("GET /api/v1/audit", s.handleQueryAudit)
 
 	// Health
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
@@ -590,6 +630,81 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSuccess(w, s.auth.ListUsers())
+}
+
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+		Email    string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: "invalid request body"})
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: "username and password are required"})
+		return
+	}
+	if req.Role == "" {
+		req.Role = string(RoleViewer)
+	}
+	user := &User{Username: req.Username, Role: req.Role, Email: req.Email, ID: req.Username}
+	if err := s.auth.AddUserWithPassword(user, req.Password); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: err.Error()})
+		return
+	}
+	s.audit.Log(audit.NewEvent(r.Header.Get("X-User-ID"), audit.ActionCreate, "users", req.Username, audit.ResultSuccess))
+	writeJSON(w, http.StatusCreated, APIResponse{Success: true, Data: user})
+}
+
+func (s *Server) handleUpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	username := r.PathValue("username")
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: "invalid request body"})
+		return
+	}
+	if req.Role == "" {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: "role is required"})
+		return
+	}
+	s.auth.UpdateUserRole(username, req.Role)
+	s.audit.Log(audit.NewEvent(r.Header.Get("X-User-ID"), audit.ActionUpdate, "users", username, audit.ResultSuccess))
+	writeJSON(w, http.StatusOK, APIResponse{Success: true})
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	username := r.PathValue("username")
+	callerID := r.Header.Get("X-User-ID")
+	if callerID == username {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Error: "cannot delete yourself"})
+		return
+	}
+	s.auth.RemoveUser(username)
+	s.audit.Log(audit.NewEvent(callerID, audit.ActionDelete, "users", username, audit.ResultSuccess))
+	writeJSON(w, http.StatusOK, APIResponse{Success: true})
+}
+
+func (s *Server) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
+	filter := audit.AuditFilter{
+		Actor:    r.URL.Query().Get("actor"),
+		Action:   audit.Action(r.URL.Query().Get("action")),
+		Resource: r.URL.Query().Get("resource"),
+		Limit:    100,
+	}
+	events, err := s.audit.Query(filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Error: err.Error()})
+		return
+	}
+	if events == nil {
+		events = []audit.AuditEvent{}
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: events})
 }
 
 // --- Health handler ---

@@ -1,6 +1,9 @@
 package controlplane
 
-import "time"
+import (
+	"net"
+	"time"
+)
 
 // Store defines the data persistence interface for the control plane.
 type Store interface {
@@ -19,6 +22,12 @@ type Store interface {
 	// Key operations
 	SaveKeyMaterial(km *KeyMaterial) error
 	GetKeyMaterial(nodeID string) (*KeyMaterial, error)
+
+	// IP allocation operations
+	SaveIPAllocation(nodeID string, ip net.IP) error
+	GetIPAllocation(nodeID string) (net.IP, error)
+	DeleteIPAllocation(nodeID string) error
+	ListIPAllocations() (map[string]net.IP, error)
 }
 
 // NodeInfo represents a registered node.

@@ -37,12 +37,13 @@
 
 | 优先级 | 方向 | 说明 |
 |:---:|:---|:---|
-| P1 | 安全认证升级 | Relay/Control Plane 从共享 token 演进到 mTLS/OIDC，补审计日志和权限模型 |
-| P1 | 网络场景测试 | localhost、双节点 Docker 网络、Relay 降级、连接中断重连、QUIC 证书失败路径 |
-| P2 | Dashboard 生产化 | 持久化用户/token/节点/ACL/告警，补 RBAC 与前端管理台 |
-| P2 | eBPF XDP 内核态接入 | 编写 eBPF C 程序 + cilium/ebpf 加载，替换 Load() 模拟逻辑，Linux 环境基准测试 |
-| P2 | GeoIP 数据库加载 | MaxMindAdapter 加载真实 .mmdb 文件，替换静态映射 |
-| P2 | Dashboard 前端完善 | App.vue 完善节点地图、流量图表、ACL 编辑表单等交互 |
+| P1 | 安全认证升级 | ✅ mTLS 双向认证已实现（Relay/Control Plane/客户端），审计日志已接入，RBAC 权限模型已完成；OIDC 仍待实现 |
+| P1 | 网络场景测试 | ✅ localhost、Relay 降级、连接中断重连、QUIC 证书失败路径已覆盖 |
+| P2 | Dashboard 生产化 | ✅ RBAC 策略、HTTPS/TLS、审计日志、用户管理 API 已完成；前端联调待验证 |
+| P2 | eBPF XDP 内核态接入 | ✅ 开发完成（cilium/ebpf + XDP C 程序 + 降级），Linux 生产基准待部署环境执行 |
+| P2 | GeoIP 数据库加载 | ✅ MaxMindAdapter 接入 maxminddb-golang，真实 .mmdb 文件加载完成 |
+| P2 | Dashboard 前端完善 | ✅ App.vue 接入节点地图、流量图表、ACL 编辑表单等交互 |
+| P2 | P2P/TUN 生产化 | ✅ 平台抽象层完成（Linux/macOS/Windows 条件编译），IPAM 和路由管理已实现；真实 TUN 需 root 权限验证 |
 | P2 | 全球加速验证 | eBPF/XDP、Anycast/GeoDNS、SD-WAN 需要真实网络和性能基准后再进入生产路线 |
 
 ---

@@ -38,6 +38,9 @@ func main() {
 	fs.DurationVar(&tokenExpiry, "token-expiry", cfg.Auth.TokenExpiry, "Dashboard auth token expiry")
 	fs.StringVar(&storePath, "store-path", "", "SQLite database path for persistent storage; empty uses in-memory store")
 	fs.StringVar(&cfg.StaticDir, "static-dir", cfg.StaticDir, "optional Dashboard web static assets directory")
+	fs.StringVar(&cfg.TLSCertFile, "tls-cert", "", "TLS certificate file for HTTPS (enables HTTPS when set)")
+	fs.StringVar(&cfg.TLSKeyFile, "tls-key", "", "TLS private key file for HTTPS")
+	fs.StringVar(&cfg.AuditLogPath, "audit-log", "", "JSON Lines audit log path (empty = disabled)")
 	fs.Parse(os.Args[1:])
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{

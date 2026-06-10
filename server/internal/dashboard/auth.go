@@ -167,6 +167,25 @@ func (a *AuthManager) ListUsers() []*User {
 	return result
 }
 
+// UpdateUserRole changes the role of an existing user.
+func (a *AuthManager) UpdateUserRole(username, role string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	user, ok := a.users[username]
+	if !ok {
+		return fmt.Errorf("user %q not found", username)
+	}
+	user.Role = role
+	return nil
+}
+
+// RemoveUser deletes a user by username.
+func (a *AuthManager) RemoveUser(username string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.users, username)
+}
+
 // ReplaceUsers 用持久化用户表重建内存索引，服务重启后仍可继续登录。
 func (a *AuthManager) ReplaceUsers(users []*User) {
 	a.mu.Lock()

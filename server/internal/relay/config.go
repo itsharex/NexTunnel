@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"time"
+
+	"github.com/nextunnel/pkg/tlsutil"
 )
 
 // Config holds the relay server configuration.
@@ -16,6 +18,8 @@ type Config struct {
 	HeartbeatTimeout    time.Duration
 	MaxProxiesPerClient int
 	WorkConnTimeout     time.Duration
+	TLSEnabled          bool
+	TLS                 tlsutil.TLSConfig
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -41,6 +45,9 @@ func ParseFlags(fs *flag.FlagSet) *Config {
 	fs.IntVar(&cfg.MaxProxiesPerClient, "max-proxies", cfg.MaxProxiesPerClient, "max proxies per client")
 	fs.DurationVar(&cfg.WorkConnTimeout, "work-conn-timeout", cfg.WorkConnTimeout, "timeout waiting for work connection")
 	fs.IntVar(&cfg.QUICPort, "quic-port", cfg.QUICPort, "QUIC transport port")
+	fs.StringVar(&cfg.TLS.CACert, "tls-ca", "", "CA certificate PEM for mTLS (enables TLS when set)")
+	fs.StringVar(&cfg.TLS.Cert, "tls-cert", "", "server certificate PEM for mTLS")
+	fs.StringVar(&cfg.TLS.Key, "tls-key", "", "server private key PEM for mTLS")
 	return cfg
 }
 
@@ -56,6 +63,10 @@ func (c *Config) Validate() error {
 	}
 	if c.ControlPort <= 0 || c.ControlPort > 65535 {
 		return fmt.Errorf("invalid control port: %d", c.ControlPort)
+	}
+	// Auto-enable TLS when all cert paths are provided
+	if c.TLS.Enabled() {
+		c.TLSEnabled = true
 	}
 	return nil
 }

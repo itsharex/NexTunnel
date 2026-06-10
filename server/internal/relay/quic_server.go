@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nextunnel/pkg/protocol"
+	"github.com/nextunnel/pkg/tlsutil"
 	"github.com/quic-go/quic-go"
 )
 
@@ -138,6 +139,16 @@ func (qt *QUICTransport) handleStream(stream *quic.Stream, localAddr, remoteAddr
 }
 
 func (qt *QUICTransport) generateTLSConfig() *tls.Config {
+	// Use CA-signed certificates when configured
+	if qt.config.TLSEnabled && qt.config.TLS.Enabled() {
+		tlsCfg, err := tlsutil.LoadServerTLS(qt.config.TLS.CACert, qt.config.TLS.Cert, qt.config.TLS.Key)
+		if err == nil {
+			tlsCfg.NextProtos = []string{"nextunnel-quic-relay"}
+			return tlsCfg
+		}
+		qt.logger.Warn("failed to load configured TLS certs for QUIC, falling back to self-signed", "error", err)
+	}
+
 	cert, err := generateSelfSignedRelayCert()
 	if err != nil {
 		qt.logger.Error("failed to generate QUIC relay certificate", "error", err)

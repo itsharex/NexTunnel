@@ -3,6 +3,8 @@ package controlplane
 import (
 	"log/slog"
 	"time"
+
+	"github.com/nextunnel/pkg/tlsutil"
 )
 
 // ControlPlaneConfig configures the control plane server.
@@ -13,6 +15,9 @@ type ControlPlaneConfig struct {
 	KeyRotationPeriod time.Duration
 	ACLEvalTimeout    time.Duration
 	StorePath         string // SQLite database path; empty = MemoryStore
+	AuditLogPath      string // JSON Lines audit log path; empty = no audit logging
+	TLSEnabled        bool
+	TLS               tlsutil.TLSConfig
 	Logger            *slog.Logger
 }
 
@@ -48,6 +53,19 @@ func WithCPLogger(l *slog.Logger) ControlPlaneOption {
 // When empty, the server uses an in-memory MemoryStore (suitable for testing).
 func WithStorePath(path string) ControlPlaneOption {
 	return func(c *ControlPlaneConfig) { c.StorePath = path }
+}
+
+// WithTLS enables mTLS authentication on the control plane HTTP server.
+func WithTLS(cfg tlsutil.TLSConfig) ControlPlaneOption {
+	return func(c *ControlPlaneConfig) {
+		c.TLSEnabled = true
+		c.TLS = cfg
+	}
+}
+
+// WithAuditLogPath sets the path for JSON Lines audit log file.
+func WithAuditLogPath(path string) ControlPlaneOption {
+	return func(c *ControlPlaneConfig) { c.AuditLogPath = path }
 }
 
 // DefaultControlPlaneConfig returns sensible defaults.

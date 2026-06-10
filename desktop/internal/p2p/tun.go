@@ -3,6 +3,7 @@ package p2p
 import (
 	"net"
 	"os"
+	"runtime"
 )
 
 // TUNDevice abstracts a TUN network device across platforms.
@@ -84,20 +85,35 @@ type PlatformCapabilities struct {
 }
 
 // CurrentPlatform returns the capabilities of the current platform.
-// This is a stub; production code should detect at runtime.
 func CurrentPlatform() PlatformCapabilities {
 	return PlatformCapabilities{
-		HasKernelTUN:         false, // netTun is userspace only
-		HasUserspaceNetstack: true,  // netTun provides channel-based packet passing
-		NeedsAdminPrivilege:  false,
-		PlatformName:         detectPlatform(),
+		HasKernelTUN:         hasKernelTUNSupport(),
+		HasUserspaceNetstack: true,
+		NeedsAdminPrivilege:  runtime.GOOS != "windows",
+		PlatformName:         runtime.GOOS,
 	}
 }
 
-func detectPlatform() string {
-	// Use runtime.GOOS in production
-	if _, err := os.Stat("/dev/net/tun"); err == nil {
-		return "linux"
+// CreateTUN attempts to create a kernel TUN device. If that fails,
+// it falls back to a userspace netTun channel-based device.
+func CreateTUN(cfg TUNConfig) (TUNDevice, error) {
+	dev, err := createKernelTUN(cfg)
+	if err == nil {
+		return dev, nil
 	}
-	return "unknown"
+	// Fall back to userspace netTun
+	return newNetTun(cfg.MTU), nil
+}
+
+// hasKernelTUNSupport checks if the current platform has kernel TUN available.
+func hasKernelTUNSupport() bool {
+	switch runtime.GOOS {
+	case "linux":
+		_, err := os.Stat("/dev/net/tun")
+		return err == nil
+	case "darwin", "windows":
+		return true // utun and Wintun are always potentially available
+	default:
+		return false
+	}
 }
