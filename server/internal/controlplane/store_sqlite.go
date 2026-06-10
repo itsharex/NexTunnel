@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     nat_type     TEXT NOT NULL DEFAULT '',
     region       TEXT NOT NULL DEFAULT '',
     subnet       TEXT NOT NULL DEFAULT '',
+    virtual_ip   TEXT NOT NULL DEFAULT '',
     metadata     TEXT NOT NULL DEFAULT '{}',
     connected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -98,6 +99,40 @@ func (s *SQLiteStore) migrate() error {
 	if _, err := s.db.Exec(sqliteSchema); err != nil {
 		return fmt.Errorf("run schema migration: %w", err)
 	}
+	if err := s.ensureColumn("nodes", "virtual_ip", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureColumn 为已存在的 SQLite 数据库补齐新列，保证升级过程可重复执行。
+func (s *SQLiteStore) ensureColumn(tableName, columnName, definition string) error {
+	rows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if err != nil {
+		return fmt.Errorf("inspect table %s: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("scan table info %s: %w", tableName, err)
+		}
+		if name == columnName {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate table info %s: %w", tableName, err)
+	}
+
+	if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition)); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", tableName, columnName, err)
+	}
 	return nil
 }
 
@@ -114,18 +149,19 @@ func (s *SQLiteStore) SaveNode(node *NodeInfo) error {
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO nodes (node_id, public_key, nat_type, region, subnet, metadata, connected_at, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO nodes (node_id, public_key, nat_type, region, subnet, virtual_ip, metadata, connected_at, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(node_id) DO UPDATE SET
 			public_key   = excluded.public_key,
 			nat_type     = excluded.nat_type,
 			region       = excluded.region,
 			subnet       = excluded.subnet,
+			virtual_ip   = excluded.virtual_ip,
 			metadata     = excluded.metadata,
 			connected_at = excluded.connected_at,
 			last_seen    = excluded.last_seen`,
 		node.NodeID, node.PublicKey, node.NATType, node.Region, node.Subnet,
-		string(meta), node.ConnectedAt, node.LastSeen)
+		node.VirtualIP, string(meta), node.ConnectedAt, node.LastSeen)
 	if err != nil {
 		return fmt.Errorf("save node %q: %w", node.NodeID, err)
 	}
@@ -133,12 +169,12 @@ func (s *SQLiteStore) SaveNode(node *NodeInfo) error {
 }
 
 func (s *SQLiteStore) GetNode(nodeID string) (*NodeInfo, error) {
-	row := s.db.QueryRow(`SELECT node_id, public_key, nat_type, region, subnet, metadata, connected_at, last_seen FROM nodes WHERE node_id = ?`, nodeID)
+	row := s.db.QueryRow(`SELECT node_id, public_key, nat_type, region, subnet, virtual_ip, metadata, connected_at, last_seen FROM nodes WHERE node_id = ?`, nodeID)
 	return scanNode(row)
 }
 
 func (s *SQLiteStore) ListNodes() ([]*NodeInfo, error) {
-	rows, err := s.db.Query(`SELECT node_id, public_key, nat_type, region, subnet, metadata, connected_at, last_seen FROM nodes ORDER BY connected_at`)
+	rows, err := s.db.Query(`SELECT node_id, public_key, nat_type, region, subnet, virtual_ip, metadata, connected_at, last_seen FROM nodes ORDER BY connected_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
@@ -251,7 +287,7 @@ func scanNode(row scanner) (*NodeInfo, error) {
 	var node NodeInfo
 	var metaJSON string
 	err := row.Scan(&node.NodeID, &node.PublicKey, &node.NATType, &node.Region,
-		&node.Subnet, &metaJSON, &node.ConnectedAt, &node.LastSeen)
+		&node.Subnet, &node.VirtualIP, &metaJSON, &node.ConnectedAt, &node.LastSeen)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("node not found")

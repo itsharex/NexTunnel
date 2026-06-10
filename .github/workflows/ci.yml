@@ -79,11 +79,11 @@ jobs:
 
       - name: Build Go (server)
         working-directory: server
-        run: go build ./...
+        run: go list ./... | grep -v '/web/node_modules/' | xargs go build
 
       - name: Build Go (desktop)
         working-directory: desktop
-        run: go build ./...
+        run: go list ./... | grep -v '/frontend/node_modules/' | xargs go build
 
       - name: Build Go (pkg)
         working-directory: pkg
@@ -91,7 +91,7 @@ jobs:
 
       - name: Vet Go (server)
         working-directory: server
-        run: go vet ./...
+        run: go list ./... | grep -v '/web/node_modules/' | xargs go vet
 
       - name: Vet Go (desktop)
         working-directory: desktop
@@ -133,7 +133,7 @@ jobs:
 
       - name: Test server
         working-directory: server
-        run: go test ./...
+        run: go list ./... | grep -v '/web/node_modules/' | xargs go test
 
       - name: Test pkg
         working-directory: pkg

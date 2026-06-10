@@ -19,7 +19,26 @@ func NewNodeRegistry(store Store, logger *slog.Logger) *NodeRegistry {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &NodeRegistry{store: store, logger: logger}
+	registry := &NodeRegistry{store: store, logger: logger}
+	registry.restoreNodes()
+	return registry
+}
+
+func (r *NodeRegistry) restoreNodes() {
+	nodes, err := r.store.ListNodes()
+	if err != nil {
+		r.logger.Error("restore nodes from store failed", "error", err)
+		return
+	}
+	for _, node := range nodes {
+		if node == nil || node.NodeID == "" {
+			continue
+		}
+		r.nodes.Store(node.NodeID, node)
+	}
+	if len(nodes) > 0 {
+		r.logger.Info("restored nodes from store", "count", len(nodes))
+	}
 }
 
 // Register adds a new node or updates an existing one.
@@ -40,7 +59,12 @@ func (r *NodeRegistry) Register(node *NodeInfo) error {
 func (r *NodeRegistry) Heartbeat(nodeID string) error {
 	v, ok := r.nodes.Load(nodeID)
 	if !ok {
-		return fmt.Errorf("node not found: %s", nodeID)
+		node, err := r.store.GetNode(nodeID)
+		if err != nil {
+			return fmt.Errorf("node not found: %s", nodeID)
+		}
+		r.nodes.Store(nodeID, node)
+		v = node
 	}
 	node := v.(*NodeInfo)
 	node.LastSeen = time.Now()
@@ -85,21 +109,26 @@ func (r *NodeRegistry) Count() int {
 
 // PruneStale removes nodes that haven't been seen within the timeout.
 func (r *NodeRegistry) PruneStale(timeout time.Duration) int {
+	return len(r.PruneStaleIDs(timeout))
+}
+
+// PruneStaleIDs 删除过期节点并返回节点 ID，便于服务端清理关联资源。
+func (r *NodeRegistry) PruneStaleIDs(timeout time.Duration) []string {
 	cutoff := time.Now().Add(-timeout)
-	pruned := 0
+	prunedIDs := make([]string, 0)
 
 	r.nodes.Range(func(key, value any) bool {
 		node := value.(*NodeInfo)
 		if node.LastSeen.Before(cutoff) {
 			r.nodes.Delete(key)
 			r.store.DeleteNode(node.NodeID)
-			pruned++
+			prunedIDs = append(prunedIDs, node.NodeID)
 			r.logger.Info("stale node pruned", "id", node.NodeID, "last_seen", node.LastSeen)
 		}
 		return true
 	})
 
-	return pruned
+	return prunedIDs
 }
 
 // ACLRuleEngine evaluates access control rules.
@@ -114,7 +143,26 @@ func NewACLRuleEngine(store Store, logger *slog.Logger) *ACLRuleEngine {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ACLRuleEngine{store: store, logger: logger}
+	engine := &ACLRuleEngine{store: store, logger: logger}
+	engine.restoreRules()
+	return engine
+}
+
+func (e *ACLRuleEngine) restoreRules() {
+	rules, err := e.store.ListACLRules()
+	if err != nil {
+		e.logger.Error("restore ACL rules from store failed", "error", err)
+		return
+	}
+	for _, rule := range rules {
+		if rule == nil || rule.ID == "" {
+			continue
+		}
+		e.rules.Store(rule.ID, rule)
+	}
+	if len(rules) > 0 {
+		e.logger.Info("restored ACL rules from store", "count", len(rules))
+	}
 }
 
 // AddRule adds or updates an ACL rule.

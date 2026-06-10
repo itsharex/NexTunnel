@@ -35,7 +35,7 @@ func TestQUICCertFailurePath(t *testing.T) {
 	// Try to connect QUIC opener to a non-QUIC server
 	opener := tunnel.NewQUICWorkConnOpener(fakeServer.Addr().String(), &tls.Config{
 		InsecureSkipVerify: true,
-		NextProtos:        []string{"nextunnel-quic-relay"},
+		NextProtos:         []string{"nextunnel-quic-relay"},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -63,6 +63,24 @@ func TestQUICWorkConnOpener_NoConnect(t *testing.T) {
 
 	if opener.IsConnected() {
 		t.Error("expected IsConnected() = false")
+	}
+}
+
+func TestQUICWorkConnOpener_DefaultTLSIsSecure(t *testing.T) {
+	opener := tunnel.NewQUICWorkConnOpener("127.0.0.1:1", nil)
+	t.Cleanup(func() { _ = opener.Close() })
+
+	if opener.TLSConfig == nil {
+		t.Fatal("expected default TLS config")
+	}
+	if opener.TLSConfig.InsecureSkipVerify {
+		t.Fatal("default QUIC TLS config must not skip certificate verification")
+	}
+	if opener.TLSConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("MinVersion = %d, want TLS 1.3", opener.TLSConfig.MinVersion)
+	}
+	if len(opener.TLSConfig.NextProtos) != 1 || opener.TLSConfig.NextProtos[0] != "nextunnel-quic-relay" {
+		t.Fatalf("unexpected ALPN list: %v", opener.TLSConfig.NextProtos)
 	}
 }
 

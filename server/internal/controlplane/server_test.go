@@ -245,11 +245,37 @@ func TestControlPlane_HTTPAPI(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("register node: %d %s", w.Code, w.Body.String())
 	}
+	var registered NodeInfo
+	if err := json.NewDecoder(w.Body).Decode(&registered); err != nil {
+		t.Fatalf("decode registered node: %v", err)
+	}
+	if registered.VirtualIP == "" {
+		t.Fatal("registered node should receive virtual_ip")
+	}
+	if registered.Subnet != cfg.VirtualSubnet {
+		t.Fatalf("registered subnet = %q, want %q", registered.Subnet, cfg.VirtualSubnet)
+	}
 
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/api-node-1/heartbeat", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("heartbeat: %d %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/nodes/api-node-1/routes", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("get node routes: %d %s", w.Code, w.Body.String())
+	}
+	var routeConfig VirtualNetworkConfig
+	if err := json.NewDecoder(w.Body).Decode(&routeConfig); err != nil {
+		t.Fatalf("decode route config: %v", err)
+	}
+	if routeConfig.VirtualIP != registered.VirtualIP {
+		t.Fatalf("route virtual_ip = %q, want %q", routeConfig.VirtualIP, registered.VirtualIP)
+	}
+	if len(routeConfig.Routes) != 1 || routeConfig.Routes[0].Destination != cfg.VirtualSubnet {
+		t.Fatalf("unexpected route config: %+v", routeConfig)
 	}
 
 	ruleBody, _ := json.Marshal(ACLRule{
@@ -276,6 +302,19 @@ func TestControlPlane_HTTPAPI(t *testing.T) {
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/nodes/api-node-1/peers", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("get peers: %d %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/v1/nodes/api-node-1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete node: %d %s", w.Code, w.Body.String())
+	}
+	allocations, err := store.ListIPAllocations()
+	if err != nil {
+		t.Fatalf("ListIPAllocations: %v", err)
+	}
+	if _, exists := allocations["api-node-1"]; exists {
+		t.Fatal("node IP allocation should be released after delete")
 	}
 }
 
@@ -304,6 +343,81 @@ func TestControlPlane_HTTPAPIToken(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected authorized request, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestControlPlane_PersistentStateRestore(t *testing.T) {
+	dbPath := t.TempDir() + "/control-plane.db"
+	cfg := DefaultControlPlaneConfig()
+	cfg.StorePath = dbPath
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	srv := NewServer(cfg, store)
+	handler := srv.Handler()
+
+	nodeBody, _ := json.Marshal(NodeInfo{
+		NodeID:    "restore-node-1",
+		PublicKey: "restore-key-1",
+		NATType:   "full_cone",
+		Region:    "ap-south",
+	})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/nodes", bytes.NewReader(nodeBody)))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("register node: %d %s", w.Code, w.Body.String())
+	}
+	var registered NodeInfo
+	if err := json.NewDecoder(w.Body).Decode(&registered); err != nil {
+		t.Fatalf("decode registered node: %v", err)
+	}
+	if registered.VirtualIP == "" {
+		t.Fatal("registered node should receive virtual_ip")
+	}
+
+	ruleBody, _ := json.Marshal(ACLRule{
+		ID:       "restore-allow",
+		Source:   "restore-node-1",
+		Target:   "*",
+		Action:   "allow",
+		Protocol: "tcp",
+		Ports:    []int{443},
+		Priority: 10,
+	})
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/acl", bytes.NewReader(ruleBody)))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("add ACL: %d %s", w.Code, w.Body.String())
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	restoredStore, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore restored: %v", err)
+	}
+	defer restoredStore.Close()
+	restoredServer := NewServer(cfg, restoredStore)
+
+	restoredNode, err := restoredServer.Registry().Get("restore-node-1")
+	if err != nil {
+		t.Fatalf("restored node missing: %v", err)
+	}
+	if restoredNode.VirtualIP != registered.VirtualIP {
+		t.Fatalf("restored virtual_ip = %q, want %q", restoredNode.VirtualIP, registered.VirtualIP)
+	}
+	if !restoredServer.ACL().Evaluate("restore-node-1", "any-node", "tcp", 443) {
+		t.Fatal("restored ACL should allow matching traffic")
+	}
+	routeConfig, err := restoredServer.virtualNet.BuildConfig("restore-node-1")
+	if err != nil {
+		t.Fatalf("restored route config: %v", err)
+	}
+	if routeConfig.VirtualIP != registered.VirtualIP {
+		t.Fatalf("restored route virtual_ip = %q, want %q", routeConfig.VirtualIP, registered.VirtualIP)
 	}
 }
 

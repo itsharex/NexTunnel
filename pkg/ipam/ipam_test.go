@@ -2,6 +2,7 @@ package ipam
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"testing"
 )
@@ -94,6 +95,36 @@ func TestIPAM_Release(t *testing.T) {
 	_ = ip2
 }
 
+func TestIPAM_Reserve(t *testing.T) {
+	m, _ := NewIPAM("10.7.0.0/24", "10.7.0.1")
+
+	// 持久化恢复时保留已有地址，后续自动分配不能复用该地址。
+	reservedIP := mustParseIP(t, "10.7.0.10")
+	if err := m.Reserve("node-1", reservedIP); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+
+	got, ok := m.GetAllocation("node-1")
+	if !ok || !got.Equal(reservedIP) {
+		t.Fatalf("reserved IP = %v, ok=%v; want %s", got, ok, reservedIP)
+	}
+
+	if err := m.Reserve("node-2", reservedIP); err == nil {
+		t.Fatal("expected duplicate reserved IP error")
+	}
+	if err := m.Reserve("gateway", mustParseIP(t, "10.7.0.1")); err == nil {
+		t.Fatal("expected gateway reserve error")
+	}
+
+	allocated, err := m.Allocate("node-2")
+	if err != nil {
+		t.Fatalf("Allocate node-2: %v", err)
+	}
+	if allocated.Equal(reservedIP) {
+		t.Fatal("Allocate reused a reserved IP")
+	}
+}
+
 func TestIPAM_GetAllocation(t *testing.T) {
 	m, _ := NewIPAM("10.7.0.0/24", "10.7.0.1")
 
@@ -107,6 +138,15 @@ func TestIPAM_GetAllocation(t *testing.T) {
 	if !ok || ip == nil {
 		t.Error("node-1 should have allocation")
 	}
+}
+
+func mustParseIP(t *testing.T, value string) net.IP {
+	t.Helper()
+	ip := net.ParseIP(value)
+	if ip == nil {
+		t.Fatalf("invalid test IP: %s", value)
+	}
+	return ip
 }
 
 func TestIPAM_ListAllocations(t *testing.T) {

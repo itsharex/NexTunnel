@@ -11,6 +11,7 @@ import (
 // Allocator manages IP address allocation within a subnet.
 type Allocator interface {
 	Allocate(nodeID string) (net.IP, error)
+	Reserve(nodeID string, ip net.IP) error
 	Release(nodeID string)
 	GetAllocation(nodeID string) (net.IP, bool)
 	ListAllocations() map[string]net.IP
@@ -34,6 +35,10 @@ func NewIPAM(subnetCIDR string, gatewayIP string) (*IPAM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse subnet CIDR %q: %w", subnetCIDR, err)
 	}
+	networkIP4 := subnet.IP.To4()
+	if networkIP4 == nil {
+		return nil, fmt.Errorf("subnet %s is not an IPv4 CIDR", subnetCIDR)
+	}
 
 	gateway := net.ParseIP(gatewayIP).To4()
 	if gateway == nil {
@@ -50,7 +55,7 @@ func NewIPAM(subnetCIDR string, gatewayIP string) (*IPAM, error) {
 		return nil, fmt.Errorf("subnet %s too small (need at least /30)", subnetCIDR)
 	}
 
-	networkIP := ipToUint32(subnet.IP.To4())
+	networkIP := ipToUint32(networkIP4)
 	bcast := networkIP | ((1 << hostBits) - 1)
 
 	return &IPAM{
@@ -77,8 +82,8 @@ func (m *IPAM) Allocate(nodeID string) (net.IP, error) {
 	// Collect allocated IPs for collision check
 	used := make(map[uint32]bool, len(m.allocated)+2)
 	used[ipToUint32(m.subnet.IP.To4())] = true // network address
-	used[m.broadcast] = true                     // broadcast address
-	used[ipToUint32(m.gateway)] = true           // gateway
+	used[m.broadcast] = true                   // broadcast address
+	used[ipToUint32(m.gateway)] = true         // gateway
 	for _, ip := range m.allocated {
 		used[ipToUint32(ip.To4())] = true
 	}
@@ -110,6 +115,43 @@ func (m *IPAM) Allocate(nodeID string) (net.IP, error) {
 	}
 
 	return nil, fmt.Errorf("subnet %s exhausted", m.subnet.String())
+}
+
+// Reserve 为已有节点保留指定 IP，主要用于从持久化存储恢复分配状态。
+func (m *IPAM) Reserve(nodeID string, ip net.IP) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	candidateIP := ip.To4()
+	if candidateIP == nil {
+		return fmt.Errorf("invalid IPv4 address %q", ip)
+	}
+	if !m.subnet.Contains(candidateIP) {
+		return fmt.Errorf("IP %s not in subnet %s", candidateIP, m.subnet.String())
+	}
+
+	candidate := ipToUint32(candidateIP)
+	if candidate == m.network || candidate == m.broadcast || candidate == ipToUint32(m.gateway) {
+		return fmt.Errorf("IP %s is reserved in subnet %s", candidateIP, m.subnet.String())
+	}
+
+	if existingIP, ok := m.allocated[nodeID]; ok {
+		if existingIP.Equal(candidateIP) {
+			return nil
+		}
+		return fmt.Errorf("node %s already reserved IP %s", nodeID, existingIP)
+	}
+	for existingNodeID, existingIP := range m.allocated {
+		if existingIP.Equal(candidateIP) {
+			return fmt.Errorf("IP %s already reserved by node %s", candidateIP, existingNodeID)
+		}
+	}
+
+	m.allocated[nodeID] = append(net.IP(nil), candidateIP...)
+	if nextHost := candidate - m.network + 1; nextHost > m.nextHost && nextHost < m.broadcast-m.network {
+		m.nextHost = nextHost
+	}
+	return nil
 }
 
 // Release frees the IP allocated to the given node.

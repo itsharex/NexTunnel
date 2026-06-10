@@ -29,7 +29,11 @@ type QUICWorkConnOpener struct {
 // Call Connect() before using OpenWorkConn().
 func NewQUICWorkConnOpener(serverAddr string, tlsCfg *tls.Config) *QUICWorkConnOpener {
 	if tlsCfg == nil {
-		tlsCfg = &tls.Config{InsecureSkipVerify: true}
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS13}
+	}
+	tlsCfg = tlsCfg.Clone()
+	if tlsCfg.MinVersion == 0 {
+		tlsCfg.MinVersion = tls.VersionTLS13
 	}
 	if len(tlsCfg.NextProtos) == 0 {
 		tlsCfg.NextProtos = []string{"nextunnel-quic-relay"}
@@ -129,8 +133,8 @@ func (c *quicStreamNetConn) Close() error {
 	c.stream.CancelRead(0)
 	return c.stream.Close()
 }
-func (c *quicStreamNetConn) LocalAddr() net.Addr                { return c.localAddr }
-func (c *quicStreamNetConn) RemoteAddr() net.Addr               { return c.remoteAddr }
+func (c *quicStreamNetConn) LocalAddr() net.Addr  { return c.localAddr }
+func (c *quicStreamNetConn) RemoteAddr() net.Addr { return c.remoteAddr }
 func (c *quicStreamNetConn) SetDeadline(t time.Time) error {
 	if err := c.stream.SetReadDeadline(t); err != nil {
 		return err

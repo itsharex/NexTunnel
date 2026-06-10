@@ -19,6 +19,12 @@ func main() {
 	fs.StringVar(&cfg.APIToken, "api-token", cfg.APIToken, "optional Bearer token for control plane HTTP APIs")
 	fs.StringVar(&cfg.StorePath, "store-path", cfg.StorePath, "SQLite database path for persistent storage (empty = in-memory)")
 	fs.StringVar(&cfg.AuditLogPath, "audit-log", cfg.AuditLogPath, "JSON Lines audit log path (empty = disabled)")
+	fs.BoolVar(&cfg.IPAMEnabled, "ipam-enabled", cfg.IPAMEnabled, "enable virtual IP allocation for registered nodes")
+	fs.StringVar(&cfg.VirtualSubnet, "virtual-subnet", cfg.VirtualSubnet, "virtual network CIDR for node IPAM")
+	fs.StringVar(&cfg.VirtualGateway, "virtual-gateway", cfg.VirtualGateway, "virtual network gateway IP")
+	fs.StringVar(&cfg.VirtualInterface, "virtual-interface", cfg.VirtualInterface, "virtual TUN interface name advertised to clients")
+	fs.IntVar(&cfg.VirtualMTU, "virtual-mtu", cfg.VirtualMTU, "virtual TUN interface MTU")
+	fs.IntVar(&cfg.VirtualRouteMetric, "virtual-route-metric", cfg.VirtualRouteMetric, "route metric advertised to clients")
 
 	var tlsCA, tlsCert, tlsKey string
 	fs.StringVar(&tlsCA, "tls-ca", "", "CA certificate PEM for mTLS (enables TLS when set)")

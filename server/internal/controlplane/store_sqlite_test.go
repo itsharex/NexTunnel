@@ -25,6 +25,7 @@ func TestSQLiteStore_NodeCRUD(t *testing.T) {
 		NATType:     "full_cone",
 		Region:      "us-east",
 		Subnet:      "10.7.0.0/24",
+		VirtualIP:   "10.7.0.2",
 		Metadata:    map[string]string{"version": "1.0", "os": "linux"},
 		ConnectedAt: time.Now().Truncate(time.Second),
 		LastSeen:    time.Now().Truncate(time.Second),
@@ -48,6 +49,9 @@ func TestSQLiteStore_NodeCRUD(t *testing.T) {
 	}
 	if got.Region != node.Region {
 		t.Errorf("Region = %q, want %q", got.Region, node.Region)
+	}
+	if got.VirtualIP != node.VirtualIP {
+		t.Errorf("VirtualIP = %q, want %q", got.VirtualIP, node.VirtualIP)
 	}
 	if got.Metadata["version"] != "1.0" {
 		t.Errorf("Metadata[version] = %q, want %q", got.Metadata["version"], "1.0")

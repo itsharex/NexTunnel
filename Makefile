@@ -50,7 +50,7 @@ test: test-go test-frontend
 ## test-go: Run Go tests
 test-go:
 	cd desktop && go list ./... | grep -v '/frontend/node_modules/' | xargs go test
-	cd server && go test ./...
+	cd server && go list ./... | grep -v '/web/node_modules/' | xargs go test
 	cd pkg && go test ./...
 
 ## test-frontend: Run frontend tests

@@ -37,6 +37,7 @@ type NodeInfo struct {
 	NATType     string            `json:"nat_type"`
 	Region      string            `json:"region"`
 	Subnet      string            `json:"subnet"`
+	VirtualIP   string            `json:"virtual_ip,omitempty"`
 	Metadata    map[string]string `json:"metadata"`
 	ConnectedAt time.Time         `json:"connected_at"`
 	LastSeen    time.Time         `json:"last_seen"`

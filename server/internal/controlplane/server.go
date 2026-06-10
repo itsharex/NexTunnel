@@ -19,12 +19,14 @@ import (
 // Server is the control plane server that coordinates node management,
 // key exchange, and ACL enforcement.
 type Server struct {
-	config   ControlPlaneConfig
-	store    Store
-	registry *NodeRegistry
-	acl      *ACLRuleEngine
-	keys     *KeyExchange
-	audit    audit.AuditLogger
+	config        ControlPlaneConfig
+	store         Store
+	registry      *NodeRegistry
+	acl           *ACLRuleEngine
+	keys          *KeyExchange
+	virtualNet    *VirtualNetworkManager
+	virtualNetErr error
+	audit         audit.AuditLogger
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -50,22 +52,36 @@ func NewServer(cfg ControlPlaneConfig, store Store, opts ...ControlPlaneOption) 
 		}
 	}
 
+	var virtualNet *VirtualNetworkManager
+	var virtualNetErr error
+	if cfg.IPAMEnabled {
+		virtualNet, virtualNetErr = NewVirtualNetworkManager(cfg, store)
+		if virtualNetErr != nil {
+			cfg.Logger.Error("failed to initialize virtual network manager", "error", virtualNetErr)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
-		config:   cfg,
-		store:    store,
-		registry: NewNodeRegistry(store, cfg.Logger),
-		acl:      NewACLRuleEngine(store, cfg.Logger),
-		keys:     NewKeyExchange(store, cfg.Logger),
-		audit:    auditLogger,
-		ctx:      ctx,
-		cancel:   cancel,
-		logger:   cfg.Logger,
+		config:        cfg,
+		store:         store,
+		registry:      NewNodeRegistry(store, cfg.Logger),
+		acl:           NewACLRuleEngine(store, cfg.Logger),
+		keys:          NewKeyExchange(store, cfg.Logger),
+		virtualNet:    virtualNet,
+		virtualNetErr: virtualNetErr,
+		audit:         auditLogger,
+		ctx:           ctx,
+		cancel:        cancel,
+		logger:        cfg.Logger,
 	}
 }
 
 // Start starts the control plane server background tasks.
 func (s *Server) Start() error {
+	if s.virtualNetErr != nil {
+		return s.virtualNetErr
+	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	ln, err := net.Listen("tcp", s.config.ListenAddr)
@@ -123,9 +139,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("POST /api/v1/nodes", s.handleRegisterNode)
 	mux.HandleFunc("POST /api/v1/nodes/{id}/heartbeat", s.handleHeartbeat)
+	mux.HandleFunc("DELETE /api/v1/nodes/{id}", s.handleDeleteNode)
 	mux.HandleFunc("GET /api/v1/nodes", s.handleListNodes)
 	mux.HandleFunc("GET /api/v1/nodes/{id}", s.handleGetNode)
 	mux.HandleFunc("GET /api/v1/nodes/{id}/peers", s.handleGetPeers)
+	mux.HandleFunc("GET /api/v1/nodes/{id}/routes", s.handleGetNodeRoutes)
 	mux.HandleFunc("GET /api/v1/acl", s.handleListACL)
 	mux.HandleFunc("POST /api/v1/acl", s.handleAddACL)
 	mux.HandleFunc("DELETE /api/v1/acl/{id}", s.handleDeleteACL)
@@ -186,7 +204,16 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "node_id is required")
 		return
 	}
+	if s.virtualNet != nil {
+		if err := s.virtualNet.AssignNode(&node); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if err := s.registry.Register(&node); err != nil {
+		if s.virtualNet != nil {
+			_ = s.virtualNet.ReleaseNode(node.NodeID)
+		}
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -214,6 +241,35 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, node)
+}
+
+func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("id")
+	if err := s.registry.Deregister(nodeID); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.virtualNet != nil {
+		if err := s.virtualNet.ReleaseNode(nodeID); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	s.audit.Log(audit.NewEvent(extractActor(r), audit.ActionDelete, "nodes", nodeID, audit.ResultSuccess))
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": nodeID})
+}
+
+func (s *Server) handleGetNodeRoutes(w http.ResponseWriter, r *http.Request) {
+	if s.virtualNet == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "virtual network is disabled")
+		return
+	}
+	config, err := s.virtualNet.BuildConfig(r.PathValue("id"))
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, config)
 }
 
 func (s *Server) handleGetPeers(w http.ResponseWriter, r *http.Request) {
@@ -371,9 +427,16 @@ func (s *Server) pruneLoop() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			pruned := s.registry.PruneStale(s.config.NodeTimeout)
-			if pruned > 0 {
-				s.logger.Info("pruned stale nodes", "count", pruned)
+			prunedIDs := s.registry.PruneStaleIDs(s.config.NodeTimeout)
+			for _, nodeID := range prunedIDs {
+				if s.virtualNet != nil {
+					if err := s.virtualNet.ReleaseNode(nodeID); err != nil {
+						s.logger.Error("release stale node virtual IP failed", "node", nodeID, "error", err)
+					}
+				}
+			}
+			if len(prunedIDs) > 0 {
+				s.logger.Info("pruned stale nodes", "count", len(prunedIDs))
 			}
 		}
 	}
