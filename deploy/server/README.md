@@ -33,9 +33,9 @@ nextunnel-server/
 
 ```bash
 curl -fL -o /tmp/nextunnel-install.sh \
-  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.0.1-alpha/deploy/server/install.sh
+  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.0.2-alpha/deploy/server/install.sh
 chmod +x /tmp/nextunnel-install.sh
-sudo /tmp/nextunnel-install.sh install --version v0.0.1-alpha
+sudo /tmp/nextunnel-install.sh install --version v0.0.2-alpha
 ```
 
 ```bash

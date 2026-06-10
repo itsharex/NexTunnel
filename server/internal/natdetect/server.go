@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/pion/logging"
 	"github.com/pion/stun/v2"
 	"github.com/pion/turn/v4"
-	"github.com/pion/logging"
 )
 
 // Server is a dual-IP STUN/TURN server for NAT type detection.
@@ -36,12 +38,8 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 
 // Start binds the UDP listeners on both primary and alternate addresses.
 func (s *Server) Start() error {
-	pionLogger := logging.NewDefaultLoggerFactory().NewLogger("natdetect")
-	_ = pionLogger
-
-	// Create UDP listeners on both addresses
-	primaryAddr := fmt.Sprintf("%s:%d", s.config.PrimaryAddr, s.config.Port)
-	altAddr := fmt.Sprintf("%s:%d", s.config.AltAddr, s.config.Port)
+	primaryAddr := net.JoinHostPort(s.config.PrimaryAddr, strconv.Itoa(s.config.Port))
+	altAddr := net.JoinHostPort(s.config.AltAddr, strconv.Itoa(s.config.Port))
 
 	primaryConn, err := net.ListenPacket("udp4", primaryAddr)
 	if err != nil {
@@ -50,28 +48,31 @@ func (s *Server) Start() error {
 	s.conns = append(s.conns, primaryConn)
 	s.logger.Info("primary STUN listener started", "addr", primaryAddr)
 
-	altConn, err := net.ListenPacket("udp4", altAddr)
-	if err != nil {
-		primaryConn.Close()
-		return fmt.Errorf("listen on alternate %s: %w", altAddr, err)
+	packetConnConfigs := []turn.PacketConnConfig{
+		newPacketConnConfig(primaryConn, s.config.PrimaryAddr),
 	}
-	s.conns = append(s.conns, altConn)
-	s.logger.Info("alternate STUN listener started", "addr", altAddr)
+
+	// 主地址为通配地址时已经覆盖备用地址，重复监听同端口会在 Linux 上触发 address already in use。
+	if shouldBindAlternateAddress(s.config.PrimaryAddr, s.config.AltAddr) {
+		altConn, err := net.ListenPacket("udp4", altAddr)
+		if err != nil {
+			s.Stop()
+			return fmt.Errorf("listen on alternate %s: %w", altAddr, err)
+		}
+		s.conns = append(s.conns, altConn)
+		packetConnConfigs = append(packetConnConfigs, newPacketConnConfig(altConn, s.config.AltAddr))
+		s.logger.Info("alternate STUN listener started", "addr", altAddr)
+	} else {
+		s.logger.Warn("alternate STUN listener skipped because primary address covers it",
+			"primary", primaryAddr,
+			"alt", altAddr)
+	}
 
 	// Create TURN server config (STUN is built-in)
 	turnCfg := turn.ServerConfig{
-		Realm:       s.config.Realm,
-		LoggerFactory: logging.NewDefaultLoggerFactory(),
-		PacketConnConfigs: []turn.PacketConnConfig{
-			{
-				PacketConn:            primaryConn,
-				RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{RelayAddress: net.ParseIP(s.config.PrimaryAddr), Address: s.config.PrimaryAddr},
-			},
-			{
-				PacketConn:            altConn,
-				RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{RelayAddress: net.ParseIP(s.config.AltAddr), Address: s.config.AltAddr},
-			},
-		},
+		Realm:             s.config.Realm,
+		LoggerFactory:     logging.NewDefaultLoggerFactory(),
+		PacketConnConfigs: packetConnConfigs,
 	}
 
 	server, err := turn.NewServer(turnCfg)
@@ -87,6 +88,35 @@ func (s *Server) Start() error {
 		"realm", s.config.Realm)
 
 	return nil
+}
+
+// newPacketConnConfig 统一创建 TURN 监听配置，避免主/备地址配置结构重复。
+func newPacketConnConfig(conn net.PacketConn, relayAddress string) turn.PacketConnConfig {
+	return turn.PacketConnConfig{
+		PacketConn: conn,
+		RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
+			RelayAddress: net.ParseIP(relayAddress),
+			Address:      relayAddress,
+		},
+	}
+}
+
+// shouldBindAlternateAddress 判断备用地址是否需要独立监听，避免通配地址重复占用同端口。
+func shouldBindAlternateAddress(primaryAddr, altAddr string) bool {
+	primaryAddr = strings.TrimSpace(primaryAddr)
+	altAddr = strings.TrimSpace(altAddr)
+	if primaryAddr == "" || altAddr == "" || primaryAddr == altAddr {
+		return false
+	}
+	primaryIP := net.ParseIP(primaryAddr)
+	altIP := net.ParseIP(altAddr)
+	if primaryIP == nil || altIP == nil {
+		return true
+	}
+	if primaryIP.Equal(altIP) {
+		return false
+	}
+	return !primaryIP.IsUnspecified() && !altIP.IsUnspecified()
 }
 
 // Stop gracefully shuts down the NAT detection server.

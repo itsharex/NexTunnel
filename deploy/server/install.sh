@@ -735,6 +735,21 @@ print_connection_info() {
 health_check() {
   load_runtime_env
   require_command curl
+  require_command systemctl
+  collect_runtime_services
+  log "检查 systemd 服务状态"
+  local failed_services=()
+  local service_name
+  for service_name in "${RUNTIME_SERVICE_NAMES[@]}"; do
+    if ! systemctl is-active --quiet "${service_name}"; then
+      failed_services+=("${service_name}")
+    fi
+  done
+  if (( ${#failed_services[@]} > 0 )); then
+    systemctl --no-pager --full status "${failed_services[@]}" >&2 || true
+    printf '服务未处于 active 状态：%s\n' "${failed_services[*]}" >&2
+    exit 1
+  fi
   log "检查 Control Plane 健康状态"
   curl -fsS "http://127.0.0.1:${CONTROL_PLANE_PORT}/healthz" >/dev/null
   log "检查 Relay TCP 端口"
