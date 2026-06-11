@@ -89,7 +89,7 @@ func (r *NodeRegistry) Get(nodeID string) (*NodeInfo, error) {
 
 // List returns all registered nodes.
 func (r *NodeRegistry) List() []*NodeInfo {
-	var result []*NodeInfo
+	result := make([]*NodeInfo, 0)
 	r.nodes.Range(func(_, value any) bool {
 		result = append(result, value.(*NodeInfo))
 		return true
@@ -243,7 +243,7 @@ func (e *ACLRuleEngine) Evaluate(source, target, protocol string, port int) bool
 
 // ListRules returns all ACL rules.
 func (e *ACLRuleEngine) ListRules() []*ACLRule {
-	var result []*ACLRule
+	result := make([]*ACLRule, 0)
 	e.rules.Range(func(_, value any) bool {
 		result = append(result, value.(*ACLRule))
 		return true

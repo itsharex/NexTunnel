@@ -155,7 +155,7 @@ func (s *SQLiteDashboardStore) ListNodes() ([]*NodeStatus, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []*NodeStatus
+	result := make([]*NodeStatus, 0)
 	for rows.Next() {
 		n, err := scanNodeStatusRows(rows)
 		if err != nil {
@@ -196,7 +196,7 @@ func (s *SQLiteDashboardStore) ListACLs() ([]*ACLRuleView, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []*ACLRuleView
+	result := make([]*ACLRuleView, 0)
 	for rows.Next() {
 		r, err := scanACLRuleViewRows(rows)
 		if err != nil {
@@ -235,7 +235,7 @@ func (s *SQLiteDashboardStore) ListAlerts() ([]*Alert, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []*Alert
+	result := make([]*Alert, 0)
 	for rows.Next() {
 		a, err := scanAlertRows(rows)
 		if err != nil {
@@ -286,7 +286,7 @@ func (s *SQLiteDashboardStore) ListUsers() ([]*User, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []*User
+	result := make([]*User, 0)
 	for rows.Next() {
 		u, err := scanUserRows(rows)
 		if err != nil {

@@ -336,6 +336,9 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 			s.serveStoreError(w, "list_nodes", err)
 			return
 		}
+		if nodes == nil {
+			nodes = make([]*NodeStatus, 0)
+		}
 		writeSuccess(w, nodes)
 		return
 	}
@@ -429,6 +432,9 @@ func (s *Server) handleListACL(w http.ResponseWriter, r *http.Request) {
 			s.serveStoreError(w, "list_acl", err)
 			return
 		}
+		if rules == nil {
+			rules = make([]*ACLRuleView, 0)
+		}
 		writeSuccess(w, rules)
 		return
 	}
@@ -505,6 +511,9 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 			s.serveStoreError(w, "list_alerts", err)
 			return
 		}
+		if alerts == nil {
+			alerts = make([]*Alert, 0)
+		}
 		writeSuccess(w, alerts)
 		return
 	}
@@ -555,7 +564,11 @@ func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 // --- Alert Rule handlers ---
 
 func (s *Server) handleListAlertRules(w http.ResponseWriter, _ *http.Request) {
-	writeSuccess(w, s.alertEngine.ListRules())
+	rules := s.alertEngine.ListRules()
+	if rules == nil {
+		rules = make([]*AlertRule, 0)
+	}
+	writeSuccess(w, rules)
 }
 
 func (s *Server) handleCreateAlertRule(w http.ResponseWriter, r *http.Request) {
@@ -595,7 +608,11 @@ func (s *Server) handleDeleteAlertRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUnackedAlerts(w http.ResponseWriter, _ *http.Request) {
-	writeSuccess(w, s.alertEngine.ListUnackedEvents())
+	events := s.alertEngine.ListUnackedEvents()
+	if events == nil {
+		events = make([]*AlertEvent, 0)
+	}
+	writeSuccess(w, events)
 }
 
 // metricsRequest is the payload for POST /api/v1/metrics.
@@ -625,6 +642,9 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.serveStoreError(w, "list_users", err)
 			return
+		}
+		if users == nil {
+			users = make([]*User, 0)
 		}
 		writeSuccess(w, users)
 		return

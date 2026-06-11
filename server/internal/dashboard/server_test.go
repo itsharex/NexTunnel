@@ -430,3 +430,83 @@ func TestDashboard_BcryptPasswordHashing(t *testing.T) {
 		t.Error("expected non-empty token")
 	}
 }
+
+// TestEmptyListReturnsArray_NotNull verifies that list endpoints return [] instead of null
+// when the database is empty. This is critical for frontend compatibility.
+func TestEmptyListReturnsArray_NotNull(t *testing.T) {
+	// Create server with SQLite store
+	dir := t.TempDir()
+	store, err := NewSQLiteDashboardStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteDashboardStore: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "test-secret"
+	cfg.Auth.DefaultPass = "secure-password"
+	cfg.Store = store
+	srv := NewServer(cfg)
+	handler := srv.Handler()
+
+	// Login to get token
+	loginBody := `{"username":"admin","password":"secure-password"}`
+	loginReq := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader([]byte(loginBody)))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("login: %d %s", loginRR.Code, loginRR.Body.String())
+	}
+	var loginResp APIResponse
+	json.Unmarshal(loginRR.Body.Bytes(), &loginResp)
+	data, _ := json.Marshal(loginResp.Data)
+	var lr LoginResponse
+	json.Unmarshal(data, &lr)
+	token := lr.Token
+
+	// Test all list endpoints return [] not null
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/v1/nodes"},
+		{"GET", "/api/v1/stats"},
+		{"GET", "/api/v1/acl"},
+		{"GET", "/api/v1/alerts"},
+		{"GET", "/api/v1/users"},
+		{"GET", "/api/v1/alert-rules"},
+	}
+
+	for _, ep := range endpoints {
+		t.Run(ep.method+" "+ep.path, func(t *testing.T) {
+			req := httptest.NewRequest(ep.method, ep.path, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp APIResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if !resp.Success {
+				t.Fatalf("success = false: %s", resp.Error)
+			}
+
+			// The critical check: data must be an array, not null
+			rawData, _ := json.Marshal(resp.Data)
+			if string(rawData) == "null" {
+				t.Errorf("data is null, expected empty array []")
+			}
+			// Verify it's a valid JSON array
+			var arr []interface{}
+			if err := json.Unmarshal(rawData, &arr); err != nil {
+				t.Errorf("data is not a JSON array: %s", string(rawData))
+			}
+		})
+	}
+}
