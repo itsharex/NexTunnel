@@ -243,6 +243,17 @@ function Find-DashboardWebDir {
     return ''
 }
 
+function Find-DeployScriptDir {
+    param([string]$RootPath)
+    $scriptFile = Get-ChildItem -LiteralPath $RootPath -Recurse -File -Filter 'install.ps1' |
+        Where-Object { $_.FullName -match '[\\/]deploy[\\/]server[\\/]install\.ps1$' } |
+        Select-Object -First 1
+    if ($scriptFile) {
+        return $scriptFile.Directory.FullName
+    }
+    return ''
+}
+
 function Test-Truthy {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -280,8 +291,9 @@ function Install-ReleasePackage {
         $natDetectorBinary = Find-Binary -RootPath $extractPath -BinaryName 'nat-detector'
         $dashboardBinary = Find-OptionalBinary -RootPath $extractPath -BinaryName 'dashboard'
         $dashboardWebDir = Find-DashboardWebDir -RootPath $extractPath
+        $deployScriptDir = Find-DeployScriptDir -RootPath $extractPath
 
-        New-Item -ItemType Directory -Force -Path $script:BinDir, $script:WebDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $script:BinDir, $script:WebDir, $script:DeployDir | Out-Null
         Copy-Item -LiteralPath $relayBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($relayBinary))) -Force
         Copy-Item -LiteralPath $controlPlaneBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($controlPlaneBinary))) -Force
         Copy-Item -LiteralPath $natDetectorBinary -Destination (Join-Path $script:BinDir ([IO.Path]::GetFileName($natDetectorBinary))) -Force
@@ -296,6 +308,11 @@ function Install-ReleasePackage {
             Copy-Item -Path (Join-Path $dashboardWebDir '*') -Destination $script:WebDir -Recurse -Force
         } else {
             Write-Warn 'Release package does not include Dashboard web assets.'
+        }
+        if ($deployScriptDir) {
+            Copy-Item -Path (Join-Path $deployScriptDir '*') -Destination $script:DeployDir -Recurse -Force
+        } else {
+            Write-Warn 'Release package does not include deploy scripts.'
         }
         Write-Step "Installed server binaries: $script:BinDir"
     } finally {
@@ -583,6 +600,7 @@ $script:ConfigDir = if ($ConfigDir) { $ConfigDir } else { Get-ConfigValue $scrip
 $script:DataDir = if ($DataDir) { $DataDir } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_DATA_DIR' (Join-Path $programDataRoot 'data') }
 $script:BinDir = Join-Path $script:InstallDir 'bin'
 $script:WebDir = Join-Path (Join-Path $script:InstallDir 'web') 'dashboard'
+$script:DeployDir = Join-Path (Join-Path $script:InstallDir 'deploy') 'server'
 $script:LogDir = Join-Path $script:InstallDir 'logs'
 $script:RunDir = Join-Path $script:InstallDir 'run'
 $script:EnvPath = Join-Path $script:ConfigDir 'server.env'

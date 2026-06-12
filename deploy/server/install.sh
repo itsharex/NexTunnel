@@ -57,6 +57,7 @@ NAT_REALM="${NAT_REALM:-nextunnel.local}"
 ENV_FILE="${CONFIG_DIR%/}/server.env"
 BIN_DIR="${INSTALL_DIR%/}/bin"
 WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
+DEPLOY_DIR="${INSTALL_DIR%/}/deploy/server"
 SERVICE_NAMES=(nextunnel-control-plane.service nextunnel-relay.service nextunnel-nat-detector.service)
 DASHBOARD_SERVICE_NAME=nextunnel-dashboard.service
 
@@ -394,6 +395,15 @@ find_dashboard_web_dir() {
   fi
 }
 
+find_deploy_script_dir() {
+  local root_dir="$1"
+  local found_file
+  found_file="$(find "${root_dir}" -type f -path "*/deploy/server/install.sh" -print -quit)"
+  if [[ -n "${found_file}" ]]; then
+    dirname "${found_file}"
+  fi
+}
+
 runtime_service_names() {
   printf '%s\n' "${SERVICE_NAMES[@]}"
   if [[ "${DASHBOARD_ENABLED}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
@@ -552,6 +562,7 @@ install_release_package() {
   local nat_binary
   local dashboard_binary
   local dashboard_web_dir
+  local deploy_script_dir
 
   resolved_package_url="$(resolve_package_url)"
   tmp_dir="$(mktemp -d)"
@@ -571,8 +582,9 @@ install_release_package() {
   nat_binary="$(find_binary "${extract_dir}" nat-detector)"
   dashboard_binary="$(optional_find_binary "${extract_dir}" dashboard)"
   dashboard_web_dir="$(find_dashboard_web_dir "${extract_dir}")"
+  deploy_script_dir="$(find_deploy_script_dir "${extract_dir}")"
 
-  mkdir -p "${BIN_DIR}" "${WEB_DIR}"
+  mkdir -p "${BIN_DIR}" "${WEB_DIR}" "${DEPLOY_DIR}"
   install -m 0755 "${relay_binary}" "${BIN_DIR}/relay-server"
   install -m 0755 "${control_binary}" "${BIN_DIR}/control-plane"
   install -m 0755 "${nat_binary}" "${BIN_DIR}/nat-detector"
@@ -586,6 +598,12 @@ install_release_package() {
     cp -a "${dashboard_web_dir}/." "${WEB_DIR}/"
   else
     warn "Release 包未包含 Dashboard Web 静态资源。"
+  fi
+  if [[ -n "${deploy_script_dir}" ]]; then
+    cp -a "${deploy_script_dir}/." "${DEPLOY_DIR}/"
+    chmod +x "${DEPLOY_DIR}/install.sh" || true
+  else
+    warn "Release 包未包含 deploy/server 安装脚本。"
   fi
   rm -rf "${tmp_dir}"
   trap - EXIT

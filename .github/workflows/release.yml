@@ -59,22 +59,38 @@ jobs:
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip.sha256
 
+  cli-packages:
+    name: CLI packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Package CLI
+        shell: pwsh
+        run: ./scripts/package-cli.ps1 -Version "$env:RELEASE_VERSION"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          files: |
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-amd64.tar.gz
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-amd64.tar.gz.sha256
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-arm64.tar.gz
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-arm64.tar.gz.sha256
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-windows-amd64.zip
+            dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-windows-amd64.zip.sha256
+
   server-packages:
     name: Server packages
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            archive: tar.gz
-          - goos: linux
-            goarch: arm64
-            archive: tar.gz
-          - goos: windows
-            goarch: amd64
-            archive: zip
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -92,76 +108,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: server/web/package-lock.json
 
-      - name: Build dashboard web
+      - name: Install dashboard web dependencies
         working-directory: server/web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build server binaries
-        working-directory: server
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
-        run: |
-          set -euo pipefail
-          package_dir="../dist/nextunnel-server-${GOOS}-${GOARCH}"
-          mkdir -p "${package_dir}/bin"
-          suffix=""
-          if [ "${GOOS}" = "windows" ]; then suffix=".exe"; fi
-          # 服务端 Release 包固定包含核心进程和 Dashboard，部署脚本按这些名称校验包完整性。
-          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/control-plane${suffix}" ./cmd/control-plane
-          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/relay-server${suffix}" ./cmd/relay
-          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/nat-detector${suffix}" ./cmd/nat-detector
-          go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/dashboard${suffix}" ./cmd/dashboard
-
-      - name: Add package metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          package_dir="dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
-          mkdir -p "${package_dir}/web/dashboard"
-          cp -R server/web/dist/. "${package_dir}/web/dashboard/"
-          cp deploy/server/.env.example "${package_dir}/.env.example"
-          cp deploy/server/README.md "${package_dir}/README.md"
-          cat > "${package_dir}/MANIFEST.txt" <<EOF
-          NexTunnel server package
-          Target: ${{ matrix.goos }}-${{ matrix.goarch }}
-          Binaries:
-            bin/control-plane
-            bin/relay-server
-            bin/nat-detector
-            bin/dashboard
-          Web:
-            web/dashboard
-          EOF
-
-      - name: Archive tar.gz
-        if: matrix.archive == 'tar.gz'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          tar -czf "nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" "nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
-
-      - name: Archive zip
-        if: matrix.archive == 'zip'
         shell: pwsh
-        run: |
-          Compress-Archive -Path "dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}" -DestinationPath "dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.zip" -Force
+        run: npm ci
 
-      - name: Generate checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }} > nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}.sha256
+      - name: Package server
+        shell: pwsh
+        run: ./scripts/package-server.ps1 -Version "$env:RELEASE_VERSION"
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           files: |
-            dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
-            dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}.sha256
+            dist/nextunnel-server-linux-amd64.tar.gz
+            dist/nextunnel-server-linux-amd64.tar.gz.sha256
+            dist/nextunnel-server-linux-arm64.tar.gz
+            dist/nextunnel-server-linux-arm64.tar.gz.sha256
+            dist/nextunnel-server-windows-amd64.zip
+            dist/nextunnel-server-windows-amd64.zip.sha256

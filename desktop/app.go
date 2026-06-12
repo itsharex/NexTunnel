@@ -30,19 +30,21 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.1.1-alpha"
+var AppVersion = "0.2.1-alpha"
 
 // App is the main Wails application struct.
 type App struct {
-	ctx     context.Context
-	logger  *slog.Logger
-	manager *tunnel.Manager
-	db      *config.DB
-	store   *config.Store
-	vnet    *virtualnet.Manager
-	runMu   sync.Mutex
-	cancel  context.CancelFunc
-	lastErr string
+	ctx             context.Context
+	logger          *slog.Logger
+	manager         *tunnel.Manager
+	db              *config.DB
+	store           *config.Store
+	vnet            *virtualnet.Manager
+	controlServer   *http.Server
+	controlFilePath string
+	runMu           sync.Mutex
+	cancel          context.CancelFunc
+	lastErr         string
 }
 
 // NewApp creates a new App application struct.
@@ -68,9 +70,14 @@ func (a *App) startup(ctx context.Context) {
 	cfg := a.managerConfig()
 	a.manager = tunnel.NewManager(cfg)
 	a.manager.SetLogger(a.logger)
+	if err := a.startControlServer(); err != nil {
+		a.logger.Error("failed to start desktop control api", "error", err)
+		a.recordError(err)
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.stopControlServer(ctx)
 	if a.manager != nil {
 		a.manager.Stop()
 	}

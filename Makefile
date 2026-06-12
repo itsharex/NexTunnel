@@ -1,6 +1,6 @@
-.PHONY: all dev dev-server-web build package-desktop lint test clean help
+.PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test clean help
 
-VERSION ?= v0.1.1-alpha
+VERSION ?= v0.2.1-alpha
 
 # Default target
 all: build
@@ -30,12 +30,21 @@ build:
 package-desktop:
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -Version $(VERSION)
 
+## package-cli: Build CLI release packages
+package-cli:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-cli.ps1 -Version $(VERSION)
+
+## package-server: Build all server release packages
+package-server:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-server.ps1 -Version $(VERSION)
+
 ## build-server: Build all server binaries
 build-server:
 	cd server && go build -o ../build/control-plane ./cmd/control-plane
 	cd server && go build -o ../build/relay-server ./cmd/relay
 	cd server && go build -o ../build/nat-detector ./cmd/nat-detector
 	cd server && go build -o ../build/dashboard ./cmd/dashboard
+	cd cli && go build -o ../build/nextunnel .
 
 ## lint: Run all linters
 lint: lint-go lint-frontend
@@ -57,6 +66,7 @@ test: test-go test-frontend
 test-go:
 	cd desktop && go list ./... | grep -v '/frontend/node_modules/' | xargs go test
 	cd server && go list ./... | grep -v '/web/node_modules/' | xargs go test
+	cd cli && go test ./...
 	cd pkg && go test ./...
 
 ## test-frontend: Run frontend tests

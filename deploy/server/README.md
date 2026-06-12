@@ -20,12 +20,48 @@ nextunnel-server/
   bin/control-plane
   bin/nat-detector
   bin/dashboard
+  bin/nextunnel
   web/dashboard/
+  deploy/server/install.sh
+  deploy/server/install.ps1
   .env.example
   README.md
 ```
 
-`.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包和对应 `.sha256` 文件。后续桌面端或其他终端可继续作为附件发布到同一个 GitHub Release。
+`.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包、独立 CLI 包、桌面端包和对应 `.sha256` 文件。服务端包内置 `bin/nextunnel`，安装后可使用统一 CLI 管理服务。
+
+## 统一 CLI
+
+从 `v0.2.1-alpha` 起，Release 同时发布独立 CLI 包：
+
+```text
+nextunnel-cli-v0.2.1-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.2.1-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.2.1-alpha-windows-amd64.zip
+```
+
+常用命令：
+
+```bash
+nextunnel server status
+nextunnel server health
+nextunnel server restart
+nextunnel server logs --follow
+nextunnel config set-context prod --server http://127.0.0.1:9090 --token <control-token> --dashboard http://127.0.0.1:8080 --dashboard-token <dashboard-token>
+nextunnel remote node list
+nextunnel remote acl list
+nextunnel doctor
+```
+
+桌面端启动后会创建仅当前用户可读的本机控制文件，CLI 可通过本机控制 API 操作运行中的桌面端：
+
+```powershell
+nextunnel desktop status
+nextunnel desktop connect --relay 127.0.0.1:7000 --token <relay-token>
+nextunnel desktop nat detect
+nextunnel desktop network apply
+nextunnel desktop disconnect
+```
 
 ## 方式一：Linux 一键部署（推荐）
 
