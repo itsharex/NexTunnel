@@ -1,6 +1,9 @@
 <template>
   <section class="client-dashboard">
-    <div class="dashboard-grid">
+    <div
+      v-if="viewMode === 'overview'"
+      class="dashboard-grid"
+    >
       <n-card
         class="connect-panel"
         :bordered="false"
@@ -100,7 +103,10 @@
       </n-card>
     </div>
 
-    <div class="detail-grid">
+    <div
+      v-if="viewMode === 'tunnels' || viewMode === 'overview'"
+      class="detail-grid"
+    >
       <n-card
         class="tunnel-panel"
         :bordered="false"
@@ -252,7 +258,10 @@
         </div>
       </n-card>
 
-      <div class="side-stack">
+      <div
+        v-if="viewMode === 'overview'"
+        class="side-stack"
+      >
         <n-card
           class="capability-card"
           :bordered="false"
@@ -338,6 +347,15 @@ import {
   type SelectOption,
 } from 'naive-ui'
 import { useTunnelStore } from '../stores/tunnel'
+
+withDefaults(
+  defineProps<{
+    viewMode?: 'overview' | 'tunnels'
+  }>(),
+  {
+    viewMode: 'overview',
+  },
+)
 
 interface CapabilityItem {
   name: string
@@ -532,6 +550,11 @@ const refreshClientState = async (): Promise<void> => {
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 onMounted(async () => {
+  await store.loadServerSettings()
+  relayForm.value = {
+    server_addr: store.serverAddr,
+    auth_token: store.authToken,
+  }
   await store.loadTunnels()
   await store.refreshStatus()
   refreshTimer = setInterval(refreshClientState, 3000)

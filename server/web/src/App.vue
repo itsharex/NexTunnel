@@ -1,463 +1,557 @@
 <template>
-  <div class="dashboard-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          NT
-        </div>
-        <div>
-          <strong>NexTunnel</strong>
-          <span>Server Dashboard</span>
-        </div>
-      </div>
-
-      <nav
-        class="nav-list"
-        aria-label="Dashboard navigation"
-      >
-        <a href="#overview">总览</a>
-        <a href="#nodes">节点</a>
-        <a href="#traffic">流量</a>
-        <a href="#acl">ACL</a>
-        <a href="#alerts">告警</a>
-      </nav>
-
-      <div class="sidebar-health">
-        <span
-          class="health-dot"
-          :class="healthStatusClass"
-        />
-        <div>
-          <strong>API {{ healthStatus }}</strong>
-          <span>{{ lastRefreshLabel }}</span>
-        </div>
-      </div>
-    </aside>
-
-    <main class="main">
-      <section
-        v-if="!isAuthenticated"
-        class="login-surface"
-      >
-        <div class="login-panel">
-          <div>
-            <p class="eyebrow">
-              Dashboard Login
-            </p>
-            <h1>登录管理控制台</h1>
-            <p class="login-copy">
-              使用后端 Dashboard 管理员账户访问节点、流量、ACL 和告警数据。
-            </p>
-          </div>
-
-          <form
-            class="login-form"
-            @submit.prevent="handleLogin"
-          >
-            <label>
-              用户名
-              <input
-                v-model.trim="loginForm.username"
-                autocomplete="username"
-                type="text"
-              >
-            </label>
-            <label>
-              密码
-              <input
-                v-model="loginForm.password"
-                autocomplete="current-password"
-                type="password"
-              >
-            </label>
-            <button
-              class="btn primary"
-              type="submit"
-              :disabled="isSubmitting"
+  <n-config-provider
+    :theme="darkTheme"
+    :theme-overrides="themeOverrides"
+  >
+    <n-message-provider>
+      <div class="dashboard-shell">
+        <aside class="sidebar">
+          <div class="brand">
+            <img
+              class="brand-logo"
+              :src="whiteLogo"
+              alt="NexTunnel"
             >
-              {{ isSubmitting ? '登录中' : '登录' }}
-            </button>
-          </form>
-
-          <p
-            v-if="errorMessage"
-            class="message error"
-          >
-            {{ errorMessage }}
-          </p>
-        </div>
-      </section>
-
-      <template v-else>
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">
-              生产控制台
-            </p>
-            <h1>全球加速运行面板</h1>
-          </div>
-          <div class="topbar-actions">
-            <span class="user-chip">{{ activeUserLabel }}</span>
-            <button
-              class="btn secondary"
-              type="button"
-              :disabled="isLoading"
-              @click="refreshDashboard"
-            >
-              {{ isLoading ? '刷新中' : '刷新' }}
-            </button>
-            <button
-              class="btn ghost"
-              type="button"
-              @click="handleLogout"
-            >
-              退出
-            </button>
-          </div>
-        </header>
-
-        <p
-          v-if="errorMessage"
-          class="message error"
-        >
-          {{ errorMessage }}
-        </p>
-        <p
-          v-if="successMessage"
-          class="message success"
-        >
-          {{ successMessage }}
-        </p>
-
-        <section
-          id="overview"
-          class="metric-grid"
-          aria-label="Dashboard metrics"
-        >
-          <article
-            v-for="metric in metrics"
-            :key="metric.label"
-            class="metric-card"
-          >
-            <span>{{ metric.label }}</span>
-            <strong>{{ metric.value }}</strong>
-            <p>{{ metric.detail }}</p>
-          </article>
-        </section>
-
-        <section class="layout-grid">
-          <article
-            id="nodes"
-            class="panel map-panel"
-          >
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">
-                  节点地图
-                </p>
-                <h2>区域分布与在线状态</h2>
-              </div>
-              <select
-                v-model="selectedRegion"
-                class="select-control"
-                aria-label="筛选区域"
-              >
-                <option
-                  v-for="region in regionOptions"
-                  :key="region"
-                  :value="region"
-                >
-                  {{ region }}
-                </option>
-              </select>
-            </div>
-
-            <div
-              class="node-map"
-              aria-label="节点区域地图"
-            >
-              <span
-                v-for="(node, index) in filteredNodes"
-                :key="node.node_id"
-                class="map-dot"
-                :class="node.online ? 'online' : 'offline'"
-                :style="nodePosition(node, index)"
-                :title="`${node.node_id} · ${node.region}`"
-              />
-            </div>
-
-            <div class="node-table compact">
-              <button
-                v-for="node in filteredNodes"
-                :key="node.node_id"
-                class="node-row"
-                type="button"
-                :class="{ selected: selectedNodeID === node.node_id }"
-                @click="selectNode(node.node_id)"
-              >
-                <span
-                  class="status-pill"
-                  :class="node.online ? 'online' : 'offline'"
-                >
-                  {{ statusLabel(node.online) }}
-                </span>
-                <strong>{{ node.node_id }}</strong>
-                <span>{{ node.region || '未分区' }}</span>
-                <span>{{ formatRelativeTime(node.last_seen) }}</span>
-              </button>
-            </div>
-          </article>
-
-          <article
-            id="traffic"
-            class="panel traffic-panel"
-          >
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">
-                  流量
-                </p>
-                <h2>节点带宽分布</h2>
-              </div>
-              <span class="panel-count">{{ trafficBars.length }} 条样本</span>
-            </div>
-
-            <div class="traffic-bars">
-              <div
-                v-for="bar in trafficBars"
-                :key="bar.label"
-                class="traffic-row"
-              >
-                <div class="traffic-label">
-                  <strong>{{ bar.label }}</strong>
-                  <span>{{ bar.detail }}</span>
-                </div>
-                <div
-                  class="bar-track"
-                  aria-hidden="true"
-                >
-                  <span
-                    class="rx-bar"
-                    :style="{ width: `${bar.rxPercent}%` }"
-                  />
-                  <span
-                    class="tx-bar"
-                    :style="{ width: `${bar.txPercent}%` }"
-                  />
-                </div>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section class="panel node-detail-panel">
-          <div class="panel-header">
             <div>
-              <p class="eyebrow">
-                节点清单
-              </p>
-              <h2>Relay 节点管理</h2>
+              <strong>NexTunnel</strong>
+              <span>Server Dashboard</span>
             </div>
           </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>节点</th>
-                  <th>区域</th>
-                  <th>NAT</th>
-                  <th>接收</th>
-                  <th>发送</th>
-                  <th>最后心跳</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="node in filteredNodes"
-                  :key="node.node_id"
+          <nav
+            class="nav-list"
+            aria-label="Dashboard navigation"
+          >
+            <a
+              v-for="item in navItems"
+              :key="item.href"
+              :href="item.href"
+            >
+              <span>{{ item.index }}</span>
+              {{ item.label }}
+            </a>
+          </nav>
+
+          <div class="sidebar-health">
+            <span
+              class="health-dot"
+              :class="healthStatusClass"
+            />
+            <div>
+              <strong>API {{ healthStatus }}</strong>
+              <span>{{ lastRefreshLabel }}</span>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <section
+            v-if="!isAuthenticated"
+            class="login-surface"
+          >
+            <n-card
+              class="login-panel"
+              :bordered="false"
+            >
+              <div class="login-brand">
+                <img
+                  :src="blackLogo"
+                  alt="NexTunnel"
                 >
-                  <td>
-                    <span
-                      class="status-pill"
-                      :class="node.online ? 'online' : 'offline'"
+              </div>
+              <div>
+                <p class="eyebrow">
+                  Dashboard Login
+                </p>
+                <h1>登录管理控制台</h1>
+                <p class="login-copy">
+                  使用后端 Dashboard 管理员账户访问节点、流量、ACL 和告警数据。
+                </p>
+              </div>
+
+              <n-form
+                class="login-form"
+                label-placement="top"
+                :show-feedback="false"
+                @submit.prevent="handleLogin"
+              >
+                <n-form-item label="用户名">
+                  <n-input
+                    v-model:value="loginForm.username"
+                    autocomplete="username"
+                  />
+                </n-form-item>
+                <n-form-item label="密码">
+                  <n-input
+                    v-model:value="loginForm.password"
+                    autocomplete="current-password"
+                    type="password"
+                    show-password-on="click"
+                  />
+                </n-form-item>
+                <n-button
+                  block
+                  type="primary"
+                  attr-type="submit"
+                  :loading="isSubmitting"
+                >
+                  {{ isSubmitting ? '登录中' : '登录' }}
+                </n-button>
+              </n-form>
+
+              <n-alert
+                v-if="errorMessage"
+                type="error"
+                :bordered="false"
+              >
+                {{ errorMessage }}
+              </n-alert>
+            </n-card>
+          </section>
+
+          <template v-else>
+            <header class="topbar">
+              <div>
+                <p class="eyebrow">
+                  生产控制台
+                </p>
+                <h1>全球加速运行面板</h1>
+              </div>
+              <n-space align="center">
+                <n-tag
+                  round
+                  type="info"
+                  :bordered="false"
+                >
+                  {{ activeUserLabel }}
+                </n-tag>
+                <n-button
+                  secondary
+                  :loading="isLoading"
+                  @click="refreshDashboard"
+                >
+                  {{ isLoading ? '刷新中' : '刷新' }}
+                </n-button>
+                <n-button
+                  quaternary
+                  @click="handleLogout"
+                >
+                  退出
+                </n-button>
+              </n-space>
+            </header>
+
+            <n-alert
+              v-if="errorMessage"
+              class="feedback-message"
+              type="error"
+              :bordered="false"
+            >
+              {{ errorMessage }}
+            </n-alert>
+            <n-alert
+              v-if="successMessage"
+              class="feedback-message"
+              type="success"
+              :bordered="false"
+            >
+              {{ successMessage }}
+            </n-alert>
+
+            <section
+              id="overview"
+              class="metric-grid"
+              aria-label="Dashboard metrics"
+            >
+              <n-card
+                v-for="metric in metrics"
+                :key="metric.label"
+                class="metric-card"
+                :bordered="false"
+              >
+                <n-statistic
+                  :label="metric.label"
+                  :value="metric.value"
+                />
+                <span>{{ metric.detail }}</span>
+              </n-card>
+            </section>
+
+            <section class="layout-grid">
+              <n-card
+                id="nodes"
+                class="panel map-panel"
+                :bordered="false"
+              >
+                <template #header>
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow">
+                        节点地图
+                      </p>
+                      <h2>区域分布与在线状态</h2>
+                    </div>
+                    <n-select
+                      v-model:value="selectedRegion"
+                      class="region-select"
+                      :options="regionSelectOptions"
+                    />
+                  </div>
+                </template>
+
+                <div
+                  class="node-map"
+                  aria-label="节点区域地图"
+                >
+                  <span
+                    v-for="(node, index) in filteredNodes"
+                    :key="node.node_id"
+                    class="map-dot"
+                    :class="node.online ? 'online' : 'offline'"
+                    :style="nodePosition(node, index)"
+                    :title="`${node.node_id} · ${node.region}`"
+                  />
+                </div>
+
+                <div class="node-table compact">
+                  <button
+                    v-for="node in filteredNodes"
+                    :key="node.node_id"
+                    class="node-row"
+                    type="button"
+                    :class="{ selected: selectedNodeID === node.node_id }"
+                    @click="selectNode(node.node_id)"
+                  >
+                    <n-tag
+                      round
+                      size="small"
+                      :type="node.online ? 'success' : 'error'"
+                      :bordered="false"
                     >
                       {{ statusLabel(node.online) }}
-                    </span>
+                    </n-tag>
                     <strong>{{ node.node_id }}</strong>
-                  </td>
-                  <td>{{ node.region || '未分区' }}</td>
-                  <td>{{ node.nat_type || '未知' }}</td>
-                  <td>{{ formatBytes(node.rx_bytes) }}</td>
-                  <td>{{ formatBytes(node.tx_bytes) }}</td>
-                  <td>{{ formatRelativeTime(node.last_seen) }}</td>
-                  <td>
-                    <button
-                      class="btn danger compact-btn"
-                      type="button"
-                      @click="removeNode(node.node_id)"
+                    <span>{{ node.region || '未分区' }}</span>
+                    <span>{{ formatRelativeTime(node.last_seen) }}</span>
+                  </button>
+                </div>
+              </n-card>
+
+              <n-card
+                id="traffic"
+                class="panel traffic-panel"
+                :bordered="false"
+              >
+                <template #header>
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow">
+                        流量
+                      </p>
+                      <h2>节点带宽分布</h2>
+                    </div>
+                    <n-tag
+                      round
+                      size="small"
+                      :bordered="false"
+                    >
+                      {{ trafficBars.length }} 条样本
+                    </n-tag>
+                  </div>
+                </template>
+
+                <div class="traffic-bars">
+                  <div
+                    v-for="bar in trafficBars"
+                    :key="bar.label"
+                    class="traffic-row"
+                  >
+                    <div class="traffic-label">
+                      <strong>{{ bar.label }}</strong>
+                      <span>{{ bar.detail }}</span>
+                    </div>
+                    <div
+                      class="bar-track"
+                      aria-hidden="true"
+                    >
+                      <span
+                        class="rx-bar"
+                        :style="{ width: `${bar.rxPercent}%` }"
+                      />
+                      <span
+                        class="tx-bar"
+                        :style="{ width: `${bar.txPercent}%` }"
+                      />
+                    </div>
+                  </div>
+                  <n-empty
+                    v-if="trafficBars.length === 0"
+                    description="暂无流量样本"
+                  />
+                </div>
+              </n-card>
+            </section>
+
+            <n-card
+              class="panel node-detail-panel"
+              :bordered="false"
+            >
+              <template #header>
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">
+                      节点清单
+                    </p>
+                    <h2>Relay 节点管理</h2>
+                  </div>
+                </div>
+              </template>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>节点</th>
+                      <th>区域</th>
+                      <th>NAT</th>
+                      <th>接收</th>
+                      <th>发送</th>
+                      <th>最后心跳</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="node in filteredNodes"
+                      :key="node.node_id"
+                    >
+                      <td>
+                        <n-tag
+                          round
+                          size="small"
+                          :type="node.online ? 'success' : 'error'"
+                          :bordered="false"
+                        >
+                          {{ statusLabel(node.online) }}
+                        </n-tag>
+                        <strong>{{ node.node_id }}</strong>
+                      </td>
+                      <td>{{ node.region || '未分区' }}</td>
+                      <td>{{ node.nat_type || '未知' }}</td>
+                      <td>{{ formatBytes(node.rx_bytes) }}</td>
+                      <td>{{ formatBytes(node.tx_bytes) }}</td>
+                      <td>{{ formatRelativeTime(node.last_seen) }}</td>
+                      <td>
+                        <n-button
+                          size="small"
+                          type="error"
+                          secondary
+                          @click="removeNode(node.node_id)"
+                        >
+                          删除
+                        </n-button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <n-empty
+                  v-if="filteredNodes.length === 0"
+                  description="暂无节点"
+                />
+              </div>
+            </n-card>
+
+            <section class="layout-grid">
+              <n-card
+                id="acl"
+                class="panel acl-panel"
+                :bordered="false"
+              >
+                <template #header>
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow">
+                        访问控制
+                      </p>
+                      <h2>ACL 规则</h2>
+                    </div>
+                    <n-tag
+                      round
+                      size="small"
+                      :bordered="false"
+                    >
+                      {{ snapshot.aclRules.length }} 条规则
+                    </n-tag>
+                  </div>
+                </template>
+
+                <n-form
+                  class="acl-form"
+                  label-placement="top"
+                  :show-feedback="false"
+                  @submit.prevent="submitACLRule"
+                >
+                  <n-form-item label="来源">
+                    <n-input
+                      v-model:value="aclForm.source"
+                      placeholder="node-a 或 *"
+                    />
+                  </n-form-item>
+                  <n-form-item label="目标">
+                    <n-input
+                      v-model:value="aclForm.target"
+                      placeholder="node-b 或 10.0.0.0/24"
+                    />
+                  </n-form-item>
+                  <n-form-item label="协议">
+                    <n-select
+                      v-model:value="aclForm.protocol"
+                      :options="protocolOptions"
+                    />
+                  </n-form-item>
+                  <n-form-item label="动作">
+                    <n-select
+                      v-model:value="aclForm.action"
+                      :options="actionOptions"
+                    />
+                  </n-form-item>
+                  <n-form-item label="优先级">
+                    <n-input-number
+                      v-model:value="aclForm.priority"
+                      :min="0"
+                    />
+                  </n-form-item>
+                  <n-checkbox v-model:checked="aclForm.enabled">
+                    启用
+                  </n-checkbox>
+                  <n-button
+                    type="primary"
+                    attr-type="submit"
+                    :loading="isSubmitting"
+                  >
+                    添加规则
+                  </n-button>
+                </n-form>
+
+                <div class="acl-list">
+                  <div
+                    v-for="rule in sortedACLRules"
+                    :key="rule.id"
+                    class="acl-row"
+                  >
+                    <n-tag
+                      round
+                      size="small"
+                      :type="rule.enabled ? 'success' : 'warning'"
+                      :bordered="false"
+                    >
+                      {{ rule.enabled ? '启用' : '停用' }}
+                    </n-tag>
+                    <strong>{{ rule.source }} -> {{ rule.target }}</strong>
+                    <span>{{ rule.protocol.toUpperCase() }} · {{ aclActionLabel(rule.action) }} · P{{ rule.priority }}</span>
+                    <n-button
+                      size="small"
+                      quaternary
+                      @click="removeACLRule(rule.id)"
                     >
                       删除
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="layout-grid">
-          <article
-            id="acl"
-            class="panel acl-panel"
-          >
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">
-                  访问控制
-                </p>
-                <h2>ACL 规则</h2>
-              </div>
-              <span class="panel-count">{{ snapshot.aclRules.length }} 条规则</span>
-            </div>
-
-            <form
-              class="acl-form"
-              @submit.prevent="submitACLRule"
-            >
-              <label>
-                来源
-                <input
-                  v-model.trim="aclForm.source"
-                  placeholder="node-a 或 *"
-                  type="text"
-                >
-              </label>
-              <label>
-                目标
-                <input
-                  v-model.trim="aclForm.target"
-                  placeholder="node-b 或 10.0.0.0/24"
-                  type="text"
-                >
-              </label>
-              <label>
-                协议
-                <select v-model="aclForm.protocol">
-                  <option value="tcp">TCP</option>
-                  <option value="udp">UDP</option>
-                  <option value="icmp">ICMP</option>
-                  <option value="any">ANY</option>
-                </select>
-              </label>
-              <label>
-                动作
-                <select v-model="aclForm.action">
-                  <option value="allow">允许</option>
-                  <option value="deny">拒绝</option>
-                </select>
-              </label>
-              <label>
-                优先级
-                <input
-                  v-model.number="aclForm.priority"
-                  min="0"
-                  step="1"
-                  type="number"
-                >
-              </label>
-              <label class="checkbox-label">
-                <input
-                  v-model="aclForm.enabled"
-                  type="checkbox"
-                >
-                启用
-              </label>
-              <button
-                class="btn primary"
-                type="submit"
-                :disabled="isSubmitting"
-              >
-                添加规则
-              </button>
-            </form>
-
-            <div class="acl-list">
-              <div
-                v-for="rule in sortedACLRules"
-                :key="rule.id"
-                class="acl-row"
-              >
-                <span
-                  class="status-pill"
-                  :class="rule.enabled ? 'online' : 'offline'"
-                >
-                  {{ rule.enabled ? '启用' : '停用' }}
-                </span>
-                <strong>{{ rule.source }} → {{ rule.target }}</strong>
-                <span>{{ rule.protocol.toUpperCase() }} · {{ aclActionLabel(rule.action) }} · P{{ rule.priority }}</span>
-                <button
-                  class="btn ghost compact-btn"
-                  type="button"
-                  @click="removeACLRule(rule.id)"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          </article>
-
-          <article
-            id="alerts"
-            class="panel alert-panel"
-          >
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">
-                  告警
-                </p>
-                <h2>待处理事件</h2>
-              </div>
-              <span class="panel-count">{{ unackedAlerts.length }} 未确认</span>
-            </div>
-
-            <div class="alert-list">
-              <div
-                v-for="alert in recentAlerts"
-                :key="alert.id"
-                class="alert-row"
-              >
-                <span
-                  class="severity"
-                  :class="severityClass(alert.level)"
-                >
-                  {{ alert.level }}
-                </span>
-                <div>
-                  <strong>{{ alert.rule_name || alert.message }}</strong>
-                  <p>{{ alert.message }}</p>
-                  <span>{{ alert.node_id || 'global' }} · {{ formatDateTime(alert.created_at) }}</span>
+                    </n-button>
+                  </div>
+                  <n-empty
+                    v-if="sortedACLRules.length === 0"
+                    description="暂无 ACL 规则"
+                  />
                 </div>
-                <button
-                  class="btn secondary compact-btn"
-                  type="button"
-                  :disabled="alert.acked"
-                  @click="ackAlert(alert.id)"
-                >
-                  {{ alert.acked ? '已确认' : '确认' }}
-                </button>
-              </div>
-            </div>
-          </article>
-        </section>
-      </template>
-    </main>
-  </div>
+              </n-card>
+
+              <n-card
+                id="alerts"
+                class="panel alert-panel"
+                :bordered="false"
+              >
+                <template #header>
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow">
+                        告警
+                      </p>
+                      <h2>待处理事件</h2>
+                    </div>
+                    <n-tag
+                      round
+                      size="small"
+                      type="warning"
+                      :bordered="false"
+                    >
+                      {{ unackedAlerts.length }} 未确认
+                    </n-tag>
+                  </div>
+                </template>
+
+                <div class="alert-list">
+                  <div
+                    v-for="alert in recentAlerts"
+                    :key="alert.id"
+                    class="alert-row"
+                  >
+                    <n-tag
+                      round
+                      size="small"
+                      :type="severityTagType(alert.level)"
+                      :bordered="false"
+                    >
+                      {{ alert.level }}
+                    </n-tag>
+                    <div>
+                      <strong>{{ alert.rule_name || alert.message }}</strong>
+                      <p>{{ alert.message }}</p>
+                      <span>{{ alert.node_id || 'global' }} · {{ formatDateTime(alert.created_at) }}</span>
+                    </div>
+                    <n-button
+                      size="small"
+                      secondary
+                      :disabled="alert.acked"
+                      @click="ackAlert(alert.id)"
+                    >
+                      {{ alert.acked ? '已确认' : '确认' }}
+                    </n-button>
+                  </div>
+                  <n-empty
+                    v-if="recentAlerts.length === 0"
+                    description="暂无告警"
+                  />
+                </div>
+              </n-card>
+            </section>
+          </template>
+        </main>
+      </div>
+    </n-message-provider>
+  </n-config-provider>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import {
+  darkTheme,
+  NAlert,
+  NButton,
+  NCard,
+  NCheckbox,
+  NConfigProvider,
+  NEmpty,
+  NForm,
+  NFormItem,
+  NInput,
+  NInputNumber,
+  NMessageProvider,
+  NSelect,
+  NSpace,
+  NStatistic,
+  NTag,
+  type GlobalThemeOverrides,
+  type SelectOption,
+} from 'naive-ui'
 import {
   acknowledgeAlert,
   clearStoredToken,
@@ -471,6 +565,8 @@ import {
 } from './api'
 import { formatBandwidth, formatBytes, formatDateTime, formatNumber, formatRelativeTime, statusLabel } from './formatters'
 import type { ACLFormState, ACLRuleView, DashboardSnapshot, NodeStatus, TrafficStats, User } from './types'
+import blackLogo from '@shared-logo/black-logo.png'
+import whiteLogo from '@shared-logo/white-logo.png'
 
 const REFRESH_INTERVAL_MS = 30_000
 const ALL_REGIONS = '全部区域'
@@ -478,6 +574,51 @@ const DEFAULT_ACL_ACTION = 'allow'
 const DEFAULT_ACL_PROTOCOL = 'tcp'
 const MAP_FALLBACK_TOP_OFFSET = 16
 const MAP_FALLBACK_LEFT_OFFSET = 12
+
+const themeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: '#00ffff',
+    primaryColorHover: '#33f6f6',
+    primaryColorPressed: '#00d5d5',
+    primaryColorSuppl: '#8a2be2',
+    borderRadius: '8px',
+    bodyColor: '#091120',
+    cardColor: 'rgba(18, 31, 52, 0.82)',
+    modalColor: '#111c2f',
+    popoverColor: '#111c2f',
+    textColorBase: '#feffff',
+    textColor1: '#feffff',
+    textColor2: '#d2e0ec',
+    textColor3: '#a8a9a9',
+  },
+  Button: {
+    borderRadiusMedium: '8px',
+    borderRadiusSmall: '8px',
+  },
+  Card: {
+    borderRadius: '12px',
+  },
+}
+
+const navItems = [
+  { href: '#overview', label: '总览', index: '01' },
+  { href: '#nodes', label: '节点', index: '02' },
+  { href: '#traffic', label: '流量', index: '03' },
+  { href: '#acl', label: 'ACL', index: '04' },
+  { href: '#alerts', label: '告警', index: '05' },
+] as const
+
+const protocolOptions: SelectOption[] = [
+  { label: 'TCP', value: 'tcp' },
+  { label: 'UDP', value: 'udp' },
+  { label: 'ICMP', value: 'icmp' },
+  { label: 'ANY', value: 'any' },
+]
+
+const actionOptions: SelectOption[] = [
+  { label: '允许', value: 'allow' },
+  { label: '拒绝', value: 'deny' },
+]
 
 const REGION_COORDINATES: Record<string, { left: number; top: number }> = {
   'us-east': { left: 27, top: 38 },
@@ -521,7 +662,6 @@ const aclForm = reactive<ACLFormState>(createEmptyACLForm())
 let refreshTimer: number | undefined
 
 const isAuthenticated = computed(() => token.value.length > 0)
-
 const healthStatusClass = computed(() => (healthStatus.value === 'ok' ? 'online' : 'offline'))
 
 const activeUserLabel = computed(() => {
@@ -589,6 +729,10 @@ const regionOptions = computed(() => {
   const regions = new Set(snapshot.value.nodes.map((node) => node.region || '未分区'))
   return [ALL_REGIONS, ...Array.from(regions).sort()]
 })
+
+const regionSelectOptions = computed<SelectOption[]>(() =>
+  regionOptions.value.map((region) => ({ label: region, value: region })),
+)
 
 const filteredNodes = computed(() => {
   if (selectedRegion.value === ALL_REGIONS) {
@@ -774,10 +918,10 @@ const ackAlert = async (alertID: string): Promise<void> => {
 
 const aclActionLabel = (action: string): string => (action === 'deny' ? '拒绝' : '允许')
 
-const severityClass = (level: string): string => {
+const severityTagType = (level: string): 'default' | 'error' | 'success' | 'warning' | 'info' => {
   const normalizedLevel = level.toLowerCase()
   if (normalizedLevel === 'critical') {
-    return 'critical'
+    return 'error'
   }
   if (normalizedLevel === 'warning') {
     return 'warning'
@@ -801,24 +945,22 @@ onUnmounted(() => {
 
 <style scoped>
 :global(:root) {
-  --bg: #f3f6f8;
-  --surface: #ffffff;
-  --surface-muted: #eef3f5;
-  --sidebar: #101820;
-  --sidebar-soft: #172330;
-  --border: #d9e1e5;
-  --border-strong: #b8c5cc;
-  --text: #10202a;
-  --text-muted: #667883;
-  --text-inverse: #edf7fa;
-  --accent: #0f766e;
-  --accent-strong: #0b5f59;
-  --success: #138a5b;
-  --warning: #b7791f;
-  --danger: #b42318;
-  --info: #2563eb;
-  --radius: 8px;
-  --shadow: 0 14px 40px rgb(16 32 42 / 0.08);
+  --nex-cyan: #00ffff;
+  --tunnel-violet: #8a2be2;
+  --neutral-grey: #a8a9a9;
+  --future-white: #feffff;
+  --bg-dark: #091120;
+  --sidebar-bg: #0c1628;
+  --surface-bg: rgba(18, 31, 52, 0.82);
+  --surface-strong: rgba(9, 17, 32, 0.94);
+  --line-soft: rgba(168, 169, 169, 0.16);
+  --line-cyan: rgba(0, 255, 255, 0.18);
+  --text-main: var(--future-white);
+  --text-dim: #b8c5d3;
+  --text-muted: var(--neutral-grey);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
   --sidebar-width: 248px;
 }
 
@@ -830,15 +972,13 @@ onUnmounted(() => {
   margin: 0;
   min-width: 320px;
   min-height: 100dvh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-:global(button),
-:global(input),
-:global(select) {
-  font: inherit;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 22% 12%, rgba(0, 255, 255, 0.1), transparent 28%),
+    radial-gradient(circle at 86% 20%, rgba(138, 43, 226, 0.13), transparent 30%),
+    var(--bg-dark);
+  color: var(--text-main);
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 .dashboard-shell {
@@ -855,8 +995,10 @@ onUnmounted(() => {
   gap: 24px;
   height: 100dvh;
   padding: 20px;
-  background: var(--sidebar);
-  color: var(--text-inverse);
+  border-right: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, rgba(13, 27, 47, 0.98), rgba(6, 12, 25, 0.98)),
+    var(--sidebar-bg);
 }
 
 .brand {
@@ -866,15 +1008,12 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 850;
+.brand-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 12px 30px rgba(0, 255, 255, 0.1);
 }
 
 .brand strong,
@@ -884,30 +1023,43 @@ onUnmounted(() => {
   display: block;
 }
 
+.brand strong {
+  color: var(--text-main);
+  font-size: 17px;
+}
+
 .brand span,
 .sidebar-health span {
-  color: #a9bcc6;
+  color: var(--text-dim);
   font-size: 12px;
 }
 
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .nav-list a {
-  min-height: 40px;
-  border-radius: var(--radius);
-  color: #d9e8ed;
+  min-height: 42px;
   display: flex;
   align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  color: var(--text-dim);
   padding: 0 12px;
   text-decoration: none;
 }
 
 .nav-list a:hover {
-  background: var(--sidebar-soft);
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(138, 43, 226, 0.08));
+  color: var(--nex-cyan);
+}
+
+.nav-list span {
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .sidebar-health {
@@ -916,9 +1068,9 @@ onUnmounted(() => {
   grid-template-columns: 10px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: var(--radius);
-  background: var(--sidebar-soft);
+  border: 1px solid rgba(0, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
   padding: 12px;
 }
 
@@ -936,11 +1088,12 @@ onUnmounted(() => {
 
 .health-dot.online {
   background: var(--success);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.54);
 }
 
 .main {
   min-width: 0;
-  padding: 22px;
+  padding: 24px 28px 28px;
 }
 
 .topbar {
@@ -954,241 +1107,115 @@ onUnmounted(() => {
 .topbar h1,
 .login-panel h1 {
   margin: 4px 0 0;
-  font-size: 28px;
-  line-height: 1.18;
-}
-
-.topbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  color: var(--text-main);
+  font-size: 30px;
+  line-height: 1.16;
 }
 
 .eyebrow {
   margin: 0;
-  color: var(--accent);
+  color: var(--nex-cyan);
   font-size: 12px;
   font-weight: 780;
 }
 
-.user-chip,
-.panel-count,
-.status-pill,
-.severity {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  border-radius: 999px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 720;
-}
-
-.user-chip {
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.btn {
-  min-height: 38px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font-weight: 720;
-  padding: 0 14px;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--border-strong);
-}
-
-.btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.btn.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
-}
-
-.btn.secondary {
-  border-color: #b7d8d3;
-  background: #e7f4f2;
-  color: var(--accent-strong);
-}
-
-.btn.ghost {
-  background: transparent;
-}
-
-.btn.danger {
-  border-color: #f0c7c1;
-  background: #fff1f0;
-  color: var(--danger);
-}
-
-.compact-btn {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
-.message {
-  margin: 0 0 12px;
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 13px;
-}
-
-.message.error {
-  border: 1px solid #f0c7c1;
-  background: #fff1f0;
-  color: var(--danger);
-}
-
-.message.success {
-  border: 1px solid #b9decf;
-  background: #eef9f4;
-  color: var(--success);
+.feedback-message {
+  margin-bottom: 12px;
 }
 
 .login-surface {
   display: grid;
-  min-height: calc(100dvh - 44px);
+  min-height: calc(100dvh - 56px);
   place-items: center;
 }
 
 .login-panel {
-  width: min(460px, 100%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  padding: 24px;
+  width: min(480px, 100%);
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    var(--surface-bg);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
+}
+
+.login-brand img {
+  width: 180px;
+  height: auto;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .login-copy {
-  color: var(--text-muted);
-  line-height: 1.55;
+  color: var(--text-dim);
+  line-height: 1.65;
 }
 
-.login-form,
-.acl-form {
-  display: grid;
-  gap: 12px;
-}
-
-.login-form label,
-.acl-form label {
-  display: grid;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-input,
-select,
-.select-control {
-  width: 100%;
-  min-height: 38px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #ffffff;
-  color: var(--text);
-  padding: 0 10px;
-}
-
-input:focus,
-select:focus,
-.btn:focus-visible {
-  outline: 2px solid #7dd3c7;
-  outline-offset: 2px;
+.login-form {
+  margin: 20px 0 14px;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 14px;
+  margin-bottom: 18px;
 }
 
 .metric-card,
 .panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    var(--surface-bg);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
 }
 
 .metric-card {
-  min-height: 112px;
-  padding: 16px;
+  min-height: 118px;
 }
 
 .metric-card span {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 740;
-}
-
-.metric-card strong {
   display: block;
-  margin-top: 10px;
-  font-size: 26px;
-  line-height: 1.1;
-}
-
-.metric-card p {
-  margin: 8px 0 0;
-  color: var(--text-muted);
+  margin-top: 8px;
+  color: var(--text-dim);
   font-size: 12px;
 }
 
 .layout-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.panel {
-  min-width: 0;
-  padding: 16px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+  gap: 18px;
+  margin-bottom: 18px;
 }
 
 .panel-header {
+  width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .panel-header h2 {
   margin: 4px 0 0;
+  color: var(--text-main);
   font-size: 18px;
 }
 
-.panel-count {
-  border: 1px solid var(--border);
-  color: var(--text-muted);
+.region-select {
+  width: 160px;
 }
 
 .node-map {
   position: relative;
   min-height: 300px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
   background:
-    linear-gradient(90deg, rgb(16 32 42 / 0.05) 1px, transparent 1px),
-    linear-gradient(0deg, rgb(16 32 42 / 0.05) 1px, transparent 1px),
-    linear-gradient(180deg, #f9fbfc, #edf4f6);
+    linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(9, 17, 32, 0.78), rgba(18, 31, 52, 0.54));
   background-size: 56px 56px, 56px 56px, auto;
   overflow: hidden;
 }
@@ -1198,7 +1225,7 @@ select:focus,
   position: absolute;
   inset: 18% 12%;
   border-radius: 50%;
-  border: 1px dashed rgb(15 118 110 / 0.25);
+  border: 1px dashed rgba(0, 255, 255, 0.22);
 }
 
 .map-dot {
@@ -1206,17 +1233,17 @@ select:focus,
   width: 15px;
   height: 15px;
   transform: translate(-50%, -50%);
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 0 4px rgb(19 138 91 / 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
 .map-dot.online {
   background: var(--success);
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.16);
 }
 
 .map-dot.offline {
   background: var(--danger);
-  box-shadow: 0 0 0 4px rgb(180 35 24 / 0.12);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.14);
 }
 
 .node-table.compact {
@@ -1232,33 +1259,30 @@ select:focus,
   align-items: center;
   width: 100%;
   min-height: 42px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #ffffff;
-  color: var(--text);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(9, 17, 32, 0.56);
+  color: var(--text-main);
   cursor: pointer;
   padding: 8px 10px;
   text-align: left;
 }
 
 .node-row.selected {
-  border-color: var(--accent);
-  background: #effaf8;
+  border-color: var(--nex-cyan);
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(138, 43, 226, 0.08));
 }
 
-.status-pill.online {
-  background: #e9f7f1;
-  color: var(--success);
+.node-row span,
+td {
+  color: var(--text-dim);
 }
 
-.status-pill.offline {
-  background: #fff1f0;
-  color: var(--danger);
-}
-
-.traffic-bars {
+.traffic-bars,
+.acl-list,
+.alert-list {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .traffic-row {
@@ -1270,19 +1294,19 @@ select:focus,
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 12px;
 }
 
 .traffic-label strong {
-  color: var(--text);
+  color: var(--text-main);
 }
 
 .bar-track {
   position: relative;
   height: 14px;
   border-radius: 999px;
-  background: var(--surface-muted);
+  background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
@@ -1295,17 +1319,17 @@ select:focus,
 
 .rx-bar {
   left: 0;
-  background: var(--accent);
+  background: var(--nex-cyan);
 }
 
 .tx-bar {
   right: 0;
-  background: #7c8a93;
-  opacity: 0.62;
+  background: var(--tunnel-violet);
+  opacity: 0.68;
 }
 
 .node-detail-panel {
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 
 .table-wrap {
@@ -1320,7 +1344,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-soft);
   padding: 12px 10px;
   text-align: left;
   vertical-align: middle;
@@ -1343,25 +1367,10 @@ td:first-child {
 }
 
 .acl-form {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: 14px;
-}
-
-.checkbox-label {
-  display: flex !important;
-  align-items: center;
-  gap: 8px !important;
-}
-
-.checkbox-label input {
-  width: 16px;
-  min-height: 16px;
-}
-
-.acl-list,
-.alert-list {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .acl-row,
@@ -1370,14 +1379,18 @@ td:first-child {
   align-items: center;
   gap: 10px;
   min-height: 54px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(9, 17, 32, 0.56);
   padding: 10px;
 }
 
 .acl-row {
   grid-template-columns: 72px minmax(0, 1fr) minmax(160px, auto) auto;
+}
+
+.alert-row {
+  grid-template-columns: 82px minmax(0, 1fr) auto;
 }
 
 .acl-row strong,
@@ -1388,34 +1401,15 @@ td:first-child {
   overflow-wrap: anywhere;
 }
 
-.alert-row {
-  grid-template-columns: 82px minmax(0, 1fr) auto;
-}
-
 .alert-row p {
   margin: 4px 0;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 12px;
 }
 
 .alert-row span {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.severity.info {
-  background: #eef4ff;
-  color: var(--info);
-}
-
-.severity.warning {
-  background: #fff7e6;
-  color: var(--warning);
-}
-
-.severity.critical {
-  background: #fff1f0;
-  color: var(--danger);
 }
 
 @media (max-width: 1180px) {
@@ -1455,16 +1449,11 @@ td:first-child {
     flex-direction: column;
   }
 
-  .topbar-actions,
   .metric-grid,
   .layout-grid,
   .nav-list {
     grid-template-columns: 1fr;
     width: 100%;
-  }
-
-  .topbar-actions {
-    display: grid;
   }
 
   .node-row,

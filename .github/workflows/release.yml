@@ -1,5 +1,8 @@
 name: Release
 
+env:
+  RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
 on:
   push:
     tags:
@@ -15,6 +18,47 @@ permissions:
   contents: write
 
 jobs:
+  desktop-windows:
+    name: Desktop Windows package
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install desktop frontend dependencies
+        working-directory: desktop/frontend
+        shell: pwsh
+        run: npm ci
+
+      - name: Package desktop
+        shell: pwsh
+        run: ./scripts/package-desktop.ps1 -Version "$env:RELEASE_VERSION"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          files: |
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip.sha256
+
   server-packages:
     name: Server packages
     runs-on: ubuntu-latest
@@ -117,7 +161,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          tag_name: ${{ env.RELEASE_VERSION }}
           files: |
             dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
             dist/nextunnel-server-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}.sha256

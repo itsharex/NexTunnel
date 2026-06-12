@@ -17,15 +17,11 @@
             <div class="brand-lockup">
               <img
                 class="brand-icon"
-                :src="logoImage"
+                :src="titleLogoImage"
                 alt="NexTunnel"
               >
               <div class="brand-copy">
-                <img
-                  class="brand-wordmark"
-                  :src="textLogoImage"
-                  alt="NexTunnel"
-                >
+                <strong>NexTunnel</strong>
                 <span>{{ t('app.subtitle') }}</span>
               </div>
             </div>
@@ -46,7 +42,7 @@
               :title="t('window.minimise')"
               @click="minimiseWindow"
             >
-              <span class="window-icon">-</span>
+              <span class="window-icon minimise-icon" />
             </n-button>
             <n-button
               quaternary
@@ -55,7 +51,7 @@
               :title="t('window.maximise')"
               @click="toggleMaximiseWindow"
             >
-              <span class="window-icon">□</span>
+              <span class="window-icon maximise-icon" />
             </n-button>
             <n-button
               quaternary
@@ -65,7 +61,7 @@
               :title="t('window.close')"
               @click="closeWindow"
             >
-              <span class="window-icon">×</span>
+              <span class="window-icon close-icon" />
             </n-button>
           </div>
         </header>
@@ -74,7 +70,7 @@
           <aside class="sidebar">
             <div class="sidebar-logo">
               <img
-                :src="logoImage"
+                :src="sidebarLogoImage"
                 alt="NexTunnel"
               >
             </div>
@@ -90,6 +86,7 @@
                 :class="{ active: item.active, disabled: item.disabled }"
                 type="button"
                 :disabled="item.disabled"
+                @click="activeView = item.key"
               >
                 <span class="nav-symbol">{{ item.symbol }}</span>
                 <span>{{ item.label }}</span>
@@ -121,20 +118,25 @@
             <section class="content-header">
               <div>
                 <span class="section-kicker">{{ t('app.productName') }}</span>
-                <h1>{{ t('app.title') }}</h1>
+                <h1>{{ activeTitle }}</h1>
               </div>
               <n-space align="center">
                 <n-tag
                   round
-                  type="info"
+                  :type="connectionTagType"
                   :bordered="false"
                 >
-                  {{ t('app.preview') }}
+                  {{ connectionLabel }}
                 </n-tag>
               </n-space>
             </section>
 
-            <StatusView />
+            <StatusView
+              v-if="activeView === 'overview' || activeView === 'tunnels'"
+              :view-mode="activeView === 'tunnels' ? 'tunnels' : 'overview'"
+            />
+            <NetworkView v-else-if="activeView === 'network'" />
+            <SettingsView v-else />
           </main>
         </div>
       </div>
@@ -159,23 +161,30 @@ import {
   type GlobalThemeOverrides,
 } from 'naive-ui'
 import StatusView from './views/StatusView.vue'
+import NetworkView from './views/NetworkView.vue'
+import SettingsView from './views/SettingsView.vue'
 import { GetVersion } from './api/app'
 import { closeWindow, minimiseWindow, toggleMaximiseWindow } from './api/window'
 import { SUPPORTED_LOCALES, type SupportedLocale } from './i18n'
-import logoImage from './assets/logo.png'
-import textLogoImage from './assets/text-logo.png'
+import { useTunnelStore } from './stores/tunnel'
+import sidebarLogoImage from './assets/logo/white-logo.png'
+import titleLogoImage from './assets/logo/default-logo.png'
 
 interface NavItem {
-  key: string
+  key: AppView
   label: string
   symbol: string
   active: boolean
   disabled: boolean
 }
 
+type AppView = 'overview' | 'tunnels' | 'network' | 'settings'
+
 const { t, locale } = useI18n()
+const store = useTunnelStore()
 const version = ref('0.0.0')
 const currentLocale = ref<SupportedLocale>('zh-CN')
+const activeView = ref<AppView>('overview')
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -220,32 +229,49 @@ const navItems = computed<NavItem[]>(() => [
   {
     key: 'overview',
     label: t('nav.overview'),
-    symbol: '⌂',
-    active: true,
+    symbol: '01',
+    active: activeView.value === 'overview',
     disabled: false,
   },
   {
     key: 'tunnels',
     label: t('nav.tunnels'),
-    symbol: '⇄',
-    active: false,
+    symbol: '02',
+    active: activeView.value === 'tunnels',
     disabled: false,
   },
   {
     key: 'network',
     label: t('nav.network'),
-    symbol: '◎',
-    active: false,
-    disabled: true,
+    symbol: '03',
+    active: activeView.value === 'network',
+    disabled: false,
   },
   {
     key: 'settings',
     label: t('nav.settings'),
-    symbol: '⚙',
-    active: false,
-    disabled: true,
+    symbol: '04',
+    active: activeView.value === 'settings',
+    disabled: false,
   },
 ])
+
+const activeTitle = computed(() => {
+  const match = navItems.value.find((item) => item.key === activeView.value)
+  return match?.label ?? t('app.title')
+})
+
+const connectionLabel = computed(() => {
+  const key = `status.${store.connectionStatus || 'disconnected'}`
+  const translated = t(key)
+  return translated === key ? store.connectionStatus : translated
+})
+
+const connectionTagType = computed(() => {
+  if (store.connectionStatus === 'connected') return 'success'
+  if (store.connectionStatus === 'reconnecting') return 'warning'
+  return 'error'
+})
 
 // handleLocaleChange 切换当前界面语言，默认语言为简体中文。
 const handleLocaleChange = (value: SupportedLocale): void => {
@@ -265,6 +291,8 @@ const loadVersion = async (): Promise<void> => {
 
 onMounted(async () => {
   locale.value = currentLocale.value
+  await store.loadServerSettings()
+  await store.refreshRuntimeStatus()
   await loadVersion()
 })
 </script>
@@ -395,6 +423,12 @@ select {
   object-fit: contain;
 }
 
+.brand-copy strong {
+  color: var(--text-main);
+  font-size: 17px;
+  line-height: 1;
+}
+
 .brand-copy span {
   color: var(--text-dim);
   font-size: 13px;
@@ -415,9 +449,49 @@ select {
 }
 
 .window-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: inline-block;
   color: var(--text-main);
-  font-size: 15px;
-  line-height: 1;
+}
+
+.minimise-icon::before,
+.maximise-icon::before,
+.close-icon::before,
+.close-icon::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+
+.minimise-icon::before {
+  left: 2px;
+  right: 2px;
+  top: 7px;
+  height: 1.5px;
+}
+
+.maximise-icon::before {
+  inset: 2px;
+  border: 1.5px solid currentColor;
+  background: transparent;
+}
+
+.close-icon::before,
+.close-icon::after {
+  left: 2px;
+  right: 2px;
+  top: 6px;
+  height: 1.5px;
+}
+
+.close-icon::before {
+  transform: rotate(45deg);
+}
+
+.close-icon::after {
+  transform: rotate(-45deg);
 }
 
 .titlebar-actions .n-button {
@@ -448,8 +522,8 @@ select {
 }
 
 .sidebar-logo {
-  width: 52px;
-  height: 52px;
+  width: 72px;
+  height: 72px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(0, 255, 255, 0.18);
@@ -459,8 +533,8 @@ select {
 }
 
 .sidebar-logo img {
-  width: 42px;
-  height: 42px;
+  width: 72px;
+  height: 72px;
   border-radius: 11px;
   object-fit: cover;
 }
@@ -504,7 +578,9 @@ select {
 }
 
 .nav-symbol {
-  font-size: 18px;
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1;
 }
 

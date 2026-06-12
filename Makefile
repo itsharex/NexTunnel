@@ -1,4 +1,6 @@
-.PHONY: all dev dev-server-web build lint test clean help
+.PHONY: all dev dev-server-web build package-desktop lint test clean help
+
+VERSION ?= v0.1.1-alpha
 
 # Default target
 all: build
@@ -23,6 +25,10 @@ dev-server-web:
 ## build: Build the Wails desktop application
 build:
 	cd desktop && wails build
+
+## package-desktop: Build Windows desktop release package
+package-desktop:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -Version $(VERSION)
 
 ## build-server: Build all server binaries
 build-server:
