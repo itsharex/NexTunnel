@@ -20,6 +20,8 @@ make package-server VERSION=v0.3.1-alpha
 - Linux `install.sh` 和 Windows `install.ps1` 一键安装脚本。
 - VitePress 文档站压缩包和 SHA256，并同步发布到 GitHub Pages。
 
+首次发布文档站前，需要在仓库 Pages 中启用 `GitHub Actions` 发布模式。当前站点地址为 `https://lee-zg.github.io/NexTunnel/`。
+
 ## Release 资产清单
 
 ```text
