@@ -42,3 +42,28 @@ sudo ./install.sh install --version v0.3.1-alpha \
 ```
 
 下载优先级为 `--package-url` / `NEXTUNNEL_PACKAGE_URL`、`--release-base-url` / `NEXTUNNEL_RELEASE_BASE_URL`、`--github-proxy` / `NEXTUNNEL_GITHUB_PROXY`、默认 GitHub Release。生产环境建议总是配合 SHA256 校验。
+
+## 手动上传包安装
+
+服务器已手动上传服务端包时，直接指定本地包路径即可。生产环境需要显式指定公网 IP 或域名：
+
+```bash
+sudo /tmp/nextunnel-install.sh install \
+  --package-url /tmp/nextunnel-server-linux-amd64.tar.gz \
+  --public-host <腾讯云公网IP或域名>
+```
+
+安装脚本会把 CLI 安装到 `/opt/nextunnel/bin/nextunnel`，并默认创建 `/usr/local/bin/nextunnel` 软链接。旧脚本安装后如出现 `nextunnel: command not found`，可手动补建：
+
+```bash
+sudo ln -sfn /opt/nextunnel/bin/nextunnel /usr/local/bin/nextunnel
+```
+
+无法连接时先执行：
+
+```bash
+sudo /opt/nextunnel/deploy/server/install.sh health
+sudo /opt/nextunnel/deploy/server/install.sh logs
+```
+
+腾讯云安全组和服务器防火墙至少需要放行 `7000/tcp`；启用 QUIC/NAT 检测时还需要 `7443/udp`、`3478/udp`，Dashboard 需要 `8080/tcp`。

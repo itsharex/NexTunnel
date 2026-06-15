@@ -31,6 +31,7 @@ CONFIG_DIR="${NEXTUNNEL_CONFIG_DIR:-/etc/nextunnel}"
 DATA_DIR="${NEXTUNNEL_DATA_DIR:-/var/lib/nextunnel}"
 SERVICE_USER="${NEXTUNNEL_SERVICE_USER:-nextunnel}"
 SERVICE_GROUP="${NEXTUNNEL_SERVICE_GROUP:-${SERVICE_USER}}"
+CLI_LINK_PATH="${NEXTUNNEL_CLI_LINK_PATH:-/usr/local/bin/nextunnel}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 FORCE="${FORCE:-false}"
 PURGE="${PURGE:-false}"
@@ -90,6 +91,7 @@ usage() {
   --dashboard-disabled     仅部署核心服务，不启动 Dashboard
   --service-user USER      指定 systemd 服务运行用户，默认 nextunnel
   --service-group GROUP    指定 systemd 服务运行用户组，默认与用户同名
+  --cli-link PATH          指定 nextunnel CLI 软链接路径，默认 /usr/local/bin/nextunnel；设置 none 可跳过
   --non-interactive        使用环境变量/默认值，不进入交互输入
   --force                  重新生成配置文件
   --purge                  uninstall 时同时删除安装目录、配置和数据
@@ -205,6 +207,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --service-group)
       SERVICE_GROUP="${2:?--service-group 需要参数}"
+      shift 2
+      ;;
+    --cli-link)
+      CLI_LINK_PATH="${2:?--cli-link 需要参数}"
       shift 2
       ;;
     --non-interactive)
@@ -577,6 +583,7 @@ install_release_package() {
   local relay_binary
   local control_binary
   local nat_binary
+  local cli_binary
   local dashboard_binary
   local dashboard_web_dir
   local deploy_script_dir
@@ -597,6 +604,7 @@ install_release_package() {
   relay_binary="$(find_binary "${extract_dir}" relay-server)"
   control_binary="$(find_binary "${extract_dir}" control-plane)"
   nat_binary="$(find_binary "${extract_dir}" nat-detector)"
+  cli_binary="$(optional_find_binary "${extract_dir}" nextunnel)"
   dashboard_binary="$(optional_find_binary "${extract_dir}" dashboard)"
   dashboard_web_dir="$(find_dashboard_web_dir "${extract_dir}")"
   deploy_script_dir="$(find_deploy_script_dir "${extract_dir}")"
@@ -605,6 +613,11 @@ install_release_package() {
   install -m 0755 "${relay_binary}" "${BIN_DIR}/relay-server"
   install -m 0755 "${control_binary}" "${BIN_DIR}/control-plane"
   install -m 0755 "${nat_binary}" "${BIN_DIR}/nat-detector"
+  if [[ -n "${cli_binary}" ]]; then
+    install -m 0755 "${cli_binary}" "${BIN_DIR}/nextunnel"
+  else
+    warn "Release 包未包含 nextunnel CLI，系统命令链接将不会创建。"
+  fi
   if [[ -n "${dashboard_binary}" ]]; then
     install -m 0755 "${dashboard_binary}" "${BIN_DIR}/dashboard"
   else
@@ -625,6 +638,26 @@ install_release_package() {
   rm -rf "${tmp_dir}"
   trap - EXIT
   log "服务端二进制已安装到：${BIN_DIR}"
+}
+
+install_cli_link() {
+  if [[ "${CLI_LINK_PATH}" == "none" || "${CLI_LINK_PATH}" == "false" || "${CLI_LINK_PATH}" == "0" ]]; then
+    warn "已跳过 nextunnel CLI 系统链接。可直接执行：${BIN_DIR}/nextunnel"
+    return
+  fi
+  if [[ ! -x "${BIN_DIR}/nextunnel" ]]; then
+    warn "未找到 ${BIN_DIR}/nextunnel，无法创建系统命令链接。"
+    return
+  fi
+  if [[ -e "${CLI_LINK_PATH}" && ! -L "${CLI_LINK_PATH}" ]]; then
+    warn "${CLI_LINK_PATH} 已存在且不是软链接，已跳过创建。可直接执行：${BIN_DIR}/nextunnel"
+    return
+  fi
+  local link_parent
+  link_parent="$(dirname "${CLI_LINK_PATH}")"
+  mkdir -p "${link_parent}"
+  ln -sfn "${BIN_DIR}/nextunnel" "${CLI_LINK_PATH}"
+  log "nextunnel CLI 已链接到：${CLI_LINK_PATH}"
 }
 
 write_systemd_units() {
@@ -765,6 +798,18 @@ print_connection_info() {
   fi
   printf '  Relay Token:     %s\n' "${RELAY_AUTH_TOKEN}"
   printf '  Control Token:   %s\n' "${CONTROL_PLANE_API_TOKEN}"
+  if [[ -x "${CLI_LINK_PATH}" ]]; then
+    printf '  CLI:             %s\n' "${CLI_LINK_PATH}"
+  elif [[ -x "${BIN_DIR}/nextunnel" ]]; then
+    printf '  CLI:             %s\n' "${BIN_DIR}/nextunnel"
+  fi
+  printf '\n外部客户端无法连接时，请确认：\n'
+  printf '  1. 安装时已设置公网 IP 或域名：--public-host <公网IP或域名>，当前为 %s。\n' "${NEXTUNNEL_PUBLIC_HOST}"
+  printf '  2. 腾讯云安全组和系统防火墙已放行 %s/tcp、%s/udp、%s/udp。\n' "${RELAY_CONTROL_PORT}" "${RELAY_QUIC_PORT}" "${NAT_PORT}"
+  if [[ "${DASHBOARD_ENABLED:-false}" == "true" ]]; then
+    printf '  3. 如需访问 Dashboard，还需放行 %s/tcp。\n' "${DASHBOARD_PORT}"
+  fi
+  printf '  4. 本机检查命令：sudo %s health；日志命令：sudo %s logs。\n' "${DEPLOY_DIR}/install.sh" "${DEPLOY_DIR}/install.sh"
 }
 
 health_check() {
@@ -806,9 +851,11 @@ install_stack() {
   prepare_permissions
   generate_env
   install_release_package
+  install_cli_link
   write_systemd_units
   collect_runtime_services
   systemctl enable --now "${RUNTIME_SERVICE_NAMES[@]}"
+  health_check
   print_connection_info
 }
 
@@ -818,9 +865,11 @@ update_stack() {
   prepare_permissions
   [[ -f "${ENV_FILE}" ]] || generate_env
   install_release_package
+  install_cli_link
   write_systemd_units
   collect_runtime_services
   systemctl restart "${RUNTIME_SERVICE_NAMES[@]}"
+  health_check
   print_connection_info
 }
 
@@ -842,6 +891,10 @@ uninstall_stack() {
     warn "已卸载并删除安装目录、配置和数据。"
   else
     warn "已停止并移除 systemd 服务，默认保留 ${INSTALL_DIR}、${CONFIG_DIR}、${DATA_DIR}。使用 --purge 可彻底删除。"
+  fi
+  if [[ "${CLI_LINK_PATH}" != "none" && -L "${CLI_LINK_PATH}" && "$(readlink "${CLI_LINK_PATH}")" == "${BIN_DIR}/nextunnel" ]]; then
+    rm -f "${CLI_LINK_PATH}"
+    warn "已移除 CLI 系统链接：${CLI_LINK_PATH}"
   fi
 }
 

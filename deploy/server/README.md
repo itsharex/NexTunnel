@@ -101,6 +101,14 @@ sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
 ```
 
+手动上传包部署时，建议同时指定公网 IP 或域名，否则默认 `127.0.0.1` 只适合本机测试，外部客户端无法连接：
+
+```bash
+sudo /tmp/nextunnel-install.sh install \
+  --package-url /tmp/nextunnel-server-linux-amd64.tar.gz \
+  --public-host <腾讯云公网IP或域名>
+```
+
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN 后指定下载基址：
 
 ```bash
@@ -136,6 +144,7 @@ Linux 默认路径：
 | 用途 | 路径 |
 |:---|:---|
 | 二进制 | `/opt/nextunnel/bin` |
+| CLI 命令 | `/usr/local/bin/nextunnel`，可通过 `NEXTUNNEL_CLI_LINK_PATH` 或 `--cli-link` 修改 |
 | 配置 | `/etc/nextunnel/server.env` |
 | 数据 | `/var/lib/nextunnel/control-plane.db` |
 | Dashboard 数据 | `/var/lib/nextunnel/dashboard.db` |
@@ -211,6 +220,7 @@ sudo ./install.sh install
 | `NEXTUNNEL_GITHUB_PROXY` | 可选 GitHub 下载代理，仅改写脚本自动生成的 GitHub Release URL |
 | `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |
 | `NEXTUNNEL_PACKAGE_SHA256` | 可选，服务端包 SHA256 校验值 |
+| `NEXTUNNEL_CLI_LINK_PATH` | Linux `nextunnel` CLI 系统软链接路径，设置 `none` 可跳过 |
 | `NEXTUNNEL_PUBLIC_HOST` | 客户端访问的公网 IP 或域名 |
 | `RELAY_AUTH_TOKEN` | Relay 客户端共享认证令牌 |
 | `CONTROL_PLANE_API_TOKEN` | Control Plane Bearer Token |
@@ -267,6 +277,23 @@ sudo NON_INTERACTIVE=true \
   DASHBOARD_ADMIN_PASSWORD='replace-with-strong-password' \
   ./install.sh install --package-url /opt/packages/nextunnel-server-linux-amd64.tar.gz
 ```
+
+安装完成后如果提示 `nextunnel: command not found`，说明当前使用的是旧安装脚本或 CLI 链接未创建。可先直接执行 `/opt/nextunnel/bin/nextunnel server status`，再补建软链接：
+
+```bash
+sudo ln -sfn /opt/nextunnel/bin/nextunnel /usr/local/bin/nextunnel
+nextunnel server status
+```
+
+如果服务无法连接，优先检查：
+
+```bash
+sudo /opt/nextunnel/deploy/server/install.sh health
+sudo /opt/nextunnel/deploy/server/install.sh logs
+sudo systemctl status nextunnel-relay.service nextunnel-control-plane.service nextunnel-nat-detector.service nextunnel-dashboard.service
+```
+
+外部客户端连接还需要确认腾讯云安全组和系统防火墙已放行 `7000/tcp`、`7443/udp`、`3478/udp`；Dashboard 需要 `8080/tcp`。
 
 ### 1Panel 方式 C：计划任务升级
 

@@ -13,3 +13,4 @@
 - 顶部品牌移除 `titleLogoImage`，改用与默认 logo 文字风格一致的字标；侧栏使用默认 `logo.png`。
 - 新增 VitePress 文档站和发布流程说明，Release 同步发布一键安装脚本。
 - 一键安装脚本新增 GitHub 下载代理配置，并补充腾讯云 COS/CDN 镜像源安装示例。
+- Linux 一键安装脚本补齐 `nextunnel` CLI 安装和 `/usr/local/bin/nextunnel` 软链接，并在安装后执行健康检查与连接排障提示。
