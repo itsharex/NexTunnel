@@ -22,6 +22,7 @@ DEFAULT_REPOSITORY="Lee-zg/NexTunnel"
 REPOSITORY="${NEXTUNNEL_REPOSITORY:-${DEFAULT_REPOSITORY}}"
 VERSION="${NEXTUNNEL_VERSION:-latest}"
 RELEASE_BASE_URL="${NEXTUNNEL_RELEASE_BASE_URL:-}"
+GITHUB_PROXY="${NEXTUNNEL_GITHUB_PROXY:-}"
 PACKAGE_URL="${NEXTUNNEL_PACKAGE_URL:-}"
 PACKAGE_SHA256="${NEXTUNNEL_PACKAGE_SHA256:-}"
 ARCH="${NEXTUNNEL_ARCH:-}"
@@ -79,6 +80,7 @@ usage() {
   --sha256 HASH            可选，校验服务端 Release 包 SHA256
   --version VERSION        指定 GitHub Release 版本，例如 v0.3.1-alpha；默认 latest
   --release-base-url URL   指定 Release 下载基址；默认使用 GitHub Releases
+  --github-proxy URL       可选，仅代理脚本自动生成的 GitHub 下载地址；生产环境建议使用可信自建代理
   --arch ARCH              指定架构 amd64/arm64；默认自动识别
   --public-host HOST       指定客户端访问的公网 IP 或域名
   --relay-token TOKEN      指定 Relay 认证 Token
@@ -113,6 +115,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --release-base-url)
       RELEASE_BASE_URL="${2:?--release-base-url 需要参数}"
+      shift 2
+      ;;
+    --github-proxy)
+      GITHUB_PROXY="${2:?--github-proxy 需要参数}"
       shift 2
       ;;
     --repository)
@@ -309,11 +315,22 @@ resolve_release_base_url() {
     printf '%s' "${RELEASE_BASE_URL%/}"
     return
   fi
+  local github_release_url
   if [[ "${VERSION}" == "latest" ]]; then
-    printf 'https://github.com/%s/releases/latest/download' "${REPOSITORY}"
+    github_release_url="$(printf 'https://github.com/%s/releases/latest/download' "${REPOSITORY}")"
   else
-    printf 'https://github.com/%s/releases/download/%s' "${REPOSITORY}" "${VERSION}"
+    github_release_url="$(printf 'https://github.com/%s/releases/download/%s' "${REPOSITORY}" "${VERSION}")"
   fi
+  if [[ -z "${GITHUB_PROXY}" ]]; then
+    printf '%s' "${github_release_url}"
+    return
+  fi
+  # 仅在用户显式配置时改写 GitHub URL，避免默认使用不可信第三方代理。
+  if [[ "${GITHUB_PROXY}" == *"{url}"* ]]; then
+    printf '%s' "${GITHUB_PROXY/\{url\}/${github_release_url}}"
+    return
+  fi
+  printf '%s/%s' "${GITHUB_PROXY%/}" "${github_release_url}"
 }
 
 resolve_package_url() {

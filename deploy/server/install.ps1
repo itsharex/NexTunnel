@@ -4,6 +4,7 @@ param(
     [string]$PackageUrl = '',
     [string]$Version = '',
     [string]$ReleaseBaseUrl = '',
+    [string]$GithubProxy = '',
     [string]$Repository = '',
     [string]$PackageSha256 = '',
     [string]$Architecture = '',
@@ -150,10 +151,21 @@ function Resolve-ReleaseBaseUrl {
     if ($script:ReleaseBaseUrlValue) {
         return $script:ReleaseBaseUrlValue.TrimEnd('/')
     }
+    $githubReleaseUrl = ''
     if ($script:VersionValue -eq 'latest') {
-        return "https://github.com/$script:RepositoryValue/releases/latest/download"
+        $githubReleaseUrl = "https://github.com/$script:RepositoryValue/releases/latest/download"
+    } else {
+        $githubReleaseUrl = "https://github.com/$script:RepositoryValue/releases/download/$script:VersionValue"
     }
-    return "https://github.com/$script:RepositoryValue/releases/download/$script:VersionValue"
+    if ([string]::IsNullOrWhiteSpace($script:GithubProxyValue)) {
+        return $githubReleaseUrl
+    }
+    # 仅在用户显式配置时改写 GitHub URL，避免默认使用不可信第三方代理。
+    $proxyValue = $script:GithubProxyValue.Trim()
+    if ($proxyValue.Contains('{url}')) {
+        return $proxyValue.Replace('{url}', $githubReleaseUrl)
+    }
+    return $proxyValue.TrimEnd('/') + '/' + $githubReleaseUrl
 }
 
 function Resolve-PackageUrl {
@@ -607,6 +619,7 @@ $script:EnvPath = Join-Path $script:ConfigDir 'server.env'
 $script:RepositoryValue = if ($Repository) { $Repository } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_REPOSITORY' 'Lee-zg/NexTunnel' }
 $script:VersionValue = if ($Version) { $Version } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_VERSION' 'latest' }
 $script:ReleaseBaseUrlValue = if ($ReleaseBaseUrl) { $ReleaseBaseUrl } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_RELEASE_BASE_URL' '' }
+$script:GithubProxyValue = if ($GithubProxy) { $GithubProxy } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_GITHUB_PROXY' '' }
 $script:PackageUrlValue = if ($PackageUrl) { $PackageUrl } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_PACKAGE_URL' '' }
 $script:PackageSha256Value = if ($PackageSha256) { $PackageSha256 } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_PACKAGE_SHA256' '' }
 $script:ArchitectureValue = if ($Architecture) { $Architecture } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_ARCH' '' }

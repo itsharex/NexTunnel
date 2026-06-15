@@ -101,6 +101,23 @@ sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
 ```
 
+腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN 后指定下载基址：
+
+```bash
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.1-alpha \
+  ./install.sh install --version v0.3.1-alpha --sha256 <sha256>
+```
+
+如果只是临时加速 GitHub 下载，可以使用可信的自建代理。`--github-proxy` 只会改写脚本自动生成的 GitHub Release 下载地址；显式传入 `--package-url` 或 `--release-base-url` 时不会再使用代理：
+
+```bash
+sudo ./install.sh install --version v0.3.1-alpha \
+  --github-proxy https://your-proxy.example.com/
+
+sudo ./install.sh install --version v0.3.1-alpha \
+  --github-proxy 'https://your-proxy.example.com/?url={url}'
+```
+
 常用管理命令：
 
 ```bash
@@ -151,6 +168,8 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 .\install.ps1 -Action install -Version v0.3.1-alpha
 .\install.ps1 -Action install -PackageUrl "https://mirror.example.com/nextunnel-server-windows-amd64.zip"
 .\install.ps1 -Action install -PackageUrl "C:\Temp\nextunnel-server-windows-amd64.zip" -PackageSha256 "<sha256>"
+.\install.ps1 -Action install -Version v0.3.1-alpha -ReleaseBaseUrl "https://cos.example.com/nextunnel/v0.3.1-alpha" -PackageSha256 "<sha256>"
+.\install.ps1 -Action install -Version v0.3.1-alpha -GithubProxy "https://your-proxy.example.com/"
 ```
 
 常用管理命令：
@@ -189,6 +208,7 @@ sudo ./install.sh install
 | `NEXTUNNEL_REPOSITORY` | GitHub Release 仓库，默认 `Lee-zg/NexTunnel` |
 | `NEXTUNNEL_VERSION` | Release 版本，默认 `latest` |
 | `NEXTUNNEL_RELEASE_BASE_URL` | 自定义 Release 下载基址 |
+| `NEXTUNNEL_GITHUB_PROXY` | 可选 GitHub 下载代理，仅改写脚本自动生成的 GitHub Release URL |
 | `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |
 | `NEXTUNNEL_PACKAGE_SHA256` | 可选，服务端包 SHA256 校验值 |
 | `NEXTUNNEL_PUBLIC_HOST` | 客户端访问的公网 IP 或域名 |
