@@ -2,7 +2,9 @@ package config
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -20,10 +22,51 @@ type TunnelConfig struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// FavoritePort 表示用户维护的常用本地代理端口。
+type FavoritePort struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Category    string    `json:"category"`
+	Port        int       `json:"port"`
+	Protocol    string    `json:"protocol"`
+	Description string    `json:"description"`
+	Enabled     bool      `json:"enabled"`
+	Builtin     bool      `json:"builtin"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ActivityLog 表示桌面端持久化运行日志，用于审计用户操作、错误和安全敏感变更。
+type ActivityLog struct {
+	ID           string            `json:"id"`
+	Level        string            `json:"level"`
+	Category     string            `json:"category"`
+	Action       string            `json:"action"`
+	TargetType   string            `json:"target_type"`
+	TargetID     string            `json:"target_id"`
+	Title        string            `json:"title"`
+	Message      string            `json:"message"`
+	Metadata     map[string]string `json:"metadata"`
+	MetadataJSON string            `json:"metadata_json"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+// ActivityLogFilter 限制日志查询范围，避免一次读取过多历史记录影响桌面端性能。
+type ActivityLogFilter struct {
+	Level    string `json:"level"`
+	Category string `json:"category"`
+	Limit    int    `json:"limit"`
+}
+
 // Store provides CRUD operations for tunnel configurations.
 type Store struct {
 	db *DB
 }
+
+const (
+	defaultActivityLogLimit = 100
+	maxActivityLogLimit     = 500
+)
 
 // NewStore creates a new Store backed by the given DB.
 func NewStore(db *DB) *Store {
@@ -161,4 +204,230 @@ func (s *Store) SetSetting(key, value string) error {
 		INSERT INTO app_settings (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
+}
+
+// UpsertFavoritePort 新增或更新常用端口，使用协议+端口作为去重键。
+func (s *Store) UpsertFavoritePort(port FavoritePort) error {
+	enabled := boolToInt(port.Enabled)
+	builtin := boolToInt(port.Builtin)
+	_, err := s.db.db.Exec(`
+		INSERT INTO favorite_ports (id, name, category, port, protocol, description, enabled, builtin)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(protocol, port) DO UPDATE SET
+		    name = excluded.name,
+		    category = excluded.category,
+		    description = excluded.description,
+		    enabled = excluded.enabled,
+		    builtin = excluded.builtin,
+		    updated_at = CURRENT_TIMESTAMP`,
+		port.ID, port.Name, port.Category, port.Port, port.Protocol, port.Description, enabled, builtin)
+	if err != nil {
+		return fmt.Errorf("upsert favorite port: %w", err)
+	}
+	return nil
+}
+
+// ListFavoritePorts 返回所有常用端口，按分类和端口排序，便于前端稳定展示。
+func (s *Store) ListFavoritePorts() ([]FavoritePort, error) {
+	rows, err := s.db.db.Query(`
+		SELECT id, name, category, port, protocol, description, enabled, builtin, created_at, updated_at
+		FROM favorite_ports
+		ORDER BY category ASC, port ASC, name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list favorite ports: %w", err)
+	}
+	defer rows.Close()
+
+	var ports []FavoritePort
+	for rows.Next() {
+		port, err := scanFavoritePort(rows)
+		if err != nil {
+			return nil, err
+		}
+		ports = append(ports, port)
+	}
+	return ports, rows.Err()
+}
+
+// DeleteFavoritePort 删除用户常用端口；内置端口也允许删除，用户可按需保持简洁列表。
+func (s *Store) DeleteFavoritePort(id string) error {
+	result, err := s.db.db.Exec("DELETE FROM favorite_ports WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete favorite port: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("favorite port not found: %s", id)
+	}
+	return nil
+}
+
+// AppendActivityLog 追加一条活动日志，metadata 会序列化为 JSON 便于后续扩展字段。
+func (s *Store) AppendActivityLog(log ActivityLog) error {
+	if strings.TrimSpace(log.ID) == "" {
+		return fmt.Errorf("activity log id is required")
+	}
+	if strings.TrimSpace(log.Level) == "" {
+		return fmt.Errorf("activity log level is required")
+	}
+	if strings.TrimSpace(log.Category) == "" {
+		return fmt.Errorf("activity log category is required")
+	}
+	if strings.TrimSpace(log.Action) == "" {
+		return fmt.Errorf("activity log action is required")
+	}
+	if strings.TrimSpace(log.Title) == "" {
+		return fmt.Errorf("activity log title is required")
+	}
+	metadataJSON := log.MetadataJSON
+	if strings.TrimSpace(metadataJSON) == "" {
+		if log.Metadata == nil {
+			log.Metadata = map[string]string{}
+		}
+		encoded, err := json.Marshal(log.Metadata)
+		if err != nil {
+			return fmt.Errorf("encode activity log metadata: %w", err)
+		}
+		metadataJSON = string(encoded)
+	}
+	_, err := s.db.db.Exec(`
+		INSERT INTO activity_logs
+		    (id, level, category, action, target_type, target_id, title, message, metadata_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		log.ID,
+		strings.TrimSpace(log.Level),
+		strings.TrimSpace(log.Category),
+		strings.TrimSpace(log.Action),
+		strings.TrimSpace(log.TargetType),
+		strings.TrimSpace(log.TargetID),
+		strings.TrimSpace(log.Title),
+		strings.TrimSpace(log.Message),
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("append activity log: %w", err)
+	}
+	return nil
+}
+
+// ListActivityLogs 按级别和分类筛选最近日志，查询条件使用参数化 SQL 防止注入。
+func (s *Store) ListActivityLogs(filter ActivityLogFilter) ([]ActivityLog, error) {
+	query := `
+		SELECT id, level, category, action, target_type, target_id, title, message, metadata_json, created_at
+		FROM activity_logs`
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, 3)
+	if strings.TrimSpace(filter.Level) != "" {
+		conditions = append(conditions, "level = ?")
+		args = append(args, strings.TrimSpace(filter.Level))
+	}
+	if strings.TrimSpace(filter.Category) != "" {
+		conditions = append(conditions, "category = ?")
+		args = append(args, strings.TrimSpace(filter.Category))
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC LIMIT ?"
+	args = append(args, normalizeActivityLogLimit(filter.Limit))
+
+	rows, err := s.db.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list activity logs: %w", err)
+	}
+	defer rows.Close()
+
+	logs := make([]ActivityLog, 0)
+	for rows.Next() {
+		log, err := scanActivityLog(rows)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, log)
+	}
+	return logs, rows.Err()
+}
+
+// ClearActivityLogs 清空活动日志，保留隧道和设置数据不受影响。
+func (s *Store) ClearActivityLogs() error {
+	if _, err := s.db.db.Exec("DELETE FROM activity_logs"); err != nil {
+		return fmt.Errorf("clear activity logs: %w", err)
+	}
+	return nil
+}
+
+type favoritePortScanner interface {
+	Scan(dest ...any) error
+}
+
+type activityLogScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanFavoritePort(scanner favoritePortScanner) (FavoritePort, error) {
+	var port FavoritePort
+	var enabled int
+	var builtin int
+	if err := scanner.Scan(
+		&port.ID,
+		&port.Name,
+		&port.Category,
+		&port.Port,
+		&port.Protocol,
+		&port.Description,
+		&enabled,
+		&builtin,
+		&port.CreatedAt,
+		&port.UpdatedAt,
+	); err != nil {
+		return FavoritePort{}, fmt.Errorf("scan favorite port: %w", err)
+	}
+	port.Enabled = enabled != 0
+	port.Builtin = builtin != 0
+	return port, nil
+}
+
+func scanActivityLog(scanner activityLogScanner) (ActivityLog, error) {
+	var log ActivityLog
+	if err := scanner.Scan(
+		&log.ID,
+		&log.Level,
+		&log.Category,
+		&log.Action,
+		&log.TargetType,
+		&log.TargetID,
+		&log.Title,
+		&log.Message,
+		&log.MetadataJSON,
+		&log.CreatedAt,
+	); err != nil {
+		return ActivityLog{}, fmt.Errorf("scan activity log: %w", err)
+	}
+	if strings.TrimSpace(log.MetadataJSON) != "" {
+		var metadata map[string]string
+		if err := json.Unmarshal([]byte(log.MetadataJSON), &metadata); err == nil {
+			log.Metadata = metadata
+		}
+	}
+	if log.Metadata == nil {
+		log.Metadata = map[string]string{}
+	}
+	return log, nil
+}
+
+func normalizeActivityLogLimit(limit int) int {
+	if limit <= 0 {
+		return defaultActivityLogLimit
+	}
+	if limit > maxActivityLogLimit {
+		return maxActivityLogLimit
+	}
+	return limit
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

@@ -2,8 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   ApplyVirtualNetwork,
+  ClearActivityLogs,
   GetTunnels,
   CreateTunnel,
+  DeleteFavoritePort,
   DeleteTunnel,
   DetectNAT,
   StartTunnel,
@@ -14,10 +16,20 @@ import {
   GetRuntimeStatus,
   GetServerSettings,
   GetTrafficStats,
+  ListFavoritePorts,
+  ListActivityLogs,
   GetP2PStatus,
   GetNATType,
   ResetVirtualNetwork,
+  SaveFavoritePort,
   SaveServerSettings,
+  ScanLocalPorts,
+  type FavoritePortInfo,
+  type FavoritePortInput,
+  type ActivityLogFilter,
+  type ActivityLogInfo,
+  type LocalPortScanInput,
+  type LocalPortScanResult,
   type NATDetectionInfo,
   type RuntimeStatus,
   type ServerConfigInput,
@@ -33,6 +45,7 @@ export interface Tunnel {
   local_port: number
   remote_port: number
   status: string
+  connection_type: string
 }
 
 export interface CreateTunnelInput {
@@ -42,6 +55,15 @@ export interface CreateTunnelInput {
   local_port: number
   remote_port: number
 }
+
+export interface TrafficSample {
+  timestamp: number
+  bytes_in: number
+  bytes_out: number
+}
+
+const MAX_TRAFFIC_HISTORY_LENGTH = 40
+const DEFAULT_ACTIVITY_LOG_LIMIT = 100
 
 export const useTunnelStore = defineStore('tunnels', () => {
   const tunnels = ref<Tunnel[]>([])
@@ -66,6 +88,13 @@ export const useTunnelStore = defineStore('tunnels', () => {
     bytes_out: 0,
     tunnels: 0,
   })
+  const trafficHistory = ref<TrafficSample[]>([])
+  const favoritePorts = ref<FavoritePortInfo[]>([])
+  const portScanResults = ref<LocalPortScanResult[]>([])
+  const isScanningPorts = ref<boolean>(false)
+  const isSavingFavoritePort = ref<boolean>(false)
+  const activityLogs = ref<ActivityLogInfo[]>([])
+  const isLoadingActivityLogs = ref<boolean>(false)
   const p2pStatus = ref<string>('')
   const natType = ref<string>('')
   const runtimeStatus = ref<RuntimeStatus | null>(null)
@@ -77,6 +106,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
   const activeTunnelCount = computed(() =>
     tunnels.value.filter((tunnel) => tunnel.status === 'active' || tunnel.status === 'running').length,
   )
+  const openPortCount = computed(() => portScanResults.value.filter((result) => result.open).length)
 
   // extractErrorMessage 将 Wails/JS 异常统一转换为可展示的短错误信息。
   const extractErrorMessage = (error: unknown): string => {
@@ -99,6 +129,19 @@ export const useTunnelStore = defineStore('tunnels', () => {
   const syncSettingsToRelayForm = (settings: ServerSettings): void => {
     serverAddr.value = settings.relay_addr
     authToken.value = settings.relay_token
+  }
+
+  // pushTrafficSample 保留固定长度历史，避免实时图表长期运行造成内存增长。
+  const pushTrafficSample = (stats: { bytes_in: number; bytes_out: number }): void => {
+    const nextHistory = [
+      ...trafficHistory.value,
+      {
+        timestamp: Date.now(),
+        bytes_in: stats.bytes_in,
+        bytes_out: stats.bytes_out,
+      },
+    ]
+    trafficHistory.value = nextHistory.slice(-MAX_TRAFFIC_HISTORY_LENGTH)
   }
 
   const loadServerSettings = async (): Promise<void> => {
@@ -124,7 +167,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     }
   }
 
-  async function loadTunnels() {
+  const loadTunnels = async (): Promise<void> => {
     try {
       tunnels.value = (await GetTunnels()) as Tunnel[]
     } catch (e) {
@@ -133,10 +176,11 @@ export const useTunnelStore = defineStore('tunnels', () => {
     }
   }
 
-  async function createTunnel(input: CreateTunnelInput) {
+  const createTunnel = async (input: CreateTunnelInput): Promise<Tunnel> => {
     try {
       const t = (await CreateTunnel(input)) as Tunnel
       tunnels.value.push(t)
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
       return t
     } catch (e) {
       lastError.value = extractErrorMessage(e)
@@ -145,10 +189,11 @@ export const useTunnelStore = defineStore('tunnels', () => {
     }
   }
 
-  async function deleteTunnel(id: string) {
+  const deleteTunnel = async (id: string): Promise<void> => {
     try {
       await DeleteTunnel(id)
       tunnels.value = tunnels.value.filter((t) => t.id !== id)
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       console.error('Failed to delete tunnel:', e)
@@ -166,6 +211,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
       await ConnectServer(cfg)
       await refreshStatus()
       await loadTunnels()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -180,6 +226,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
       await DisconnectServer()
       await refreshStatus()
       await loadTunnels()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -193,6 +240,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
       await StartTunnel(id)
       await loadTunnels()
       await refreshStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -208,6 +256,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
       await StopTunnel(id)
       await loadTunnels()
       await refreshStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -216,10 +265,11 @@ export const useTunnelStore = defineStore('tunnels', () => {
     }
   }
 
-  async function refreshStatus() {
+  const refreshStatus = async (): Promise<void> => {
     try {
       connectionStatus.value = await GetConnectionStatus()
       trafficStats.value = (await GetTrafficStats()) as typeof trafficStats.value
+      pushTrafficSample(trafficStats.value)
       p2pStatus.value = await GetP2PStatus()
       natType.value = await GetNATType()
       runtimeStatus.value = await GetRuntimeStatus()
@@ -239,11 +289,74 @@ export const useTunnelStore = defineStore('tunnels', () => {
       p2pStatus.value = runtimeStatus.value.p2p_status
       natType.value = runtimeStatus.value.nat_type
       trafficStats.value = runtimeStatus.value.traffic_stats
+      pushTrafficSample(trafficStats.value)
       virtualNetwork.value = runtimeStatus.value.virtual_network
       lastError.value = runtimeStatus.value.last_error
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
+    }
+  }
+
+  const loadFavoritePorts = async (): Promise<void> => {
+    lastError.value = ''
+    try {
+      favoritePorts.value = await ListFavoritePorts()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const saveFavoritePort = async (input: FavoritePortInput): Promise<FavoritePortInfo> => {
+    isSavingFavoritePort.value = true
+    lastError.value = ''
+    try {
+      const saved = await SaveFavoritePort(input)
+      const index = favoritePorts.value.findIndex((item) => item.id === saved.id || item.port === saved.port)
+      if (index >= 0) {
+        favoritePorts.value.splice(index, 1, saved)
+      } else {
+        favoritePorts.value.push(saved)
+      }
+      favoritePorts.value = [...favoritePorts.value].sort((a, b) => a.category.localeCompare(b.category) || a.port - b.port)
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+      return saved
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    } finally {
+      isSavingFavoritePort.value = false
+    }
+  }
+
+  const deleteFavoritePort = async (id: string): Promise<void> => {
+    lastError.value = ''
+    try {
+      await DeleteFavoritePort(id)
+      favoritePorts.value = favoritePorts.value.filter((item) => item.id !== id)
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const scanLocalPorts = async (input?: Partial<LocalPortScanInput>): Promise<void> => {
+    isScanningPorts.value = true
+    lastError.value = ''
+    try {
+      portScanResults.value = await ScanLocalPorts({
+        host: input?.host || '127.0.0.1',
+        ports: input?.ports || [],
+        timeout_ms: input?.timeout_ms || 260,
+      })
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    } finally {
+      isScanningPorts.value = false
     }
   }
 
@@ -253,6 +366,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     try {
       virtualNetwork.value = await ApplyVirtualNetwork()
       await refreshRuntimeStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -267,6 +381,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     try {
       virtualNetwork.value = await ResetVirtualNetwork()
       await refreshRuntimeStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -282,11 +397,43 @@ export const useTunnelStore = defineStore('tunnels', () => {
       lastNATDetection.value = await DetectNAT()
       natType.value = lastNATDetection.value.type
       await refreshRuntimeStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
     } finally {
       isDetectingNAT.value = false
+    }
+  }
+
+  // loadActivityLogs 只按用户动作或页面进入加载，避免状态轮询刷屏和额外 IO。
+  const loadActivityLogs = async (filter: ActivityLogFilter = {}): Promise<void> => {
+    isLoadingActivityLogs.value = true
+    lastError.value = ''
+    try {
+      activityLogs.value = await ListActivityLogs({
+        limit: DEFAULT_ACTIVITY_LOG_LIMIT,
+        ...filter,
+      })
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    } finally {
+      isLoadingActivityLogs.value = false
+    }
+  }
+
+  const clearActivityLogs = async (): Promise<void> => {
+    isLoadingActivityLogs.value = true
+    lastError.value = ''
+    try {
+      await ClearActivityLogs()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    } finally {
+      isLoadingActivityLogs.value = false
     }
   }
 
@@ -302,6 +449,13 @@ export const useTunnelStore = defineStore('tunnels', () => {
     isDetectingNAT,
     busyTunnelIds,
     trafficStats,
+    trafficHistory,
+    favoritePorts,
+    portScanResults,
+    isScanningPorts,
+    isSavingFavoritePort,
+    activityLogs,
+    isLoadingActivityLogs,
     p2pStatus,
     natType,
     runtimeStatus,
@@ -310,6 +464,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     tunnelCount,
     isConnected,
     activeTunnelCount,
+    openPortCount,
     loadServerSettings,
     saveServerSettings,
     loadTunnels,
@@ -324,5 +479,11 @@ export const useTunnelStore = defineStore('tunnels', () => {
     applyVirtualNetwork,
     resetVirtualNetwork,
     detectNAT,
+    loadFavoritePorts,
+    saveFavoritePort,
+    deleteFavoritePort,
+    scanLocalPorts,
+    loadActivityLogs,
+    clearActivityLogs,
   }
 })

@@ -74,7 +74,7 @@ func newServerInstallerCommand(action, short string) *cobra.Command {
 			return err
 		},
 	}
-	command.Flags().StringVar(&version, "version", "", "Release 版本，例如 v0.2.1-alpha")
+	command.Flags().StringVar(&version, "version", "", "Release 版本，例如 v0.3.1-alpha")
 	command.Flags().StringVar(&packageURL, "package-url", "", "服务端发布包 URL 或本地路径")
 	command.Flags().StringVar(&packageSHA256, "sha256", "", "发布包 SHA256")
 	command.Flags().BoolVar(&nonInteractive, "non-interactive", false, "非交互执行")

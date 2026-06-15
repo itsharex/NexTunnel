@@ -28,16 +28,16 @@ nextunnel-server/
   README.md
 ```
 
-`.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包、独立 CLI 包、桌面端包和对应 `.sha256` 文件。服务端包内置 `bin/nextunnel`，安装后可使用统一 CLI 管理服务。
+`.github/workflows/release.yml` 会在推送 `v*` tag 时生成服务端包、独立 CLI 包、桌面端包、独立 `install.sh` / `install.ps1` 和对应 `.sha256` 文件。服务端包内置 `bin/nextunnel`，安装后可使用统一 CLI 管理服务。
 
 ## 统一 CLI
 
-从 `v0.2.1-alpha` 起，Release 同时发布独立 CLI 包：
+从 `v0.3.1-alpha` 起，Release 同时发布独立 CLI 包：
 
 ```text
-nextunnel-cli-v0.2.1-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.2.1-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.2.1-alpha-windows-amd64.zip
+nextunnel-cli-v0.3.1-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.3.1-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.3.1-alpha-windows-amd64.zip
 ```
 
 常用命令：
@@ -69,9 +69,9 @@ nextunnel desktop disconnect
 
 ```bash
 curl -fL -o /tmp/nextunnel-install.sh \
-  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.0.2-alpha/deploy/server/install.sh
+  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.3.1-alpha/deploy/server/install.sh
 chmod +x /tmp/nextunnel-install.sh
-sudo /tmp/nextunnel-install.sh install --version v0.0.2-alpha
+sudo /tmp/nextunnel-install.sh install --version v0.3.1-alpha
 ```
 
 ```bash
@@ -95,7 +95,7 @@ sudo NON_INTERACTIVE=true \
 指定版本或源地址：
 
 ```bash
-sudo ./install.sh install --version v0.1.0
+sudo ./install.sh install --version v0.3.1-alpha
 sudo ./install.sh install --package-url https://mirror.example.com/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
@@ -108,7 +108,7 @@ sudo ./install.sh status
 sudo ./install.sh logs
 sudo ./install.sh health
 sudo ./install.sh restart
-sudo ./install.sh update --version v0.1.1
+sudo ./install.sh update --version v0.3.1-alpha
 sudo ./install.sh down
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge
@@ -148,7 +148,7 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 指定源地址：
 
 ```powershell
-.\install.ps1 -Action install -Version v0.1.0
+.\install.ps1 -Action install -Version v0.3.1-alpha
 .\install.ps1 -Action install -PackageUrl "https://mirror.example.com/nextunnel-server-windows-amd64.zip"
 .\install.ps1 -Action install -PackageUrl "C:\Temp\nextunnel-server-windows-amd64.zip" -PackageSha256 "<sha256>"
 ```
@@ -160,7 +160,7 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 .\install.ps1 -Action logs
 .\install.ps1 -Action health
 .\install.ps1 -Action restart
-.\install.ps1 -Action update -Version v0.1.1
+.\install.ps1 -Action update -Version v0.3.1-alpha
 .\install.ps1 -Action down
 .\install.ps1 -Action uninstall
 ```
@@ -224,7 +224,7 @@ sudo NON_INTERACTIVE=true \
   RELAY_AUTH_TOKEN='replace-with-strong-token' \
   CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
   DASHBOARD_ADMIN_PASSWORD='replace-with-strong-password' \
-  ./install.sh install --version v0.1.0
+  ./install.sh install --version v0.3.1-alpha
 ```
 
 如果使用自建源：
@@ -254,7 +254,7 @@ sudo NON_INTERACTIVE=true \
 
 ```bash
 cd /opt/nextunnel-deploy
-sudo ./install.sh update --version v0.1.1
+sudo ./install.sh update --version v0.3.1-alpha
 sudo ./install.sh health
 ```
 

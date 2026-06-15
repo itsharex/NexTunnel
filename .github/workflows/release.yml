@@ -10,12 +10,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag, for example v0.1.0'
+        description: 'Release tag, for example v0.3.1-alpha'
         required: true
         type: string
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   desktop-windows:
@@ -117,6 +119,14 @@ jobs:
         shell: pwsh
         run: ./scripts/package-server.ps1 -Version "$env:RELEASE_VERSION"
 
+      - name: Generate install script checksums
+        shell: pwsh
+        run: |
+          $installShHash = Get-FileHash -Algorithm SHA256 -Path deploy/server/install.sh
+          "$($installShHash.Hash.ToLowerInvariant())  install.sh" | Set-Content -Path deploy/server/install.sh.sha256 -Encoding ASCII
+          $installPs1Hash = Get-FileHash -Algorithm SHA256 -Path deploy/server/install.ps1
+          "$($installPs1Hash.Hash.ToLowerInvariant())  install.ps1" | Set-Content -Path deploy/server/install.ps1.sha256 -Encoding ASCII
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -128,3 +138,56 @@ jobs:
             dist/nextunnel-server-linux-arm64.tar.gz.sha256
             dist/nextunnel-server-windows-amd64.zip
             dist/nextunnel-server-windows-amd64.zip.sha256
+            deploy/server/install.sh
+            deploy/server/install.sh.sha256
+            deploy/server/install.ps1
+            deploy/server/install.ps1.sha256
+
+  docs:
+    name: Documentation site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm ci
+
+      - name: Build docs
+        working-directory: docs
+        run: npm run docs:build
+
+      - name: Package docs release asset
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -czf "dist/nextunnel-docs-${RELEASE_VERSION}.tar.gz" -C docs/.vitepress/dist .
+          (cd dist && sha256sum "nextunnel-docs-${RELEASE_VERSION}.tar.gz" > "nextunnel-docs-${RELEASE_VERSION}.tar.gz.sha256")
+
+      - name: Upload docs release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          files: |
+            dist/nextunnel-docs-${{ env.RELEASE_VERSION }}.tar.gz
+            dist/nextunnel-docs-${{ env.RELEASE_VERSION }}.tar.gz.sha256
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

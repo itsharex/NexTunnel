@@ -197,6 +197,130 @@ func TestSettings(t *testing.T) {
 	}
 }
 
+func TestFavoritePortsCRUD(t *testing.T) {
+	db := newTestDB(t)
+	store := config.NewStore(db)
+
+	port := config.FavoritePort{
+		ID:          "fp-dev-3000",
+		Name:        "Next.js",
+		Category:    "development",
+		Port:        3000,
+		Protocol:    "tcp",
+		Description: "本地前端开发服务",
+		Enabled:     true,
+		Builtin:     true,
+	}
+	if err := store.UpsertFavoritePort(port); err != nil {
+		t.Fatalf("upsert favorite port: %v", err)
+	}
+
+	ports, err := store.ListFavoritePorts()
+	if err != nil {
+		t.Fatalf("list favorite ports: %v", err)
+	}
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 favorite port, got %d", len(ports))
+	}
+	if ports[0].Port != 3000 || !ports[0].Enabled || !ports[0].Builtin {
+		t.Fatalf("unexpected favorite port: %+v", ports[0])
+	}
+
+	port.Name = "Next.js / Node"
+	port.Enabled = false
+	if err := store.UpsertFavoritePort(port); err != nil {
+		t.Fatalf("update favorite port: %v", err)
+	}
+	ports, err = store.ListFavoritePorts()
+	if err != nil {
+		t.Fatalf("list updated favorite ports: %v", err)
+	}
+	if len(ports) != 1 {
+		t.Fatalf("duplicate favorite port created: %d", len(ports))
+	}
+	if ports[0].Name != "Next.js / Node" || ports[0].Enabled {
+		t.Fatalf("favorite port was not updated: %+v", ports[0])
+	}
+
+	if err := store.DeleteFavoritePort("fp-dev-3000"); err != nil {
+		t.Fatalf("delete favorite port: %v", err)
+	}
+	ports, err = store.ListFavoritePorts()
+	if err != nil {
+		t.Fatalf("list after delete: %v", err)
+	}
+	if len(ports) != 0 {
+		t.Fatalf("expected no favorite ports after delete, got %d", len(ports))
+	}
+}
+
+func TestActivityLogsCRUDAndFilters(t *testing.T) {
+	db := newTestDB(t)
+	store := config.NewStore(db)
+
+	if err := store.AppendActivityLog(config.ActivityLog{
+		ID:         "log-1",
+		Level:      "info",
+		Category:   "operation",
+		Action:     "create_tunnel",
+		TargetType: "tunnel",
+		TargetID:   "tun-1",
+		Title:      "隧道配置已创建",
+		Message:    "创建隧道 web。",
+		Metadata: map[string]string{
+			"name": "web",
+		},
+	}); err != nil {
+		t.Fatalf("append first activity log: %v", err)
+	}
+	if err := store.AppendActivityLog(config.ActivityLog{
+		ID:         "log-2",
+		Level:      "error",
+		Category:   "error",
+		Action:     "runtime_error",
+		TargetType: "runtime",
+		Title:      "运行错误",
+		Message:    "server is not connected",
+	}); err != nil {
+		t.Fatalf("append second activity log: %v", err)
+	}
+
+	allLogs, err := store.ListActivityLogs(config.ActivityLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list activity logs: %v", err)
+	}
+	if len(allLogs) != 2 {
+		t.Fatalf("expected 2 activity logs, got %d", len(allLogs))
+	}
+
+	errorLogs, err := store.ListActivityLogs(config.ActivityLogFilter{Level: "error", Category: "error", Limit: 10})
+	if err != nil {
+		t.Fatalf("list filtered activity logs: %v", err)
+	}
+	if len(errorLogs) != 1 || errorLogs[0].Action != "runtime_error" {
+		t.Fatalf("unexpected filtered logs: %+v", errorLogs)
+	}
+
+	operationLogs, err := store.ListActivityLogs(config.ActivityLogFilter{Category: "operation", Limit: 10})
+	if err != nil {
+		t.Fatalf("list operation activity logs: %v", err)
+	}
+	if len(operationLogs) != 1 || operationLogs[0].Metadata["name"] != "web" {
+		t.Fatalf("unexpected operation logs: %+v", operationLogs)
+	}
+
+	if err := store.ClearActivityLogs(); err != nil {
+		t.Fatalf("clear activity logs: %v", err)
+	}
+	clearedLogs, err := store.ListActivityLogs(config.ActivityLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list cleared activity logs: %v", err)
+	}
+	if len(clearedLogs) != 0 {
+		t.Fatalf("expected no activity logs after clear, got %d", len(clearedLogs))
+	}
+}
+
 func TestOpenDefaultPath(t *testing.T) {
 	// Test with empty path - should use ~/.nextunnel/config.db
 	tmpHome := t.TempDir()

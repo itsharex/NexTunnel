@@ -83,6 +83,18 @@ func (a *App) withControlAuth(token string, next http.HandlerFunc) http.HandlerF
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if raw == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(token)) != 1 {
+			a.appendActivityLog(activityLog{
+				Level:      activityLogLevelWarn,
+				Category:   activityLogCategorySecurity,
+				Action:     "desktop_control_auth_failed",
+				TargetType: "desktop_control",
+				Title:      "桌面控制 API 认证失败",
+				Message:    "本机控制 API 收到无效访问令牌。",
+				Metadata: map[string]string{
+					"remote_addr": r.RemoteAddr,
+					"path":        r.URL.Path,
+				},
+			})
 			writeControlError(w, http.StatusUnauthorized, "invalid desktop control token")
 			return
 		}

@@ -15,13 +15,8 @@
         <header class="titlebar">
           <div class="titlebar-drag-region">
             <div class="brand-lockup">
-              <img
-                class="brand-icon"
-                :src="titleLogoImage"
-                alt="NexTunnel"
-              >
               <div class="brand-copy">
-                <strong>NexTunnel</strong>
+                <strong class="brand-title"><span>Nex</span>Tunnel</strong>
                 <span>{{ t('app.subtitle') }}</span>
               </div>
             </div>
@@ -79,6 +74,11 @@
               class="sidebar-nav"
               aria-label="NexTunnel client navigation"
             >
+              <span
+                class="nav-active-indicator"
+                :style="{ transform: `translateY(${activeNavIndex * NAV_ITEM_STEP}px)` }"
+                aria-hidden="true"
+              />
               <button
                 v-for="item in navItems"
                 :key="item.key"
@@ -88,7 +88,11 @@
                 :disabled="item.disabled"
                 @click="activeView = item.key"
               >
-                <span class="nav-symbol">{{ item.symbol }}</span>
+                <n-icon
+                  class="nav-icon"
+                  :component="item.icon"
+                  :size="22"
+                />
                 <span>{{ item.label }}</span>
                 <n-tag
                   v-if="item.disabled"
@@ -131,12 +135,28 @@
               </n-space>
             </section>
 
-            <StatusView
-              v-if="activeView === 'overview' || activeView === 'tunnels'"
-              :view-mode="activeView === 'tunnels' ? 'tunnels' : 'overview'"
-            />
-            <NetworkView v-else-if="activeView === 'network'" />
-            <SettingsView v-else />
+            <Transition
+              name="view-switch"
+              mode="out-in"
+            >
+              <StatusView
+                v-if="activeView === 'overview' || activeView === 'tunnels'"
+                :key="activeView"
+                :view-mode="activeView === 'tunnels' ? 'tunnels' : 'overview'"
+              />
+              <NetworkView
+                v-else-if="activeView === 'network'"
+                key="network"
+              />
+              <LogsView
+                v-else-if="activeView === 'logs'"
+                key="logs"
+              />
+              <SettingsView
+                v-else
+                key="settings"
+              />
+            </Transition>
           </main>
         </div>
       </div>
@@ -153,6 +173,7 @@ import {
   enUS,
   NButton,
   NConfigProvider,
+  NIcon,
   NMessageProvider,
   NSelect,
   NSpace,
@@ -160,31 +181,33 @@ import {
   zhCN,
   type GlobalThemeOverrides,
 } from 'naive-ui'
+import { LayoutDashboard, Network, Route, ScrollText, Settings, type LucideIcon } from 'lucide-vue-next'
 import StatusView from './views/StatusView.vue'
 import NetworkView from './views/NetworkView.vue'
+import LogsView from './views/LogsView.vue'
 import SettingsView from './views/SettingsView.vue'
 import { GetVersion } from './api/app'
 import { closeWindow, minimiseWindow, toggleMaximiseWindow } from './api/window'
 import { SUPPORTED_LOCALES, type SupportedLocale } from './i18n'
 import { useTunnelStore } from './stores/tunnel'
-import sidebarLogoImage from './assets/logo/white-logo.png'
-import titleLogoImage from './assets/logo/default-logo.png'
+import sidebarLogoImage from './assets/logo.png'
 
 interface NavItem {
   key: AppView
   label: string
-  symbol: string
+  icon: LucideIcon
   active: boolean
   disabled: boolean
 }
 
-type AppView = 'overview' | 'tunnels' | 'network' | 'settings'
+type AppView = 'overview' | 'tunnels' | 'network' | 'logs' | 'settings'
 
 const { t, locale } = useI18n()
 const store = useTunnelStore()
 const version = ref('0.0.0')
 const currentLocale = ref<SupportedLocale>('zh-CN')
 const activeView = ref<AppView>('overview')
+const NAV_ITEM_STEP = 70
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -207,7 +230,7 @@ const themeOverrides: GlobalThemeOverrides = {
     borderRadiusSmall: '8px',
   },
   Card: {
-    borderRadius: '12px',
+    borderRadius: '8px',
   },
 }
 
@@ -229,32 +252,41 @@ const navItems = computed<NavItem[]>(() => [
   {
     key: 'overview',
     label: t('nav.overview'),
-    symbol: '01',
+    icon: LayoutDashboard,
     active: activeView.value === 'overview',
     disabled: false,
   },
   {
     key: 'tunnels',
     label: t('nav.tunnels'),
-    symbol: '02',
+    icon: Route,
     active: activeView.value === 'tunnels',
     disabled: false,
   },
   {
     key: 'network',
     label: t('nav.network'),
-    symbol: '03',
+    icon: Network,
     active: activeView.value === 'network',
+    disabled: false,
+  },
+  {
+    key: 'logs',
+    label: t('nav.logs'),
+    icon: ScrollText,
+    active: activeView.value === 'logs',
     disabled: false,
   },
   {
     key: 'settings',
     label: t('nav.settings'),
-    symbol: '04',
+    icon: Settings,
     active: activeView.value === 'settings',
     disabled: false,
   },
 ])
+
+const activeNavIndex = computed(() => Math.max(0, navItems.value.findIndex((item) => item.key === activeView.value)))
 
 const activeTitle = computed(() => {
   const match = navItems.value.find((item) => item.key === activeView.value)
@@ -318,6 +350,11 @@ onMounted(async () => {
   --warning: #f59e0b;
   --danger: #ef4444;
   --accent-gradient: linear-gradient(135deg, var(--nex-cyan), var(--tunnel-violet));
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --duration-micro: 120ms;
+  --duration-small: 180ms;
+  --duration-medium: 260ms;
   /* 标题栏高度按商业桌面软件比例设置，并同步参与主布局高度计算。 */
   --titlebar-height: 56px;
   --sidebar-width: 88px;
@@ -353,9 +390,8 @@ select {
   height: 100dvh;
   min-width: 1080px;
   background:
-    radial-gradient(circle at 22% 12%, rgba(0, 255, 255, 0.11), transparent 28%),
-    radial-gradient(circle at 86% 20%, rgba(138, 43, 226, 0.15), transparent 30%),
-    linear-gradient(145deg, rgba(0, 0, 255, 0.08), transparent 38%),
+    linear-gradient(135deg, rgba(0, 255, 255, 0.06), transparent 32%),
+    linear-gradient(225deg, rgba(138, 43, 226, 0.08), transparent 36%),
     var(--bg-dark);
   overflow: hidden;
 }
@@ -397,17 +433,7 @@ select {
 .brand-lockup {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
-}
-
-.brand-icon {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  border-radius: 11px;
-  object-fit: cover;
-  box-shadow: 0 10px 26px rgba(0, 255, 255, 0.16);
 }
 
 .brand-copy {
@@ -417,16 +443,17 @@ select {
   min-width: 0;
 }
 
-.brand-wordmark {
-  width: 164px;
-  max-height: 42px;
-  object-fit: contain;
+.brand-title {
+  color: var(--tunnel-violet);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  text-shadow: 0 8px 24px rgba(138, 43, 226, 0.28);
 }
 
-.brand-copy strong {
-  color: var(--text-main);
-  font-size: 17px;
-  line-height: 1;
+.brand-title span {
+  color: #1da1f2;
 }
 
 .brand-copy span {
@@ -527,23 +554,37 @@ select {
   display: grid;
   place-items: center;
   border: 1px solid rgba(0, 255, 255, 0.18);
-  border-radius: 15px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   box-shadow: 0 12px 30px rgba(0, 255, 255, 0.1);
 }
 
 .sidebar-logo img {
-  width: 72px;
-  height: 72px;
-  border-radius: 11px;
+  width: 68px;
+  height: 68px;
+  border-radius: 8px;
   object-fit: cover;
 }
 
 .sidebar-nav {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.nav-active-indicator {
+  position: absolute;
+  left: -10px;
+  top: 0;
+  width: 4px;
+  height: 60px;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  box-shadow: 0 0 18px rgba(0, 255, 255, 0.36);
+  pointer-events: none;
+  transition: transform var(--duration-medium) var(--ease-standard);
 }
 
 .nav-button {
@@ -553,21 +594,17 @@ select {
   place-items: center;
   gap: 4px;
   border: 0;
-  border-left: 3px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
   font-size: 11px;
-  transition:
-    background 160ms ease,
-    color 160ms ease,
-    border-color 160ms ease;
+  transition: transform var(--duration-small) var(--ease-standard);
 }
 
 .nav-button.active,
 .nav-button:hover:not(:disabled) {
-  border-left-color: var(--nex-cyan);
+  transform: translateY(-1px);
   background: linear-gradient(90deg, rgba(0, 255, 255, 0.12), rgba(138, 43, 226, 0.08));
   color: var(--nex-cyan);
 }
@@ -577,11 +614,14 @@ select {
   opacity: 0.52;
 }
 
-.nav-symbol {
-  font-family: Consolas, 'SFMono-Regular', monospace;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
+.nav-icon {
+  color: currentColor;
+  transition: transform var(--duration-small) var(--ease-standard), opacity var(--duration-small) var(--ease-standard);
+}
+
+.nav-button:hover:not(:disabled) .nav-icon,
+.nav-button.active .nav-icon {
+  transform: translateY(-1px) scale(1.06);
 }
 
 .sidebar-footer {
@@ -627,5 +667,31 @@ select {
 
 .n-card {
   backdrop-filter: blur(12px);
+}
+
+.view-switch-enter-active,
+.view-switch-leave-active {
+  transition: opacity var(--duration-medium) var(--ease-standard), transform var(--duration-medium) var(--ease-standard);
+}
+
+.view-switch-enter-from,
+.view-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .view-switch-enter-from,
+  .view-switch-leave-to {
+    transform: none;
+  }
 }
 </style>

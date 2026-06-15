@@ -253,7 +253,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 ### 克隆项目
 
 ```bash
-git clone https://github.com/nextunnel/nextunnel.git
+git clone https://github.com/Lee-zg/NexTunnel.git
 cd NexTunnel
 ```
 

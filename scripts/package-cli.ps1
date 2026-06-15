@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v0.2.1-alpha"
+  [string]$Version = "v0.3.1-alpha"
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,4 +79,3 @@ try {
   $env:GOARCH = $previousGoArch
   $env:CGO_ENABLED = $previousCgoEnabled
 }
-

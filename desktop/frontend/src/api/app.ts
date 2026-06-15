@@ -8,6 +8,7 @@ export interface TunnelInfo {
   local_port: number
   remote_port: number
   status: string
+  connection_type: string
 }
 
 export interface CreateTunnelInput {
@@ -75,6 +76,62 @@ export interface NATDetectionInfo {
   local_addr: string
 }
 
+export interface FavoritePortInfo {
+  id: string
+  name: string
+  category: string
+  port: number
+  protocol: string
+  description: string
+  enabled: boolean
+  builtin: boolean
+}
+
+export interface FavoritePortInput {
+  id?: string
+  name: string
+  category: string
+  port: number
+  protocol: string
+  description: string
+  enabled: boolean
+}
+
+export interface LocalPortScanInput {
+  host: string
+  ports: number[]
+  timeout_ms: number
+}
+
+export interface LocalPortScanResult {
+  port: number
+  protocol: string
+  open: boolean
+  name: string
+  category: string
+  description: string
+}
+
+export interface ActivityLogInfo {
+  id: string
+  level: string
+  category: string
+  action: string
+  target_type: string
+  target_id: string
+  title: string
+  message: string
+  metadata: Record<string, string>
+  metadata_json: string
+  created_at: string
+}
+
+export interface ActivityLogFilter {
+  level?: string
+  category?: string
+  limit?: number
+}
+
 type WailsMethod = (...args: unknown[]) => Promise<unknown> | unknown
 
 interface WailsRuntimeWindow extends Window {
@@ -113,6 +170,76 @@ const PREVIEW_TUN: PlatformCapabilities = {
   NeedsAdminPrivilege: false,
   PlatformName: 'preview',
 }
+const PREVIEW_FAVORITE_PORTS: FavoritePortInfo[] = [
+  {
+    id: 'preview-dev-nextjs-3000',
+    name: 'Next.js / Node',
+    category: 'development',
+    port: 3000,
+    protocol: 'tcp',
+    description: '常见前端开发服务默认端口',
+    enabled: true,
+    builtin: true,
+  },
+  {
+    id: 'preview-dev-vite-5173',
+    name: 'Vite',
+    category: 'development',
+    port: 5173,
+    protocol: 'tcp',
+    description: 'Vite 开发服务器默认端口',
+    enabled: true,
+    builtin: true,
+  },
+  {
+    id: 'preview-db-postgres-5432',
+    name: 'PostgreSQL',
+    category: 'database',
+    port: 5432,
+    protocol: 'tcp',
+    description: 'PostgreSQL 默认服务端口',
+    enabled: true,
+    builtin: true,
+  },
+  {
+    id: 'preview-game-minecraft-25565',
+    name: 'Minecraft Java',
+    category: 'game',
+    port: 25565,
+    protocol: 'tcp',
+    description: 'Minecraft Java 服务器默认端口',
+    enabled: true,
+    builtin: true,
+  },
+]
+const PREVIEW_ACTIVITY_LOGS: ActivityLogInfo[] = [
+  {
+    id: 'preview-log-connect',
+    level: 'info',
+    category: 'operation',
+    action: 'connect_server',
+    target_type: 'server',
+    target_id: '127.0.0.1:7000',
+    title: 'Relay 连接已启动',
+    message: '开始连接 Relay 127.0.0.1:7000。',
+    metadata: { server_addr: '127.0.0.1:7000' },
+    metadata_json: '{"server_addr":"127.0.0.1:7000"}',
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'preview-log-scan',
+    level: 'warning',
+    category: 'security',
+    action: 'scan_local_ports',
+    target_type: 'port',
+    target_id: '',
+    title: '本机端口扫描完成',
+    message: '扫描 127.0.0.1 上的常用端口。',
+    metadata: { host: '127.0.0.1' },
+    metadata_json: '{"host":"127.0.0.1"}',
+    created_at: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
+  },
+]
 
 // createPreviewBinding 在普通浏览器预览时提供安全空实现，避免设计页面因 Wails 未注入而报错。
 const createPreviewBinding = (): Record<string, WailsMethod> => ({
@@ -124,6 +251,7 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
       id: `preview-${Date.now()}`,
       ...tunnelInput,
       status: PREVIEW_TUNNEL_STATUS,
+      connection_type: 'standby',
     }
   },
   DeleteTunnel: () => undefined,
@@ -154,6 +282,40 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
     mapped_port: 0,
     local_addr: '',
   }),
+  ListFavoritePorts: () => PREVIEW_FAVORITE_PORTS,
+  SaveFavoritePort: (input: unknown) => {
+    const portInput = input as FavoritePortInput
+    return {
+      id: portInput.id || `preview-port-${Date.now()}`,
+      ...portInput,
+      builtin: false,
+    }
+  },
+  DeleteFavoritePort: () => undefined,
+  ScanLocalPorts: (input: unknown) => {
+    const scanInput = input as LocalPortScanInput
+    const scanPorts = scanInput.ports.length > 0 ? scanInput.ports : PREVIEW_FAVORITE_PORTS.map((item) => item.port)
+    return scanPorts.map((port, index) => {
+      const favorite = PREVIEW_FAVORITE_PORTS.find((item) => item.port === port)
+      return {
+        port,
+        protocol: 'tcp',
+        open: index < 2,
+        name: favorite?.name || `Local ${port}`,
+        category: favorite?.category || 'custom',
+        description: favorite?.description || '',
+      }
+    })
+  },
+  ListActivityLogs: (filter: unknown) => {
+    const logFilter = filter as ActivityLogFilter
+    return PREVIEW_ACTIVITY_LOGS.filter((log) => {
+      if (logFilter.level && log.level !== logFilter.level) return false
+      if (logFilter.category && log.category !== logFilter.category) return false
+      return true
+    }).slice(0, logFilter.limit || 100)
+  },
+  ClearActivityLogs: () => undefined,
 })
 
 // getAppBinding 统一读取 Wails 注入对象，避免业务 API 直接依赖全局结构。
@@ -241,4 +403,28 @@ export const ResetVirtualNetwork = (): Promise<VirtualNetworkState> => {
 
 export const DetectNAT = (): Promise<NATDetectionInfo> => {
   return call<NATDetectionInfo>('DetectNAT')
+}
+
+export const ListFavoritePorts = (): Promise<FavoritePortInfo[]> => {
+  return call<FavoritePortInfo[]>('ListFavoritePorts')
+}
+
+export const SaveFavoritePort = (input: FavoritePortInput): Promise<FavoritePortInfo> => {
+  return call<FavoritePortInfo>('SaveFavoritePort', input)
+}
+
+export const DeleteFavoritePort = (id: string): Promise<void> => {
+  return call<void>('DeleteFavoritePort', id)
+}
+
+export const ScanLocalPorts = (input: LocalPortScanInput): Promise<LocalPortScanResult[]> => {
+  return call<LocalPortScanResult[]>('ScanLocalPorts', input)
+}
+
+export const ListActivityLogs = (filter: ActivityLogFilter = {}): Promise<ActivityLogInfo[]> => {
+  return call<ActivityLogInfo[]>('ListActivityLogs', filter)
+}
+
+export const ClearActivityLogs = (): Promise<void> => {
+  return call<void>('ClearActivityLogs')
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"path/filepath"
 	"testing"
 
@@ -44,6 +45,14 @@ func TestServerSettingsPersistence(t *testing.T) {
 	if got.STUNAltServer != settings.STUNAltServer {
 		t.Fatalf("unexpected STUN alt server: %+v", got)
 	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategorySecurity, Limit: 10})
+	if len(logs) == 0 || logs[0].Action != activityActionSaveSettings {
+		t.Fatalf("expected save settings activity log, got %+v", logs)
+	}
+	if _, exists := logs[0].Metadata["relay_token"]; exists {
+		t.Fatalf("activity log metadata must not contain raw relay token: %+v", logs[0].Metadata)
+	}
 }
 
 func TestServerSettingsDefaults(t *testing.T) {
@@ -55,4 +64,161 @@ func TestServerSettingsDefaults(t *testing.T) {
 	if got.STUNServer != defaultSTUNServer {
 		t.Fatalf("STUNServer = %q, want %q", got.STUNServer, defaultSTUNServer)
 	}
+}
+
+func TestFavoritePortLifecycle(t *testing.T) {
+	app := newTestApp(t)
+
+	defaultPorts, err := app.ListFavoritePorts()
+	if err != nil {
+		t.Fatalf("ListFavoritePorts defaults: %v", err)
+	}
+	if len(defaultPorts) == 0 {
+		t.Fatal("expected built-in favorite ports")
+	}
+
+	saved, err := app.SaveFavoritePort(FavoritePortInput{
+		Name:        "Custom Dev",
+		Category:    "development",
+		Port:        45678,
+		Protocol:    "tcp",
+		Description: "自定义本地服务",
+		Enabled:     true,
+	})
+	if err != nil {
+		t.Fatalf("SaveFavoritePort: %v", err)
+	}
+	if saved.ID == "" || saved.Port != 45678 || saved.Builtin {
+		t.Fatalf("unexpected saved favorite port: %+v", saved)
+	}
+
+	if err := app.DeleteFavoritePort(saved.ID); err != nil {
+		t.Fatalf("DeleteFavoritePort: %v", err)
+	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategoryOperation, Limit: 10})
+	if !containsActivityAction(logs, activityActionSaveFavoritePort) || !containsActivityAction(logs, activityActionDeleteFavoritePort) {
+		t.Fatalf("expected favorite port activity logs, got %+v", logs)
+	}
+}
+
+func TestCreateTunnelWritesActivityLog(t *testing.T) {
+	app := newTestApp(t)
+
+	tunnelInfo, err := app.CreateTunnel(CreateTunnelInput{
+		Name:       "web",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  3000,
+		RemotePort: 13000,
+	})
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategoryOperation, Limit: 10})
+	if len(logs) == 0 || logs[0].Action != activityActionCreateTunnel || logs[0].TargetID != tunnelInfo.ID {
+		t.Fatalf("expected create tunnel activity log, got %+v", logs)
+	}
+}
+
+func TestRuntimeErrorWritesActivityLog(t *testing.T) {
+	app := newTestApp(t)
+
+	err := app.StartTunnel("missing")
+	if err == nil {
+		t.Fatal("expected StartTunnel to fail")
+	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Level: activityLogLevelError, Category: activityLogCategoryError, Limit: 10})
+	if len(logs) == 0 || logs[0].Action != activityActionRuntimeError {
+		t.Fatalf("expected runtime error activity log, got %+v", logs)
+	}
+}
+
+func TestScanLocalPortsDetectsOpenLoopbackPort(t *testing.T) {
+	app := newTestApp(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen local port: %v", err)
+	}
+	defer listener.Close()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	results, err := app.ScanLocalPorts(LocalPortScanInput{
+		Host:    "127.0.0.1",
+		Ports:   []int{port},
+		Timeout: 500,
+	})
+	if err != nil {
+		t.Fatalf("ScanLocalPorts: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 scan result, got %d", len(results))
+	}
+	if !results[0].Open || results[0].Port != port {
+		t.Fatalf("expected open port %d, got %+v", port, results[0])
+	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategorySecurity, Limit: 10})
+	if !containsActivityAction(logs, activityActionScanLocalPorts) {
+		t.Fatalf("expected local port scan activity log, got %+v", logs)
+	}
+}
+
+func TestScanLocalPortsRejectsNonLoopbackHost(t *testing.T) {
+	app := newTestApp(t)
+	_, err := app.ScanLocalPorts(LocalPortScanInput{
+		Host:  "192.0.2.1",
+		Ports: []int{80},
+	})
+	if err == nil {
+		t.Fatal("expected non-loopback scan to be rejected")
+	}
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Level: activityLogLevelError, Category: activityLogCategoryError, Limit: 10})
+	if len(logs) == 0 {
+		t.Fatal("expected rejected scan to write error activity log")
+	}
+}
+
+func TestScanLocalPortsRejectsUnlistedLoopbackAlias(t *testing.T) {
+	app := newTestApp(t)
+	_, err := app.ScanLocalPorts(LocalPortScanInput{
+		Host:  "127.0.0.2",
+		Ports: []int{80},
+	})
+	if err == nil {
+		t.Fatal("expected unlisted loopback alias to be rejected")
+	}
+}
+
+func TestClearActivityLogsLeavesAuditRecord(t *testing.T) {
+	app := newTestApp(t)
+	app.recordError(net.ErrClosed)
+
+	if err := app.ClearActivityLogs(); err != nil {
+		t.Fatalf("ClearActivityLogs: %v", err)
+	}
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Limit: 10})
+	if len(logs) != 1 || logs[0].Action != activityActionClearActivityLogs {
+		t.Fatalf("expected clear audit record, got %+v", logs)
+	}
+}
+
+func mustListActivityLogs(t *testing.T, app *App, filter ActivityLogFilter) []ActivityLogInfo {
+	t.Helper()
+	logs, err := app.ListActivityLogs(filter)
+	if err != nil {
+		t.Fatalf("ListActivityLogs: %v", err)
+	}
+	return logs
+}
+
+func containsActivityAction(logs []ActivityLogInfo, action string) bool {
+	for _, log := range logs {
+		if log.Action == action {
+			return true
+		}
+	}
+	return false
 }

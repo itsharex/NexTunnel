@@ -277,7 +277,7 @@ onMounted(async () => {
   min-height: 42px;
   padding: 10px 12px;
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(9, 17, 32, 0.56);
 }
 
@@ -301,7 +301,7 @@ onMounted(async () => {
   overflow: auto;
   padding: 12px;
   border: 1px solid rgba(0, 255, 255, 0.16);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.72);
 }
 
