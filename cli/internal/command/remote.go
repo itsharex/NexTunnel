@@ -122,7 +122,11 @@ func newRemoteNodeCommand(outputFormat *string) *cobra.Command {
 					return err
 				}
 				var nodes []map[string]any
-				if err := api.NewClient(ctx.ControlPlane, ctx.ControlToken).Get("/api/v1/nodes", &nodes); err != nil {
+				client, err := newControlPlaneClient(ctx)
+				if err != nil {
+					return err
+				}
+				if err := client.Get("/api/v1/nodes", &nodes); err != nil {
 					return err
 				}
 				return writeData(commandOutput(cmd), *outputFormat, nodes)
@@ -138,7 +142,11 @@ func newRemoteNodeCommand(outputFormat *string) *cobra.Command {
 					return err
 				}
 				var node map[string]any
-				if err := api.NewClient(ctx.ControlPlane, ctx.ControlToken).Get("/api/v1/nodes/"+url.PathEscape(args[0]), &node); err != nil {
+				client, err := newControlPlaneClient(ctx)
+				if err != nil {
+					return err
+				}
+				if err := client.Get("/api/v1/nodes/"+url.PathEscape(args[0]), &node); err != nil {
 					return err
 				}
 				return writeData(commandOutput(cmd), *outputFormat, node)
@@ -160,7 +168,11 @@ func newRemoteACLCommand(outputFormat *string) *cobra.Command {
 					return err
 				}
 				var rules []map[string]any
-				if err := api.NewClient(ctx.ControlPlane, ctx.ControlToken).Get("/api/v1/acl", &rules); err != nil {
+				client, err := newControlPlaneClient(ctx)
+				if err != nil {
+					return err
+				}
+				if err := client.Get("/api/v1/acl", &rules); err != nil {
 					return err
 				}
 				return writeData(commandOutput(cmd), *outputFormat, rules)
@@ -182,7 +194,11 @@ func newRemoteAlertCommand(outputFormat *string) *cobra.Command {
 					return err
 				}
 				var alerts []map[string]any
-				if err := api.NewClient(ctx.Dashboard, ctx.DashboardToken).Get("/api/v1/alerts", &alerts); err != nil {
+				client, err := newDashboardClient(ctx)
+				if err != nil {
+					return err
+				}
+				if err := client.Get("/api/v1/alerts", &alerts); err != nil {
 					return err
 				}
 				return writeData(commandOutput(cmd), *outputFormat, alerts)
@@ -198,7 +214,11 @@ func newRemoteAlertCommand(outputFormat *string) *cobra.Command {
 					return err
 				}
 				var result map[string]any
-				if err := api.NewClient(ctx.Dashboard, ctx.DashboardToken).Post("/api/v1/alerts/"+url.PathEscape(args[0])+"/ack", map[string]string{}, &result); err != nil {
+				client, err := newDashboardClient(ctx)
+				if err != nil {
+					return err
+				}
+				if err := client.Post("/api/v1/alerts/"+url.PathEscape(args[0])+"/ack", map[string]string{}, &result); err != nil {
 					return err
 				}
 				return writeData(commandOutput(cmd), *outputFormat, result)
@@ -206,4 +226,18 @@ func newRemoteAlertCommand(outputFormat *string) *cobra.Command {
 		},
 	)
 	return cmd
+}
+
+func newControlPlaneClient(ctx configstore.Context) (*api.Client, error) {
+	if ctx.ControlPlane == "" {
+		return nil, fmt.Errorf("当前上下文未配置 Control Plane 地址，请先执行 nextunnel config set-context <name> --server <url> --token <token>")
+	}
+	return api.NewClient(ctx.ControlPlane, ctx.ControlToken), nil
+}
+
+func newDashboardClient(ctx configstore.Context) (*api.Client, error) {
+	if ctx.Dashboard == "" {
+		return nil, fmt.Errorf("当前上下文未配置 Dashboard 地址，请先执行 nextunnel config set-context <name> --dashboard <url> --dashboard-token <token>，或使用 nextunnel remote login")
+	}
+	return api.NewClient(ctx.Dashboard, ctx.DashboardToken), nil
 }

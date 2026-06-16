@@ -15,11 +15,13 @@ import (
 	"github.com/nextunnel/cli/internal/envfile"
 )
 
-var serviceNames = []string{
-	"nextunnel-control-plane.service",
-	"nextunnel-relay.service",
-	"nextunnel-nat-detector.service",
-	"nextunnel-dashboard.service",
+const defaultLinuxServicePrefix = "nextunnel"
+
+var linuxServiceComponents = []string{
+	"control-plane",
+	"relay",
+	"nat-detector",
+	"dashboard",
 }
 
 type ServiceStatus struct {
@@ -226,10 +228,29 @@ func startWindowsProcess(paths Paths, name string, args []string) error {
 }
 
 func activeLinuxServices(paths Paths) []string {
-	if values, err := envfile.Read(paths.EnvPath); err == nil && values["DASHBOARD_ENABLED"] != "true" {
-		return serviceNames[:3]
+	prefix := defaultLinuxServicePrefix
+	dashboardEnabled := true
+	if values, err := envfile.Read(paths.EnvPath); err == nil {
+		if configuredPrefix := strings.TrimSpace(values["NEXTUNNEL_SERVICE_PREFIX"]); configuredPrefix != "" {
+			prefix = configuredPrefix
+		}
+		// server.env 由安装脚本生成；仅显式 false 时隐藏 Dashboard 服务。
+		if configuredDashboardEnabled := strings.TrimSpace(values["DASHBOARD_ENABLED"]); configuredDashboardEnabled != "" {
+			dashboardEnabled = strings.EqualFold(configuredDashboardEnabled, "true")
+		}
 	}
-	return serviceNames
+	services := make([]string, 0, len(linuxServiceComponents))
+	for index, component := range linuxServiceComponents {
+		if index == len(linuxServiceComponents)-1 && !dashboardEnabled {
+			continue
+		}
+		services = append(services, linuxServiceName(prefix, component))
+	}
+	return services
+}
+
+func linuxServiceName(prefix, component string) string {
+	return fmt.Sprintf("%s-%s.service", prefix, component)
 }
 
 func runCommand(name string, args ...string) error {

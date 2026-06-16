@@ -15,9 +15,10 @@ export default {
       { text: '首页', link: '/' },
       { text: '指南', link: '/guide/getting-started' },
       { text: '桌面端', link: '/desktop/overview' },
+      { text: 'CLI', link: '/cli/overview' },
       { text: '部署', link: '/deploy/server' },
       {
-        text: 'v0.3.1-alpha',
+        text: 'v0.3.3-alpha',
         items: [
           { text: '更新日志', link: '/changelog' },
           { text: 'GitHub', link: 'https://github.com/Lee-zg/NexTunnel' },
@@ -41,6 +42,14 @@ export default {
             { text: '能力总览', link: '/desktop/overview' },
             { text: '隧道与端口', link: '/desktop/tunnels-and-ports' },
             { text: '设置分类', link: '/desktop/settings' },
+          ],
+        },
+      ],
+      '/cli/': [
+        {
+          text: 'CLI',
+          items: [
+            { text: '使用指南', link: '/cli/overview' },
           ],
         },
       ],

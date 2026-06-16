@@ -1,18 +1,18 @@
 # 发布流程
 
-v0.3.1-alpha 使用统一版本号发布桌面端、CLI、服务端和文档。
+v0.3.3-alpha 使用统一版本号发布桌面端、CLI、服务端和文档。
 
 ## 本地打包
 
 ```bash
-make package-desktop VERSION=v0.3.1-alpha
-make package-cli VERSION=v0.3.1-alpha
-make package-server VERSION=v0.3.1-alpha
+make package-desktop VERSION=v0.3.3-alpha
+make package-cli VERSION=v0.3.3-alpha
+make package-server VERSION=v0.3.3-alpha
 ```
 
 ## GitHub Release
 
-推送 `v0.3.1-alpha` 标签会触发 `.github/workflows/release.yml`：
+推送 `v0.3.3-alpha` 标签会触发 `.github/workflows/release.yml`：
 
 - Windows 桌面端 zip 和 SHA256。
 - Linux/Windows CLI 包和 SHA256。
@@ -25,15 +25,15 @@ make package-server VERSION=v0.3.1-alpha
 ## Release 资产清单
 
 ```text
-nextunnel-v0.3.1-alpha-windows-amd64.zip
-nextunnel-v0.3.1-alpha-windows-amd64.zip.sha256
-nextunnel-cli-v0.3.1-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.3.1-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.3.1-alpha-windows-amd64.zip
+nextunnel-v0.3.3-alpha-windows-amd64.zip
+nextunnel-v0.3.3-alpha-windows-amd64.zip.sha256
+nextunnel-cli-v0.3.3-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.3.3-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.3.3-alpha-windows-amd64.zip
 nextunnel-server-linux-amd64.tar.gz
 nextunnel-server-linux-arm64.tar.gz
 nextunnel-server-windows-amd64.zip
-nextunnel-docs-v0.3.1-alpha.tar.gz
+nextunnel-docs-v0.3.3-alpha.tar.gz
 install.sh
 install.ps1
 *.sha256
@@ -50,6 +50,6 @@ cd docs && npm run docs:build
 发布后需要确认：
 
 - Release 页面存在所有包和校验文件。
-- `install.sh` 可以通过 `releases/download/v0.3.1-alpha/install.sh` 下载。
-- `nextunnel-docs-v0.3.1-alpha.tar.gz` 可下载，且校验文件匹配。
-- 文档站可访问并显示 `v0.3.1-alpha` 更新日志。
+- `install.sh` 可以通过 `releases/download/v0.3.3-alpha/install.sh` 下载。
+- `nextunnel-docs-v0.3.3-alpha.tar.gz` 可下载，且校验文件匹配。
+- 文档站可访问并显示 `v0.3.3-alpha` 更新日志。

@@ -32,12 +32,12 @@ nextunnel-server/
 
 ## 统一 CLI
 
-从 `v0.3.1-alpha` 起，Release 同时发布独立 CLI 包：
+从 `v0.3.3-alpha` 起，Release 同时发布独立 CLI 包：
 
 ```text
-nextunnel-cli-v0.3.1-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.3.1-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.3.1-alpha-windows-amd64.zip
+nextunnel-cli-v0.3.3-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.3.3-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.3.3-alpha-windows-amd64.zip
 ```
 
 常用命令：
@@ -69,9 +69,9 @@ nextunnel desktop disconnect
 
 ```bash
 curl -fL -o /tmp/nextunnel-install.sh \
-  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.3.1-alpha/deploy/server/install.sh
+  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.3.3-alpha/deploy/server/install.sh
 chmod +x /tmp/nextunnel-install.sh
-sudo /tmp/nextunnel-install.sh install --version v0.3.1-alpha
+sudo /tmp/nextunnel-install.sh install --version v0.3.3-alpha
 ```
 
 ```bash
@@ -95,7 +95,7 @@ sudo NON_INTERACTIVE=true \
 指定版本或源地址：
 
 ```bash
-sudo ./install.sh install --version v0.3.1-alpha
+sudo ./install.sh install --version v0.3.3-alpha
 sudo ./install.sh install --package-url https://mirror.example.com/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
@@ -112,17 +112,17 @@ sudo /tmp/nextunnel-install.sh install \
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN 后指定下载基址：
 
 ```bash
-sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.1-alpha \
-  ./install.sh install --version v0.3.1-alpha --sha256 <sha256>
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.3-alpha \
+  ./install.sh install --version v0.3.3-alpha --sha256 <sha256>
 ```
 
 如果只是临时加速 GitHub 下载，可以使用可信的自建代理。`--github-proxy` 只会改写脚本自动生成的 GitHub Release 下载地址；显式传入 `--package-url` 或 `--release-base-url` 时不会再使用代理：
 
 ```bash
-sudo ./install.sh install --version v0.3.1-alpha \
+sudo ./install.sh install --version v0.3.3-alpha \
   --github-proxy https://your-proxy.example.com/
 
-sudo ./install.sh install --version v0.3.1-alpha \
+sudo ./install.sh install --version v0.3.3-alpha \
   --github-proxy 'https://your-proxy.example.com/?url={url}'
 ```
 
@@ -133,7 +133,7 @@ sudo ./install.sh status
 sudo ./install.sh logs
 sudo ./install.sh health
 sudo ./install.sh restart
-sudo ./install.sh update --version v0.3.1-alpha
+sudo ./install.sh update --version v0.3.3-alpha
 sudo ./install.sh down
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge
@@ -151,6 +151,35 @@ Linux 默认路径：
 | Dashboard 静态资源 | `/opt/nextunnel/web/dashboard` |
 | 服务 | `nextunnel-relay.service`、`nextunnel-control-plane.service`、`nextunnel-nat-detector.service`、`nextunnel-dashboard.service` |
 | 日志 | `journalctl -u nextunnel-relay.service -u nextunnel-control-plane.service -u nextunnel-nat-detector.service -u nextunnel-dashboard.service` |
+
+安装完成后，服务端包内置脚本会写入 `/opt/nextunnel/deploy/server/.env`，后续管理不需要重复传入安装参数：
+
+```bash
+sudo /opt/nextunnel/deploy/server/install.sh status
+sudo /opt/nextunnel/deploy/server/install.sh health
+sudo /opt/nextunnel/deploy/server/install.sh up
+sudo /opt/nextunnel/deploy/server/install.sh logs --no-log-follow --log-lines 80
+```
+
+`up` 和 `restart` 会在启动 systemd 服务后等待服务进入 active 状态，并自动执行健康检查；如果端口被占用或 HTTP 健康端点不可用，脚本会输出端口占用和最近服务日志。
+
+同一台机器需要保留多套测试安装时，可使用独立服务前缀和端口，避免覆盖默认生产服务：
+
+```bash
+sudo ./install.sh install \
+  --package-url /tmp/nextunnel-server-linux-amd64.tar.gz \
+  --install-dir /opt/nextunnel-test \
+  --config-dir /etc/nextunnel-test \
+  --data-dir /var/lib/nextunnel-test \
+  --service-prefix nextunnel-test \
+  --relay-port 27000 \
+  --relay-quic-port 27443 \
+  --control-plane-port 29090 \
+  --dashboard-port 28080 \
+  --nat-port 23478
+```
+
+不要把 systemd 模式安装目录放在 `/tmp`、`/var/tmp` 或 `/dev/shm` 下；服务启用了隔离和自动重启，临时目录会导致二进制或数据目录在服务命名空间中不可见。测试环境也建议使用 `/opt/nextunnel-test`、`/etc/nextunnel-test`、`/var/lib/nextunnel-test` 这类持久路径。
 
 ## 方式二：Windows / PowerShell 部署
 
@@ -174,11 +203,11 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 指定源地址：
 
 ```powershell
-.\install.ps1 -Action install -Version v0.3.1-alpha
+.\install.ps1 -Action install -Version v0.3.3-alpha
 .\install.ps1 -Action install -PackageUrl "https://mirror.example.com/nextunnel-server-windows-amd64.zip"
 .\install.ps1 -Action install -PackageUrl "C:\Temp\nextunnel-server-windows-amd64.zip" -PackageSha256 "<sha256>"
-.\install.ps1 -Action install -Version v0.3.1-alpha -ReleaseBaseUrl "https://cos.example.com/nextunnel/v0.3.1-alpha" -PackageSha256 "<sha256>"
-.\install.ps1 -Action install -Version v0.3.1-alpha -GithubProxy "https://your-proxy.example.com/"
+.\install.ps1 -Action install -Version v0.3.3-alpha -ReleaseBaseUrl "https://cos.example.com/nextunnel/v0.3.3-alpha" -PackageSha256 "<sha256>"
+.\install.ps1 -Action install -Version v0.3.3-alpha -GithubProxy "https://your-proxy.example.com/"
 ```
 
 常用管理命令：
@@ -188,7 +217,7 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 .\install.ps1 -Action logs
 .\install.ps1 -Action health
 .\install.ps1 -Action restart
-.\install.ps1 -Action update -Version v0.3.1-alpha
+.\install.ps1 -Action update -Version v0.3.3-alpha
 .\install.ps1 -Action down
 .\install.ps1 -Action uninstall
 ```
@@ -220,7 +249,11 @@ sudo ./install.sh install
 | `NEXTUNNEL_GITHUB_PROXY` | 可选 GitHub 下载代理，仅改写脚本自动生成的 GitHub Release URL |
 | `NEXTUNNEL_PACKAGE_URL` | 完整服务端包地址，优先级最高 |
 | `NEXTUNNEL_PACKAGE_SHA256` | 可选，服务端包 SHA256 校验值 |
+| `NEXTUNNEL_SERVICE_PREFIX` | Linux systemd 服务名前缀，默认 `nextunnel` |
 | `NEXTUNNEL_CLI_LINK_PATH` | Linux `nextunnel` CLI 系统软链接路径，设置 `none` 可跳过 |
+| `NEXTUNNEL_LOG_FOLLOW` | `logs` 是否持续跟随，默认 `true` |
+| `NEXTUNNEL_LOG_LINES` | `logs` 默认历史行数，默认 `200` |
+| `NEXTUNNEL_SERVICE_START_TIMEOUT_SECONDS` | 等待服务 active 和健康端点可用的超时时间，默认 `30` |
 | `NEXTUNNEL_PUBLIC_HOST` | 客户端访问的公网 IP 或域名 |
 | `RELAY_AUTH_TOKEN` | Relay 客户端共享认证令牌 |
 | `CONTROL_PLANE_API_TOKEN` | Control Plane Bearer Token |
@@ -254,7 +287,7 @@ sudo NON_INTERACTIVE=true \
   RELAY_AUTH_TOKEN='replace-with-strong-token' \
   CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
   DASHBOARD_ADMIN_PASSWORD='replace-with-strong-password' \
-  ./install.sh install --version v0.3.1-alpha
+  ./install.sh install --version v0.3.3-alpha
 ```
 
 如果使用自建源：
@@ -301,7 +334,7 @@ sudo systemctl status nextunnel-relay.service nextunnel-control-plane.service ne
 
 ```bash
 cd /opt/nextunnel-deploy
-sudo ./install.sh update --version v0.3.1-alpha
+sudo ./install.sh update --version v0.3.3-alpha
 sudo ./install.sh health
 ```
 

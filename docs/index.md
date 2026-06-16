@@ -16,6 +16,9 @@ hero:
       text: 桌面端能力
       link: /desktop/overview
     - theme: alt
+      text: CLI 使用
+      link: /cli/overview
+    - theme: alt
       text: 发布流程
       link: /deploy/release
 
@@ -31,7 +34,9 @@ features:
   - title: 安全边界明确
     details: 端口扫描限制在 127.0.0.1/::1，并对高风险端口提供说明，避免误扫外部网络。
   - title: 标准发布流程
-    details: v0.3.1-alpha 统一桌面端、CLI、服务端脚本和文档站发布入口。
+    details: v0.3.3-alpha 统一桌面端、CLI、服务端脚本和文档站发布入口。
+  - title: 统一 CLI
+    details: 覆盖服务端安装、状态、日志、远端控制面和桌面端本机控制，适合自动化运维。
 ---
 
 <style>

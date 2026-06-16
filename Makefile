@@ -1,6 +1,6 @@
 .PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test clean help
 
-VERSION ?= v0.3.1-alpha
+VERSION ?= v0.3.3-alpha
 
 # Default target
 all: build

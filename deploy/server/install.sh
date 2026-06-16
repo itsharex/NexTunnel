@@ -31,10 +31,14 @@ CONFIG_DIR="${NEXTUNNEL_CONFIG_DIR:-/etc/nextunnel}"
 DATA_DIR="${NEXTUNNEL_DATA_DIR:-/var/lib/nextunnel}"
 SERVICE_USER="${NEXTUNNEL_SERVICE_USER:-nextunnel}"
 SERVICE_GROUP="${NEXTUNNEL_SERVICE_GROUP:-${SERVICE_USER}}"
+SERVICE_PREFIX="${NEXTUNNEL_SERVICE_PREFIX:-nextunnel}"
 CLI_LINK_PATH="${NEXTUNNEL_CLI_LINK_PATH:-/usr/local/bin/nextunnel}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 FORCE="${FORCE:-false}"
 PURGE="${PURGE:-false}"
+LOG_FOLLOW="${NEXTUNNEL_LOG_FOLLOW:-true}"
+LOG_LINES="${NEXTUNNEL_LOG_LINES:-200}"
+SERVICE_START_TIMEOUT_SECONDS="${NEXTUNNEL_SERVICE_START_TIMEOUT_SECONDS:-30}"
 
 PUBLIC_HOST="${NEXTUNNEL_PUBLIC_HOST:-127.0.0.1}"
 RELAY_BIND="${RELAY_BIND:-0.0.0.0}"
@@ -60,8 +64,28 @@ ENV_FILE="${CONFIG_DIR%/}/server.env"
 BIN_DIR="${INSTALL_DIR%/}/bin"
 WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
 DEPLOY_DIR="${INSTALL_DIR%/}/deploy/server"
-SERVICE_NAMES=(nextunnel-control-plane.service nextunnel-relay.service nextunnel-nat-detector.service)
-DASHBOARD_SERVICE_NAME=nextunnel-dashboard.service
+CONTROL_PLANE_SERVICE_NAME=""
+RELAY_SERVICE_NAME=""
+NAT_SERVICE_NAME=""
+DASHBOARD_SERVICE_NAME=""
+SERVICE_NAMES=()
+
+validate_service_prefix() {
+  local prefix="$1"
+  if ! [[ "${prefix}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]; then
+    printf '服务前缀只能包含字母、数字、点、下划线和短横线，且长度不超过 64：%s\n' "${prefix}" >&2
+    exit 1
+  fi
+}
+
+refresh_service_names() {
+  validate_service_prefix "${SERVICE_PREFIX}"
+  CONTROL_PLANE_SERVICE_NAME="${SERVICE_PREFIX}-control-plane.service"
+  RELAY_SERVICE_NAME="${SERVICE_PREFIX}-relay.service"
+  NAT_SERVICE_NAME="${SERVICE_PREFIX}-nat-detector.service"
+  DASHBOARD_SERVICE_NAME="${SERVICE_PREFIX}-dashboard.service"
+  SERVICE_NAMES=("${CONTROL_PLANE_SERVICE_NAME}" "${RELAY_SERVICE_NAME}" "${NAT_SERVICE_NAME}")
+}
 
 log() {
   printf '[NexTunnel] %s\n' "$1"
@@ -79,7 +103,7 @@ usage() {
 常用选项：
   --package-url URL        指定服务端 Release 包地址，支持 https://、file:// 或本地文件路径
   --sha256 HASH            可选，校验服务端 Release 包 SHA256
-  --version VERSION        指定 GitHub Release 版本，例如 v0.3.1-alpha；默认 latest
+  --version VERSION        指定 GitHub Release 版本，例如 v0.3.3-alpha；默认 latest
   --release-base-url URL   指定 Release 下载基址；默认使用 GitHub Releases
   --github-proxy URL       可选，仅代理脚本自动生成的 GitHub 下载地址；生产环境建议使用可信自建代理
   --arch ARCH              指定架构 amd64/arm64；默认自动识别
@@ -91,7 +115,10 @@ usage() {
   --dashboard-disabled     仅部署核心服务，不启动 Dashboard
   --service-user USER      指定 systemd 服务运行用户，默认 nextunnel
   --service-group GROUP    指定 systemd 服务运行用户组，默认与用户同名
+  --service-prefix PREFIX  指定 systemd 服务名前缀，默认 nextunnel；用于同机隔离测试或多套部署
   --cli-link PATH          指定 nextunnel CLI 软链接路径，默认 /usr/local/bin/nextunnel；设置 none 可跳过
+  --log-lines N            logs 操作显示的历史日志行数，默认 200
+  --no-log-follow          logs 操作只输出历史日志，不持续跟随
   --non-interactive        使用环境变量/默认值，不进入交互输入
   --force                  重新生成配置文件
   --purge                  uninstall 时同时删除安装目录、配置和数据
@@ -135,6 +162,7 @@ while [[ $# -gt 0 ]]; do
       INSTALL_DIR="${2:?--install-dir 需要参数}"
       BIN_DIR="${INSTALL_DIR%/}/bin"
       WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
+      DEPLOY_DIR="${INSTALL_DIR%/}/deploy/server"
       shift 2
       ;;
     --config-dir)
@@ -209,9 +237,21 @@ while [[ $# -gt 0 ]]; do
       SERVICE_GROUP="${2:?--service-group 需要参数}"
       shift 2
       ;;
+    --service-prefix)
+      SERVICE_PREFIX="${2:?--service-prefix 需要参数}"
+      shift 2
+      ;;
     --cli-link)
       CLI_LINK_PATH="${2:?--cli-link 需要参数}"
       shift 2
+      ;;
+    --log-lines)
+      LOG_LINES="${2:?--log-lines 需要参数}"
+      shift 2
+      ;;
+    --no-log-follow)
+      LOG_FOLLOW="false"
+      shift
       ;;
     --non-interactive)
       NON_INTERACTIVE="true"
@@ -236,6 +276,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+refresh_service_names
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -293,11 +335,88 @@ validate_port() {
   fi
 }
 
+validate_positive_integer() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || (( value < 1 )); then
+    printf '配置项 %s 必须是正整数，当前值：%s\n' "${name}" "${value}" >&2
+    exit 1
+  fi
+}
+
+validate_absolute_path() {
+  local name="$1"
+  local value="$2"
+  if [[ "${value}" != /* ]]; then
+    printf '配置项 %s 必须使用绝对路径，当前值：%s\n' "${name}" "${value}" >&2
+    exit 1
+  fi
+}
+
+normalize_path_for_check() {
+  local path_to_check="$1"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "${path_to_check}"
+    return
+  fi
+  printf '%s' "${path_to_check%/}"
+}
+
+path_is_under_temporary_dir() {
+  local normalized_path="$1"
+  case "${normalized_path}" in
+    /tmp|/tmp/*|/var/tmp|/var/tmp/*|/dev/shm|/dev/shm/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+assert_systemd_paths_compatible() {
+  local name
+  local value
+  for name in NEXTUNNEL_INSTALL_DIR NEXTUNNEL_CONFIG_DIR NEXTUNNEL_DATA_DIR; do
+    case "${name}" in
+      NEXTUNNEL_INSTALL_DIR) value="${INSTALL_DIR}" ;;
+      NEXTUNNEL_CONFIG_DIR) value="${CONFIG_DIR}" ;;
+      NEXTUNNEL_DATA_DIR) value="${DATA_DIR}" ;;
+    esac
+    validate_absolute_path "${name}" "${value}"
+    local normalized_path
+    normalized_path="$(normalize_path_for_check "${value}")"
+    if path_is_under_temporary_dir "${normalized_path}"; then
+      printf '%s 不支持使用临时目录：%s\n' "${name}" "${value}" >&2
+      printf 'systemd 服务启用了 PrivateTmp 和重启托管，临时目录会导致服务无法定位二进制或数据目录。请使用 /opt、/etc、/var/lib 下的持久路径。\n' >&2
+      exit 1
+    fi
+  done
+  if [[ "${CLI_LINK_PATH}" != "none" && "${CLI_LINK_PATH}" != "false" && "${CLI_LINK_PATH}" != "0" ]]; then
+    validate_absolute_path NEXTUNNEL_CLI_LINK_PATH "${CLI_LINK_PATH}"
+  fi
+}
+
 write_env_line() {
   local name="$1"
   local value="$2"
   validate_env_value "${name}" "${value}"
   printf '%s=%s\n' "${name}" "${value}"
+}
+
+write_script_local_env() {
+  mkdir -p "${DEPLOY_DIR}"
+  {
+    printf '# NexTunnel 安装脚本本地配置，由 install.sh install/update 生成\n'
+    write_env_line NEXTUNNEL_INSTALL_DIR "${INSTALL_DIR}"
+    write_env_line NEXTUNNEL_CONFIG_DIR "${CONFIG_DIR}"
+    write_env_line NEXTUNNEL_DATA_DIR "${DATA_DIR}"
+    write_env_line NEXTUNNEL_SERVICE_USER "${SERVICE_USER}"
+    write_env_line NEXTUNNEL_SERVICE_GROUP "${SERVICE_GROUP}"
+    write_env_line NEXTUNNEL_SERVICE_PREFIX "${SERVICE_PREFIX}"
+    write_env_line NEXTUNNEL_CLI_LINK_PATH "${CLI_LINK_PATH}"
+  } >"${DEPLOY_DIR}/.env"
+  chmod 600 "${DEPLOY_DIR}/.env"
 }
 
 normalize_arch() {
@@ -441,7 +560,14 @@ collect_runtime_services() {
     source "${ENV_FILE}"
     set +a
   fi
+  SERVICE_PREFIX="${NEXTUNNEL_SERVICE_PREFIX:-${SERVICE_PREFIX}}"
+  refresh_service_names
   mapfile -t RUNTIME_SERVICE_NAMES < <(runtime_service_names)
+}
+
+service_unit_path() {
+  local service_name="$1"
+  printf '/etc/systemd/system/%s' "${service_name}"
 }
 
 create_system_user() {
@@ -557,6 +683,7 @@ generate_env() {
     write_env_line NAT_PORT "${nat_port}"
     write_env_line NAT_REALM "${NAT_REALM}"
     write_env_line NEXTUNNEL_DATA_DIR "${DATA_DIR}"
+    write_env_line NEXTUNNEL_SERVICE_PREFIX "${SERVICE_PREFIX}"
   } >"${ENV_FILE}"
   chmod 600 "${ENV_FILE}"
   log "已生成配置：${ENV_FILE}"
@@ -632,6 +759,7 @@ install_release_package() {
   if [[ -n "${deploy_script_dir}" ]]; then
     cp -a "${deploy_script_dir}/." "${DEPLOY_DIR}/"
     chmod +x "${DEPLOY_DIR}/install.sh" || true
+    write_script_local_env
   else
     warn "Release 包未包含 deploy/server 安装脚本。"
   fi
@@ -663,8 +791,9 @@ install_cli_link() {
 write_systemd_units() {
   require_command systemctl
   mkdir -p /etc/systemd/system
+  refresh_service_names
 
-  cat >/etc/systemd/system/nextunnel-relay.service <<EOF
+  cat >"$(service_unit_path "${RELAY_SERVICE_NAME}")" <<EOF
 [Unit]
 Description=NexTunnel Relay Server
 After=network-online.target
@@ -687,7 +816,7 @@ ProtectSystem=full
 WantedBy=multi-user.target
 EOF
 
-  cat >/etc/systemd/system/nextunnel-control-plane.service <<EOF
+  cat >"$(service_unit_path "${CONTROL_PLANE_SERVICE_NAME}")" <<EOF
 [Unit]
 Description=NexTunnel Control Plane
 After=network-online.target
@@ -711,7 +840,7 @@ ReadWritePaths=${DATA_DIR}
 WantedBy=multi-user.target
 EOF
 
-  cat >/etc/systemd/system/nextunnel-nat-detector.service <<EOF
+  cat >"$(service_unit_path "${NAT_SERVICE_NAME}")" <<EOF
 [Unit]
 Description=NexTunnel NAT Detector
 After=network-online.target
@@ -735,10 +864,10 @@ WantedBy=multi-user.target
 EOF
 
   if [[ "${DASHBOARD_ENABLED}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
-    cat >/etc/systemd/system/nextunnel-dashboard.service <<EOF
+    cat >"$(service_unit_path "${DASHBOARD_SERVICE_NAME}")" <<EOF
 [Unit]
 Description=NexTunnel Dashboard
-After=network-online.target nextunnel-control-plane.service
+After=network-online.target ${CONTROL_PLANE_SERVICE_NAME}
 Wants=network-online.target
 
 [Service]
@@ -759,11 +888,11 @@ ReadWritePaths=${DATA_DIR}
 WantedBy=multi-user.target
 EOF
   else
-    rm -f /etc/systemd/system/nextunnel-dashboard.service
+    rm -f "$(service_unit_path "${DASHBOARD_SERVICE_NAME}")"
   fi
 
   systemctl daemon-reload
-  log "systemd 服务文件已写入 /etc/systemd/system"
+  log "systemd 服务文件已写入 /etc/systemd/system，服务前缀：${SERVICE_PREFIX}"
 }
 
 prepare_permissions() {
@@ -772,7 +901,8 @@ prepare_permissions() {
   chmod 750 "${CONFIG_DIR}"
   chmod 750 "${DATA_DIR}"
   if [[ "${SERVICE_USER}" != "root" ]]; then
-    chown -R root:root "${INSTALL_DIR}" "${CONFIG_DIR}"
+    chown -R root:"${SERVICE_GROUP}" "${INSTALL_DIR}" "${CONFIG_DIR}"
+    chmod 750 "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${CONFIG_DIR}"
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
   fi
 }
@@ -812,6 +942,157 @@ print_connection_info() {
   printf '  4. 本机检查命令：sudo %s health；日志命令：sudo %s logs。\n' "${DEPLOY_DIR}/install.sh" "${DEPLOY_DIR}/install.sh"
 }
 
+service_main_pids() {
+  local service_name
+  for service_name in "${RUNTIME_SERVICE_NAMES[@]:-}"; do
+    systemctl show -p MainPID --value "${service_name}" 2>/dev/null || true
+  done | awk '$1 != "" && $1 != "0"'
+}
+
+list_port_owners() {
+  local protocol="$1"
+  local port="$2"
+  if command -v ss >/dev/null 2>&1; then
+    case "${protocol}" in
+      tcp)
+        ss -ltnp 2>/dev/null | awk -v port=":${port}" '$0 ~ port {print}'
+        ;;
+      udp)
+        ss -lunp 2>/dev/null | awk -v port=":${port}" '$0 ~ port {print}'
+        ;;
+      *)
+        printf '不支持的端口协议：%s\n' "${protocol}" >&2
+        return 1
+        ;;
+    esac
+    return
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP "-i${protocol}:${port}" 2>/dev/null || true
+    return
+  fi
+  warn "未找到 ss/lsof，无法输出端口占用详情。"
+}
+
+port_is_owned_by_current_services() {
+  local owners="$1"
+  local pid
+  while read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if grep -q "pid=${pid}," <<<"${owners}"; then
+      return 0
+    fi
+  done < <(service_main_pids)
+  return 1
+}
+
+assert_port_available() {
+  local name="$1"
+  local protocol="$2"
+  local port="$3"
+  local owners
+  owners="$(list_port_owners "${protocol}" "${port}")"
+  if [[ -z "${owners}" ]] || port_is_owned_by_current_services "${owners}"; then
+    return
+  fi
+  printf '%s 端口已被占用：%s/%s\n%s\n' "${name}" "${port}" "${protocol}" "${owners}" >&2
+  exit 1
+}
+
+preflight_ports() {
+  load_runtime_env
+  collect_runtime_services
+  validate_positive_integer NEXTUNNEL_SERVICE_START_TIMEOUT_SECONDS "${SERVICE_START_TIMEOUT_SECONDS}"
+  log "检查服务端口占用"
+  assert_port_available "Relay TCP" tcp "${RELAY_CONTROL_PORT}"
+  assert_port_available "Relay QUIC" udp "${RELAY_QUIC_PORT}"
+  assert_port_available "Control Plane" tcp "${CONTROL_PLANE_PORT}"
+  assert_port_available "NAT Detector" udp "${NAT_PORT}"
+  if [[ "${DASHBOARD_ENABLED:-false}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
+    assert_port_available "Dashboard" tcp "${DASHBOARD_PORT}"
+  fi
+}
+
+wait_services_active() {
+  collect_runtime_services
+  local deadline=$((SECONDS + SERVICE_START_TIMEOUT_SECONDS))
+  local service_name
+  while (( SECONDS < deadline )); do
+    local all_active="true"
+    for service_name in "${RUNTIME_SERVICE_NAMES[@]}"; do
+      if ! systemctl is-active --quiet "${service_name}"; then
+        all_active="false"
+        break
+      fi
+    done
+    [[ "${all_active}" == "true" ]] && return
+    sleep 1
+  done
+}
+
+print_health_diagnostics() {
+  local failed_services=("$@")
+  printf '\n健康检查失败诊断：\n' >&2
+  printf '  配置文件：%s\n' "${ENV_FILE}" >&2
+  printf '  服务前缀：%s\n' "${SERVICE_PREFIX}" >&2
+  printf '  端口占用：\n' >&2
+  list_port_owners tcp "${RELAY_CONTROL_PORT}" >&2 || true
+  list_port_owners udp "${RELAY_QUIC_PORT}" >&2 || true
+  list_port_owners tcp "${CONTROL_PLANE_PORT}" >&2 || true
+  list_port_owners udp "${NAT_PORT}" >&2 || true
+  if [[ "${DASHBOARD_ENABLED:-false}" == "true" ]]; then
+    list_port_owners tcp "${DASHBOARD_PORT}" >&2 || true
+  fi
+  if command -v journalctl >/dev/null 2>&1 && (( ${#failed_services[@]} > 0 )); then
+    printf '  最近服务日志：\n' >&2
+    local journalctl_args=()
+    local service_name
+    for service_name in "${failed_services[@]}"; do
+      journalctl_args+=(-u "${service_name}")
+    done
+    journalctl --no-pager -n 80 "${journalctl_args[@]}" >&2 || true
+  fi
+}
+
+wait_http_health() {
+  local name="$1"
+  local url="$2"
+  local deadline=$((SECONDS + SERVICE_START_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if curl -fsS "${url}" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  print_health_diagnostics "${RUNTIME_SERVICE_NAMES[@]}"
+  printf '%s 健康检查失败：%s\n' "${name}" "${url}" >&2
+  exit 1
+}
+
+wait_tcp_port() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  local deadline=$((SECONDS + SERVICE_START_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    local owners
+    owners="$(list_port_owners tcp "${port}")"
+    if [[ -n "${owners}" ]]; then
+      return
+    fi
+    if timeout 3 bash -c "</dev/tcp/${host}/${port}" >/dev/null 2>&1; then
+      return
+    fi
+    if ! command -v bash >/dev/null 2>&1 && command -v nc >/dev/null 2>&1 && nc -z "${host}" "${port}" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  print_health_diagnostics "${RUNTIME_SERVICE_NAMES[@]}"
+  printf '%s 端口不可连接：%s:%s\n' "${name}" "${host}" "${port}" >&2
+  exit 1
+}
+
 health_check() {
   load_runtime_env
   require_command curl
@@ -827,20 +1108,17 @@ health_check() {
   done
   if (( ${#failed_services[@]} > 0 )); then
     systemctl --no-pager --full status "${failed_services[@]}" >&2 || true
+    print_health_diagnostics "${failed_services[@]}"
     printf '服务未处于 active 状态：%s\n' "${failed_services[*]}" >&2
     exit 1
   fi
   log "检查 Control Plane 健康状态"
-  curl -fsS "http://127.0.0.1:${CONTROL_PLANE_PORT}/healthz" >/dev/null
+  wait_http_health "Control Plane" "http://127.0.0.1:${CONTROL_PLANE_PORT}/healthz"
   log "检查 Relay TCP 端口"
-  if command -v nc >/dev/null 2>&1; then
-    nc -z 127.0.0.1 "${RELAY_CONTROL_PORT}"
-  else
-    timeout 3 bash -c "</dev/tcp/127.0.0.1/${RELAY_CONTROL_PORT}"
-  fi
+  wait_tcp_port "Relay TCP" "127.0.0.1" "${RELAY_CONTROL_PORT}"
   if [[ "${DASHBOARD_ENABLED:-false}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
     log "检查 Dashboard 健康状态"
-    curl -fsS "http://127.0.0.1:${DASHBOARD_PORT}/api/v1/health" >/dev/null
+    wait_http_health "Dashboard" "http://127.0.0.1:${DASHBOARD_PORT}/api/v1/health"
   fi
   log "健康检查通过"
 }
@@ -848,13 +1126,16 @@ health_check() {
 install_stack() {
   require_root
   require_command systemctl
+  assert_systemd_paths_compatible
   prepare_permissions
   generate_env
   install_release_package
   install_cli_link
   write_systemd_units
   collect_runtime_services
+  preflight_ports
   systemctl enable --now "${RUNTIME_SERVICE_NAMES[@]}"
+  wait_services_active
   health_check
   print_connection_info
 }
@@ -862,13 +1143,16 @@ install_stack() {
 update_stack() {
   require_root
   require_command systemctl
+  assert_systemd_paths_compatible
   prepare_permissions
   [[ -f "${ENV_FILE}" ]] || generate_env
   install_release_package
   install_cli_link
   write_systemd_units
   collect_runtime_services
+  preflight_ports
   systemctl restart "${RUNTIME_SERVICE_NAMES[@]}"
+  wait_services_active
   health_check
   print_connection_info
 }
@@ -878,10 +1162,10 @@ uninstall_stack() {
   require_command systemctl
   collect_runtime_services
   systemctl disable --now "${RUNTIME_SERVICE_NAMES[@]}" >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/nextunnel-relay.service \
-        /etc/systemd/system/nextunnel-control-plane.service \
-        /etc/systemd/system/nextunnel-nat-detector.service \
-        /etc/systemd/system/nextunnel-dashboard.service
+  local service_name
+  for service_name in "${SERVICE_NAMES[@]}" "${DASHBOARD_SERVICE_NAME}"; do
+    rm -f "$(service_unit_path "${service_name}")"
+  done
   systemctl daemon-reload
   if [[ "${PURGE}" == "true" ]]; then
     assert_safe_remove_path "${INSTALL_DIR}"
@@ -907,6 +1191,8 @@ case "${ACTION}" in
     require_command systemctl
     collect_runtime_services
     systemctl start "${RUNTIME_SERVICE_NAMES[@]}"
+    wait_services_active
+    health_check
     ;;
   down)
     require_root
@@ -919,6 +1205,8 @@ case "${ACTION}" in
     require_command systemctl
     collect_runtime_services
     systemctl restart "${RUNTIME_SERVICE_NAMES[@]}"
+    wait_services_active
+    health_check
     ;;
   status)
     require_command systemctl
@@ -932,7 +1220,12 @@ case "${ACTION}" in
     for service_name in "${RUNTIME_SERVICE_NAMES[@]}"; do
       journalctl_args+=(-u "${service_name}")
     done
-    journalctl -f -n 200 "${journalctl_args[@]}"
+    validate_positive_integer NEXTUNNEL_LOG_LINES "${LOG_LINES}"
+    if [[ "${LOG_FOLLOW}" == "true" ]]; then
+      journalctl -f -n "${LOG_LINES}" "${journalctl_args[@]}"
+    else
+      journalctl --no-pager -n "${LOG_LINES}" "${journalctl_args[@]}"
+    fi
     ;;
   health)
     health_check
@@ -945,6 +1238,7 @@ case "${ACTION}" in
     ;;
   config)
     require_root
+    assert_systemd_paths_compatible
     prepare_permissions
     generate_env
     print_connection_info

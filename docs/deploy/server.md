@@ -30,14 +30,14 @@ docker-compose up -d
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN，再使用自定义 Release 下载基址：
 
 ```bash
-sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.1-alpha \
-  ./install.sh install --version v0.3.1-alpha --sha256 <sha256>
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.3-alpha \
+  ./install.sh install --version v0.3.3-alpha --sha256 <sha256>
 ```
 
 临时方案可以使用可信自建 GitHub 代理：
 
 ```bash
-sudo ./install.sh install --version v0.3.1-alpha \
+sudo ./install.sh install --version v0.3.3-alpha \
   --github-proxy https://your-proxy.example.com/
 ```
 
@@ -63,7 +63,37 @@ sudo ln -sfn /opt/nextunnel/bin/nextunnel /usr/local/bin/nextunnel
 
 ```bash
 sudo /opt/nextunnel/deploy/server/install.sh health
-sudo /opt/nextunnel/deploy/server/install.sh logs
+sudo /opt/nextunnel/deploy/server/install.sh logs --no-log-follow --log-lines 80
 ```
 
+安装完成后，包内脚本会在 `/opt/nextunnel/deploy/server/.env` 保存本次安装路径和服务前缀。后续查看状态、启动服务或重启服务不需要重复传参：
+
+```bash
+sudo /opt/nextunnel/deploy/server/install.sh status
+sudo /opt/nextunnel/deploy/server/install.sh up
+sudo /opt/nextunnel/deploy/server/install.sh restart
+```
+
+`up` 和 `restart` 会等待 systemd 服务进入 active 状态，并自动执行 Control Plane、Relay 和 Dashboard 健康检查。
+
 腾讯云安全组和服务器防火墙至少需要放行 `7000/tcp`；启用 QUIC/NAT 检测时还需要 `7443/udp`、`3478/udp`，Dashboard 需要 `8080/tcp`。
+
+## 同机测试和 WSL 验证
+
+同一台机器已有 NexTunnel 服务时，可以使用独立服务前缀和端口做隔离测试：
+
+```bash
+sudo ./install.sh install \
+  --package-url /tmp/nextunnel-server-linux-amd64.tar.gz \
+  --install-dir /opt/nextunnel-test \
+  --config-dir /etc/nextunnel-test \
+  --data-dir /var/lib/nextunnel-test \
+  --service-prefix nextunnel-test \
+  --relay-port 27000 \
+  --relay-quic-port 27443 \
+  --control-plane-port 29090 \
+  --dashboard-port 28080 \
+  --nat-port 23478
+```
+
+不要把 systemd 模式安装目录放在 `/tmp`、`/var/tmp` 或 `/dev/shm` 下。服务启用了隔离和自动重启，临时目录会导致二进制或数据目录在服务命名空间中不可见。
