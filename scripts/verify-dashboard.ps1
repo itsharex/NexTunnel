@@ -11,7 +11,9 @@ param(
 
   [string]$RejectedOrigin = "https://evil.example.invalid",
 
-  [string]$ReportPath = ""
+  [string]$ReportPath = "",
+
+  [switch]$AllowInsecureHttpCredentials
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +21,32 @@ $ErrorActionPreference = "Stop"
 $CHECK_TIMEOUT_SECONDS = 15
 $VERIFY_ACL_ID = "verify-dashboard-" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $VERIFY_ALERT_RULE_ID = "verify-alert-" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+function Test-IsLoopbackHost {
+  param([string]$HostName)
+  $normalizedHost = $HostName.Trim().TrimEnd(".").ToLowerInvariant()
+  if ($normalizedHost -eq "localhost" -or $normalizedHost -eq "::1") {
+    return $true
+  }
+  if ($normalizedHost.StartsWith("127.")) {
+    return $true
+  }
+  return $false
+}
+
+function Assert-CredentialTransportSafe {
+  $parsedBaseUrl = [System.Uri]$BaseUrl
+  if ($parsedBaseUrl.Scheme -eq "https") {
+    return
+  }
+  if ($parsedBaseUrl.Scheme -eq "http" -and (Test-IsLoopbackHost -HostName $parsedBaseUrl.Host)) {
+    return
+  }
+  if ($AllowInsecureHttpCredentials) {
+    return
+  }
+  throw "拒绝通过非本机 HTTP 向 Dashboard 发送管理员密码。请改用 HTTPS，或使用 scripts/verify-dashboard-ssh.ps1 通过 SSH 隧道验证；仅在隔离测试环境可显式传入 -AllowInsecureHttpCredentials。"
+}
 
 function New-Result {
   param(
@@ -94,6 +122,8 @@ $results = New-Object System.Collections.Generic.List[object]
 $token = ""
 
 try {
+  Assert-CredentialTransportSafe
+
   $health = Invoke-JsonRequest -Method "GET" -Path "/api/v1/health"
   $healthData = Convert-ApiData $health
   $results.Add((New-Result "dashboard_health" ($health.StatusCode -eq 200 -and $healthData.status -eq "ok") "HTTP $($health.StatusCode) status=$($healthData.status)"))

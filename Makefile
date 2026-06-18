@@ -1,9 +1,11 @@
-.PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test verify-edge verify-ebpf-linux verify-tun verify-p2p-tun verify-dashboard clean help
+.PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test verify-edge verify-ebpf-linux verify-tun verify-p2p-tun verify-dashboard verify-dashboard-ssh clean help
 
 VERSION ?= v0.4.1-alpha
 MAC_HOST ?= 10.160.166.44
 MAC_USER ?= lizhigang
 MAC_PORT ?= 22
+DASHBOARD_USER ?= root
+DASHBOARD_REMOTE_PORT ?= 8080
 
 # Default target
 all: build
@@ -31,7 +33,7 @@ build:
 
 ## package-desktop: Build Windows desktop release package
 package-desktop:
-	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -Version $(VERSION)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -Version $(VERSION) -WintunDllPath "$(WINTUN_DLL)"
 
 ## package-cli: Build CLI release packages
 package-cli:
@@ -82,6 +84,10 @@ test-frontend:
 ## verify-dashboard: Run Dashboard production API verification; pass DASHBOARD_URL, DASHBOARD_PASSWORD, optional DASHBOARD_ORIGIN
 verify-dashboard:
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-dashboard.ps1 -BaseUrl "$(DASHBOARD_URL)" -Password "$(DASHBOARD_PASSWORD)" -AllowedOrigin "$(DASHBOARD_ORIGIN)" -ReportPath "dist/verification/dashboard-report.json"
+
+## verify-dashboard-ssh: Run Dashboard verification through SSH tunnel; pass DASHBOARD_HOST, optional DASHBOARD_USER, DASHBOARD_IDENTITY, DASHBOARD_REMOTE_PORT
+verify-dashboard-ssh:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-dashboard-ssh.ps1 -SshHost "$(DASHBOARD_HOST)" -User "$(DASHBOARD_USER)" -IdentityFile "$(DASHBOARD_IDENTITY)" -RemoteDashboardPort "$(DASHBOARD_REMOTE_PORT)" -AllowedOrigin "$(DASHBOARD_ORIGIN)" -ReportPath "dist/verification/dashboard-ssh-report.json"
 
 ## verify-tun: Run local real TUN and route apply/reset verification
 verify-tun:

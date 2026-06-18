@@ -101,6 +101,9 @@ type PlatformCapabilities struct {
 
 	// RecommendedActions gives operator-facing remediation steps.
 	RecommendedActions []string
+
+	// EnvironmentHints gives production deployment options when host prerequisites are missing.
+	EnvironmentHints []string
 }
 
 // CreateTUN attempts to create a kernel TUN device. If that fails,

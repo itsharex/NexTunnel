@@ -5,8 +5,10 @@
 - 新增生产验证手册，覆盖 Dashboard HTTPS/CORS/鉴权、Windows/macOS P2P/TUN、Linux eBPF XDP 和多地域 Edge/Anycast 演练。
 - 发布包补充 Dashboard、Edge rehearsal、eBPF verify 等验证入口，服务端包内包含验证脚本和 `xdp_forwarder.c`。
 - Dashboard 生产部署联调脚本可验证健康检查、登录、token、CORS、节点、ACL 和告警接口。
+- Dashboard 验证脚本默认拒绝向非本机 HTTP 发送管理员密码；新增 SSH 隧道验证脚本，域名/证书受限时可通过加密通道完成 API 验收。
 - Windows/macOS P2P/TUN 验证脚本支持临时 SSH 公钥接入、双端候选交换、直连优先、Relay 降级和 JSON 报告汇总。
 - 桌面端新增真实 TUN 生产预检，明确提示 Windows `wintun.dll` 缺失、管理员权限不足、macOS sudo/root 权限不足和 Linux `/dev/net/tun` 缺失。
+- 桌面打包支持通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 随包复制匹配架构的官方 `wintun.dll`，TUN 预检补充 Windows/macOS/Linux 环境修复建议。
 - P2P/TUN 验证器改为真实内核 TUN 创建，不再用用户态 `netTun` 回退掩盖生产问题。
 - 修复 macOS utun 控制器结构和数据包读写方式，为真实 utun 创建与收发验证打基础。
 - 发布前已确认 P2P 直连链路可用；真实系统路由 TUN 仍需在 Windows 提供匹配架构 `wintun.dll`，并在 macOS 使用可用的 sudo/root 权限完成最终实机验收。

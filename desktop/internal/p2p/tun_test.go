@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -114,6 +115,12 @@ func TestEvaluatePlatformCapabilities_WindowsMissingWintun(t *testing.T) {
 	if !hasIssue(caps.BlockingIssues, "wintun_dll_missing") {
 		t.Fatalf("expected wintun_dll_missing issue, got %+v", caps.BlockingIssues)
 	}
+	if !hasAction(caps.RecommendedActions, "NEXTUNNEL_WINTUN_DLL") {
+		t.Fatalf("expected wintun remediation action, got %+v", caps.RecommendedActions)
+	}
+	if !hasAction(caps.EnvironmentHints, "Windows 服务") {
+		t.Fatalf("expected windows environment hint, got %+v", caps.EnvironmentHints)
+	}
 }
 
 func TestEvaluatePlatformCapabilities_DarwinNeedsPrivilege(t *testing.T) {
@@ -131,6 +138,9 @@ func TestEvaluatePlatformCapabilities_DarwinNeedsPrivilege(t *testing.T) {
 	}
 	if !hasIssue(caps.BlockingIssues, "privilege_required") {
 		t.Fatalf("expected privilege_required issue, got %+v", caps.BlockingIssues)
+	}
+	if !hasAction(caps.EnvironmentHints, "LaunchDaemon") {
+		t.Fatalf("expected macOS LaunchDaemon hint, got %+v", caps.EnvironmentHints)
 	}
 }
 
@@ -158,6 +168,15 @@ func TestEvaluatePlatformCapabilities_KernelReady(t *testing.T) {
 func hasIssue(issues []PlatformIssue, code string) bool {
 	for _, issue := range issues {
 		if issue.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAction(actions []string, expectedSubstring string) bool {
+	for _, action := range actions {
+		if strings.Contains(action, expectedSubstring) {
 			return true
 		}
 	}

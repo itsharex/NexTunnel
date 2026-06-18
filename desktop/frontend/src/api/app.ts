@@ -44,6 +44,7 @@ export interface PlatformCapabilities {
   BlockingIssues: PlatformIssue[]
   DegradedFeatures: PlatformIssue[]
   RecommendedActions: string[]
+  EnvironmentHints: string[]
 }
 
 export interface PlatformIssue {
@@ -195,6 +196,9 @@ const PREVIEW_TUN: PlatformCapabilities = {
     },
   ],
   RecommendedActions: [],
+  EnvironmentHints: [
+    '安装器或服务进程应完成真实 TUN 前置条件；受限环境只启用 P2P/Relay 能力。',
+  ],
 }
 const PREVIEW_FAVORITE_PORTS: FavoritePortInfo[] = [
   {

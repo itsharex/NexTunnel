@@ -469,11 +469,12 @@ function Copy-WintunDllIfAvailable {
 
 function Test-MacPasswordlessSudo {
   if (-not $MacUseSudo) {
+    Add-Result -Name "mac_sudo_not_requested" -Passed $true -Detail "未启用 -MacUseSudo；macOS 真实 utun/路由验证可能因权限失败，仅 P2P 候选交换可继续验证"
     return
   }
   $sudoProbe = Invoke-NativeCommand -Name "ssh" -Arguments (Get-SshArguments "sudo -n true") -AllowFailure
   if ($sudoProbe.exit_code -ne 0) {
-    throw "MacUseSudo requires passwordless sudo for $macUserHost. $($sudoProbe.output)"
+    throw "MacUseSudo requires passwordless sudo for $macUserHost. 生产建议配置授权 helper 或 LaunchDaemon；验证环境可配置 sudo -n 免密。$($sudoProbe.output)"
   }
   Add-Result -Name "mac_sudo_available" -Passed $true -Detail "sudo -n true"
 }

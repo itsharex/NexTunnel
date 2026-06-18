@@ -379,10 +379,11 @@ make verify-edge
 make verify-tun
 make verify-p2p-tun MAC_HOST=10.160.166.44 MAC_USER=lizhigang
 DASHBOARD_URL=https://dashboard.example.com DASHBOARD_PASSWORD=<password> make verify-dashboard
+DASHBOARD_HOST=47.116.218.140 DASHBOARD_USER=root DASHBOARD_IDENTITY=~/.ssh/id_ed25519 DASHBOARD_REMOTE_PORT=8080 make verify-dashboard-ssh
 sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
 ```
 
-验证报告默认输出到 `dist/verification/`。eBPF、真实 TUN 和 Windows/macOS P2P 验证会修改本机网络状态，只应在授权的实机或隔离节点执行。
+验证报告默认输出到 `dist/verification/`。eBPF、真实 TUN 和 Windows/macOS P2P 验证会修改本机网络状态，只应在授权的实机或隔离节点执行。没有可用 HTTPS 域名时，用 `verify-dashboard-ssh` 通过 SSH 隧道验证 Dashboard，避免管理员密码经过公网 HTTP。
 
 ---
 

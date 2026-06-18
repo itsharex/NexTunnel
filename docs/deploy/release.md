@@ -10,6 +10,13 @@ make package-cli VERSION=v0.4.1-alpha
 make package-server VERSION=v0.4.1-alpha
 ```
 
+Windows 桌面包若需要声明真实 TUN 生产可用，必须随包带上匹配架构的官方 `wintun.dll`：
+
+```powershell
+$env:NEXTUNNEL_WINTUN_DLL="D:\path\to\wintun.dll"
+make package-desktop VERSION=v0.4.1-alpha
+```
+
 ## GitHub Release
 
 推送 `v0.4.1-alpha` 标签会触发 `.github/workflows/release.yml`：
@@ -19,7 +26,7 @@ make package-server VERSION=v0.4.1-alpha
 - Linux/Windows 服务端包和 SHA256。
 - Linux `install.sh` 和 Windows `install.ps1` 一键安装脚本。
 - VitePress 文档站压缩包和 SHA256，并同步发布到 GitHub Pages。
-- 服务端包内置 Dashboard、Edge rehearsal、eBPF verify 验证入口和生产验证脚本。
+- 服务端包内置 Dashboard、Dashboard SSH 隧道、Edge rehearsal、eBPF verify 验证入口和生产验证脚本。
 
 首次发布文档站前，需要在仓库 Pages 中启用 `GitHub Actions` 发布模式。当前站点地址为 `https://lee-zg.github.io/NexTunnel/`。
 
@@ -49,7 +56,7 @@ cd server/web && npm run build
 cd docs && npm run docs:build
 ```
 
-发布前还应按 `docs/deploy/production-verification.md` 更新生产验证状态。真实 TUN 验证需要 Windows 管理员权限和匹配架构 `wintun.dll`，macOS 需要 sudo/root 权限。
+发布前还应按 `docs/deploy/production-verification.md` 更新生产验证状态。真实 TUN 验证需要 Windows 管理员权限和匹配架构 `wintun.dll`，macOS 需要授权 helper、LaunchDaemon 或可用的 `sudo -n`。Dashboard 若没有可用 HTTPS 域名，应使用 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 隧道完成 API 验收，不能把管理员密码发送到公网 HTTP。
 
 发布后需要确认：
 

@@ -68,6 +68,7 @@ func evaluatePlatformCapabilities(input tunPreflightInput) PlatformCapabilities 
 		BlockingIssues:       make([]PlatformIssue, 0, 3),
 		DegradedFeatures:     make([]PlatformIssue, 0, 2),
 		RecommendedActions:   make([]string, 0, 3),
+		EnvironmentHints:     platformEnvironmentHints(input.platformName),
 	}
 
 	if !input.hasKernelSupport {
@@ -115,17 +116,57 @@ func evaluatePlatformCapabilities(input tunPreflightInput) PlatformCapabilities 
 		caps.ProductionMode = ProductionModeUnsupported
 	}
 
-	for _, issue := range caps.BlockingIssues {
-		if issue.Action != "" {
-			caps.RecommendedActions = append(caps.RecommendedActions, issue.Action)
+	caps.RecommendedActions = collectRecommendedActions(caps)
+	return caps
+}
+
+func collectRecommendedActions(caps PlatformCapabilities) []string {
+	seen := make(map[string]struct{})
+	actions := make([]string, 0, len(caps.BlockingIssues)+len(caps.DegradedFeatures)+len(caps.EnvironmentHints))
+	addAction := func(action string) {
+		if action == "" {
+			return
 		}
+		if _, exists := seen[action]; exists {
+			return
+		}
+		seen[action] = struct{}{}
+		actions = append(actions, action)
+	}
+	for _, issue := range caps.BlockingIssues {
+		addAction(issue.Action)
 	}
 	for _, issue := range caps.DegradedFeatures {
-		if issue.Action != "" {
-			caps.RecommendedActions = append(caps.RecommendedActions, issue.Action)
+		addAction(issue.Action)
+	}
+	for _, hint := range caps.EnvironmentHints {
+		addAction(hint)
+	}
+	return actions
+}
+
+func platformEnvironmentHints(goos string) []string {
+	switch goos {
+	case "windows":
+		return []string{
+			"安装器或发布包应随附官方 amd64/arm64 wintun.dll，并放在 NexTunnel EXE 同目录；也可通过 NEXTUNNEL_WINTUN_DLL 指向 DLL 后重新打包。",
+			"首次创建 Wintun 适配器需要管理员权限；生产建议由安装器或 Windows 服务完成设备创建。",
+		}
+	case "darwin":
+		return []string{
+			"生产环境使用授权 helper 或 LaunchDaemon 创建 utun 并注入路由；验证环境可配置 sudo -n 免密执行。",
+			"没有授权 helper 时只启用 P2P/Relay 转发，不声明系统路由 TUN 可用。",
+		}
+	case "linux":
+		return []string{
+			"生产环境使用 root、CAP_NET_ADMIN 或 systemd AmbientCapabilities=CAP_NET_ADMIN 运行，并确保 /dev/net/tun 可访问。",
+			"容器环境需挂载 /dev/net/tun，并授予 NET_ADMIN。不要用用户态 netTun 结果替代生产 TUN 验收。",
+		}
+	default:
+		return []string{
+			"该平台不支持真实系统 TUN；只能使用 P2P-only 或 Relay-only 能力。",
 		}
 	}
-	return caps
 }
 
 func addWindowsWintunIssues(caps *PlatformCapabilities, wintun wintunPreflightResult) {
@@ -137,7 +178,7 @@ func addWindowsWintunIssues(caps *PlatformCapabilities, wintun wintunPreflightRe
 			Code:     "wintun_dll_missing",
 			Severity: IssueSeverityBlocker,
 			Message:  "未找到 wintun.dll。",
-			Action:   "安装包需随附与进程架构匹配的 wintun.dll，并放在 EXE 同目录或 System32。",
+			Action:   "安装包需随附与进程架构匹配的官方 wintun.dll，并放在 EXE 同目录；可通过 NEXTUNNEL_WINTUN_DLL 或打包参数指定来源。",
 		})
 		return
 	}

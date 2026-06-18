@@ -1,50 +1,51 @@
 # NexTunnel 项目规划文档
 
-## 0. 当前审查基线与修正计划（2026-06-04）
+## 0. v0.4.1-alpha 发布收口状态（2026-06-18）
 
-当前代码库已经具备模块雏形和多项单元测试，但不能按原文档理解为 Phase 1-4 全部生产完成。更准确的状态是：Phase 1 基础 TCP Relay MVP 可用；Phase 2-4 多数能力属于原型验证、后端模型或占位设计。后续开发应先收敛核心链路，不继续扩展 Phase 4 概念功能。
+当前代码开发已按 v0.4.1-alpha 口径收口。剩余事项不再是继续堆功能，而是把真实生产依赖拆成可验证、可回收、可后续迭代的外部条件：域名/证书、Windows 驱动 DLL、macOS 授权 helper、eBPF 压测窗口和真实多地域资源。
 
-### 0.1 近期 P0 任务
+### 0.1 当前结论
 
-| 编号 | 任务 | 验收标准 |
+| 方向 | 状态 | 结论 |
+|:---|:---:|:---|
+| Dashboard API | ✅ 已通过 | 服务器二通过 SSH 隧道完成健康检查、登录、401、CORS、节点、统计、ACL、告警和静态入口验证，报告位于 `dist/verification/dashboard-server2-ssh-script-report.json`。 |
+| Dashboard HTTPS | ⚠️ 外部阻塞 | `lee97.top` 证书过期且 DNSPod webblock 阻断 HTTP-01；`*.sslip.io` 在服务器二公网侧被 ICP 拦截。生产验收需备案/可用域名和有效证书。 |
+| Windows/macOS P2P | ✅ 直连已验证 | 局域网双端候选交换和直连链路已通过；真实系统 TUN 仍依赖平台驱动和授权。 |
+| Windows 真实 TUN | ⚠️ 环境阻塞 | 当前环境缺少匹配架构官方 `wintun.dll`；已补齐打包注入、架构校验和预检提示。 |
+| macOS 真实 TUN | ⚠️ 权限阻塞 | 非 sudo/root 创建 utun 会失败；生产建议使用授权 helper 或 LaunchDaemon，验证环境可用 `sudo -n`。 |
+| Linux eBPF XDP | ✅ 功能验收通过 | 服务器二 `eth0`/`skb` 模式完成 BPF 编译、XDP 挂载、规则同步、统计读取和卸载；吞吐/延迟基准仍需隔离窗口。 |
+| Edge/Anycast | ✅ 演练通过 | 本地 3 区域和服务器二真实 Control Plane 注册/心跳/清理通过；商用生产仍需真实多地域节点压测。 |
+
+### 0.2 已执行的阻塞处理方案
+
+| 阻塞项 | 已执行方案 | 后续边界 |
+|:---|:---|:---|
+| 无可用公网 HTTPS 域名 | `scripts/verify-dashboard.ps1` 默认拒绝向非本机 HTTP 发送管理员密码；新增 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 本地端口转发读取远端配置并完成 API 验证。 | HTTPS 最终验收仍必须在备案/可用域名和有效证书下复验。 |
+| Windows 缺少 `wintun.dll` | `scripts/package-desktop.ps1` 支持 `NEXTUNNEL_WINTUN_DLL`/`-WintunDllPath` 自动复制官方 DLL，并校验 PE 架构。 | 当前 v0.4.1-alpha 桌面包未随包携带 DLL 时不声明真实 TUN 生产可用。 |
+| macOS 无免密提权 | `scripts/verify-p2p-tun.ps1` 增加 `-MacUseSudo` 与 `mac_sudo_not_requested` 提示，失败时给出 helper/LaunchDaemon/sudo -n 方案。 | 应用端如需免交互生产使用，后续迭代实现 macOS 授权 helper。 |
+| 真实 TUN 前置条件不清晰 | `desktop/internal/p2p` 预检新增 `EnvironmentHints`，向前端输出 Windows/macOS/Linux 的生产修复建议。 | 后续应用端可把这些提示接入更细的安装向导。 |
+| 发布包遗漏验证入口 | 服务端打包清单加入 `scripts/verify-dashboard-ssh.ps1`，Release 文档同步 SSH 隧道验证流程。 | 发布前必须确认新增脚本已纳入 Git 跟踪。 |
+
+### 0.3 v0.4.1-alpha 发布验收口径
+
+| 优先级 | 任务 | 验收状态 |
 |:---:|:---|:---|
-| R0-T01 | 质量门禁稳定化 | Go 版本统一到 1.25.0；Go 测试不扫描 `desktop/frontend/node_modules`；前端 `test` 脚本存在并能在标准 Node/npm 环境运行 |
-| R0-T02 | 安全基线 | Relay 控制/工作连接支持共享 token；Dashboard 禁止默认弱密码和空 secret；Dashboard 密码 bcrypt 存储；CORS 改为白名单 |
-| R0-T03 | Control Plane 最小 API | HTTP API 支持节点注册、心跳、Peer 查询、ACL、密钥接口；生产环境可配置 Bearer Token |
-| R0-T04 | 文档真实化 | README、任务计划、进度追踪区分“已实现 / 原型验证 / 占位设计 / 未接入生产链路” |
+| P0 | 质量门禁稳定化 | ✅ Go 测试、PowerShell 脚本解析、前端类型检查已通过；发布包可生成。 |
+| P0 | 安全基线 | ✅ Relay/Control Plane/Dashboard 强配置、bcrypt、CORS 白名单、mTLS、审计和 RBAC 已实现。 |
+| P1 | Dashboard 端到端部署联调 | ✅ API 通过；⚠️ HTTPS 受外部域名/证书阻塞，已提供 SSH 安全验证替代路径。 |
+| P1 | eBPF Linux 生产验证 | ✅ 真实网卡功能验收通过；⚠️ 性能压力基准待隔离窗口补充。 |
+| P1 | 多地域边缘部署演练 | ✅ 本地和服务器二远端 Control Plane 演练通过；⚠️ 商用多地域压测待资源准备。 |
+| P2 | P2P/TUN 生产化 | ✅ 直连链路、IPAM、路由下发和预检已实现；⚠️ 真实 OS TUN 需补齐 Wintun/macOS helper 后复验。 |
 
-### 0.2 近期 P1 任务
-
-| 编号 | 任务 | 验收标准 |
-|:---:|:---|:---|
-| R1-T01 | QUIC Relay E2E | 客户端可通过 QUIC work stream 完成一条 TCP tunnel 端到端转发；覆盖认证失败、证书校验失败和超时清理 |
-| R1-T02 | Control Plane 持久化 | Store 接口接入 SQLite 或 PostgreSQL，MemoryStore 限定为测试/本地开发实现 |
-| R1-T03 | P2P/TUN 平台边界 | 抽象真实 TUN 接口，明确 Windows/macOS/Linux 实现计划；`netTun` 仅作为 userspace MVP/测试通道 |
-| R1-T04 | 调度器闭环 | `PathManager`、`RelaySelector`、`MigrationController` 能真实触发 TCP Relay、QUIC Relay、P2P 路径切换，并有集成测试 |
-| R1-T05 | 桌面端可用流程 | 支持连接/断开服务器、创建/启动/停止/删除隧道、Relay token 配置、错误提示、基础表单校验 |
-
-### 0.3 Phase 4 模块现状摘要（2026-06-04 第三次迭代）
-
-| 模块 | 代码路径 | 现状 | 生产差距 |
-|:---|:---|:---|:---|
-| 边缘节点部署 | `server/internal/edge/` | EdgeNode/Registry/HealthChecker/Deploy 模板/ControlPlane 集成全部到位，585 行测试 | 缺真实多地域部署验证 |
-| Anycast 路由 | `server/internal/anycast/` | Haversine 路由 + GeoDNS + Failover + GeoIPProvider 接口完整，220+ 行测试 | MaxMindAdapter 需加载真实 .mmdb 数据库 |
-| eBPF 加速 | `server/internal/ebpf/` | Loader 架构 + 降级 + RuleMap 转发规则 + UserspaceForwarder，87+ 行测试 | Load() 仍为模拟，缺内核态 XDP 程序 |
-| SD-WAN 策略 | `server/internal/sdwan/` | Classifier + PolicyEngine + QoS 队列 + TokenBucket 限速，227+ 行测试 | 已具备生产能力雏形 |
-| Dashboard | `server/internal/dashboard/` + `server/web/` | REST API + JWT/bcrypt + AlertEngine + Webhook + 指标摄入，246+ 行测试 | DataStore 内存实现，前端需完善 |
-
-### 0.4 中长期任务
+### 0.4 后续迭代候选
 
 | 优先级 | 方向 | 说明 |
 |:---:|:---|:---|
-| P1 | 安全认证升级 | ✅ mTLS 双向认证已实现（Relay/Control Plane/客户端），审计日志已接入，RBAC 权限模型已完成；OIDC 仍待实现 |
-| P1 | 网络场景测试 | ✅ localhost、Relay 降级、连接中断重连、QUIC 证书失败路径已覆盖 |
-| P2 | Dashboard 生产化 | ✅ RBAC 策略、HTTPS/TLS、审计日志、用户管理 API 已完成；前端联调待验证 |
-| P2 | eBPF XDP 内核态接入 | ✅ 开发完成（cilium/ebpf + XDP C 程序 + 降级），Linux 生产基准待部署环境执行 |
-| P2 | GeoIP 数据库加载 | ✅ MaxMindAdapter 接入 maxminddb-golang，真实 .mmdb 文件加载完成 |
-| P2 | Dashboard 前端完善 | ✅ App.vue 接入节点地图、流量图表、ACL 编辑表单等交互 |
-| P2 | P2P/TUN 生产化 | ✅ 平台抽象层完成（Linux/macOS/Windows 条件编译），IPAM 和路由管理已实现；真实 TUN 需 root 权限验证 |
-| P2 | 全球加速验证 | eBPF/XDP、Anycast/GeoDNS、SD-WAN 需要真实网络和性能基准后再进入生产路线 |
+| P1 | Dashboard HTTPS 复验 | 更换备案/可访问域名，配置 Nginx/OpenResty HTTPS 反代、CORS 白名单和证书续期后重跑 Dashboard 验证。 |
+| P1 | 桌面 TUN 安装体验 | Windows 安装器随附官方 `wintun.dll`；macOS 实现授权 helper 或 LaunchDaemon，避免依赖交互式 sudo。 |
+| P1 | eBPF 压测 | 在隔离 Linux 节点记录用户态和 XDP 模式吞吐、延迟、CPU、统计读取和卸载清理数据。 |
+| P2 | 多地域生产拓扑 | 接入真实多地域节点、GeoIP 数据源和观测指标，补充故障切换与路由偏移报告。 |
+| P2 | 应用端提示迭代 | 将 `EnvironmentHints` 显示为更清晰的安装/修复向导，并保留 P2P-only/Relay-only 可用路径。 |
 
 ---
 
