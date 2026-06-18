@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nextunnel/desktop/internal/config"
@@ -202,6 +203,132 @@ func TestClearActivityLogsLeavesAuditRecord(t *testing.T) {
 	logs := mustListActivityLogs(t, app, ActivityLogFilter{Limit: 10})
 	if len(logs) != 1 || logs[0].Action != activityActionClearActivityLogs {
 		t.Fatalf("expected clear audit record, got %+v", logs)
+	}
+}
+
+func TestConfigExportMasksSensitiveTokens(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.SaveServerSettings(ServerSettings{
+		RelayAddr:         "relay.example.com:7000",
+		RelayToken:        "secret-relay-token",
+		ControlPlaneURL:   "https://cp.example.com",
+		ControlPlaneToken: "secret-control-token",
+		STUNServer:        "stun-a.example.com:3478",
+		STUNAltServer:     "stun-b.example.com:3478",
+	}); err != nil {
+		t.Fatalf("SaveServerSettings: %v", err)
+	}
+
+	exported, err := app.ExportConfig(ExportConfigOptions{})
+	if err != nil {
+		t.Fatalf("ExportConfig: %v", err)
+	}
+	if strings.Contains(exported, "secret-relay-token") || strings.Contains(exported, "secret-control-token") {
+		t.Fatalf("export must mask sensitive tokens: %s", exported)
+	}
+
+	exportedWithSecrets, err := app.ExportConfig(ExportConfigOptions{IncludeSensitive: true})
+	if err != nil {
+		t.Fatalf("ExportConfig include sensitive: %v", err)
+	}
+	if !strings.Contains(exportedWithSecrets, "secret-relay-token") || !strings.Contains(exportedWithSecrets, "secret-control-token") {
+		t.Fatalf("export should include sensitive tokens when requested: %s", exportedWithSecrets)
+	}
+}
+
+func TestConfigImportRestoresPreferencesAndTunnel(t *testing.T) {
+	source := newTestApp(t)
+	if err := source.SaveAppearanceSettings(AppearanceSettings{
+		ThemeMode:   "system",
+		MotionLevel: "reduced",
+		Language:    "en-US",
+		AccentColor: "#8a2be2",
+	}); err != nil {
+		t.Fatalf("SaveAppearanceSettings: %v", err)
+	}
+	if err := source.SaveGeneralSettings(GeneralSettings{AutoConnect: true, MinimizeToTray: true}); err != nil {
+		t.Fatalf("SaveGeneralSettings: %v", err)
+	}
+	if _, err := source.CreateTunnel(CreateTunnelInput{
+		Name:       "api",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  8080,
+		RemotePort: 18080,
+	}); err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	exported, err := source.ExportConfig(ExportConfigOptions{IncludeSensitive: true})
+	if err != nil {
+		t.Fatalf("ExportConfig: %v", err)
+	}
+
+	target := newTestApp(t)
+	if err := target.ImportConfig(exported); err != nil {
+		t.Fatalf("ImportConfig: %v", err)
+	}
+	appearance := target.GetAppearanceSettings()
+	if appearance.ThemeMode != "system" || appearance.MotionLevel != "reduced" || appearance.Language != "en-US" {
+		t.Fatalf("unexpected imported appearance: %+v", appearance)
+	}
+	general := target.GetGeneralSettings()
+	if !general.AutoConnect || !general.MinimizeToTray {
+		t.Fatalf("unexpected imported general settings: %+v", general)
+	}
+	tunnels, err := target.GetTunnels()
+	if err != nil {
+		t.Fatalf("GetTunnels: %v", err)
+	}
+	if len(tunnels) != 1 || tunnels[0].Name != "api" {
+		t.Fatalf("unexpected imported tunnels: %+v", tunnels)
+	}
+}
+
+func TestConfigImportKeepsExistingTokensWhenExportWasMasked(t *testing.T) {
+	source := newTestApp(t)
+	if err := source.SaveServerSettings(ServerSettings{
+		RelayAddr:         "relay.example.com:7000",
+		RelayToken:        "source-token",
+		ControlPlaneURL:   "https://cp.example.com",
+		ControlPlaneToken: "source-control-token",
+		STUNServer:        "stun-a.example.com:3478",
+		STUNAltServer:     "stun-b.example.com:3478",
+	}); err != nil {
+		t.Fatalf("SaveServerSettings source: %v", err)
+	}
+	exported, err := source.ExportConfig(ExportConfigOptions{})
+	if err != nil {
+		t.Fatalf("ExportConfig: %v", err)
+	}
+
+	target := newTestApp(t)
+	if err := target.SaveServerSettings(ServerSettings{
+		RelayAddr:         "old.example.com:7000",
+		RelayToken:        "existing-token",
+		ControlPlaneURL:   "https://old.example.com",
+		ControlPlaneToken: "existing-control-token",
+		STUNServer:        "stun-old.example.com:3478",
+		STUNAltServer:     "stun-old.example.com:3478",
+	}); err != nil {
+		t.Fatalf("SaveServerSettings target: %v", err)
+	}
+	if err := target.ImportConfig(exported); err != nil {
+		t.Fatalf("ImportConfig: %v", err)
+	}
+	settings := target.GetServerSettings()
+	if settings.RelayToken != "existing-token" || settings.ControlPlaneToken != "existing-control-token" {
+		t.Fatalf("masked import should keep existing tokens: %+v", settings)
+	}
+}
+
+func TestCollectDiagnosticsMasksTokenWords(t *testing.T) {
+	app := newTestApp(t)
+	info := app.CollectDiagnostics()
+	if info.Text == "" || !strings.Contains(info.Text, "NexTunnel Diagnostics") {
+		t.Fatalf("unexpected diagnostics text: %+v", info)
+	}
+	if strings.Contains(info.Text, "relay_token") || strings.Contains(info.Text, "control_plane_token") {
+		t.Fatalf("diagnostics should not expose raw token field names: %s", info.Text)
 	}
 }
 

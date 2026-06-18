@@ -206,6 +206,26 @@ func (s *Store) SetSetting(key, value string) error {
 	return err
 }
 
+// ListSettings 返回全部应用设置，供配置导出使用。
+func (s *Store) ListSettings() (map[string]string, error) {
+	rows, err := s.db.db.Query("SELECT key, value FROM app_settings ORDER BY key")
+	if err != nil {
+		return nil, fmt.Errorf("list app settings: %w", err)
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var key string
+		var value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scan app setting: %w", err)
+		}
+		settings[key] = value
+	}
+	return settings, rows.Err()
+}
+
 // UpsertFavoritePort 新增或更新常用端口，使用协议+端口作为去重键。
 func (s *Store) UpsertFavoritePort(port FavoritePort) error {
 	enabled := boolToInt(port.Enabled)

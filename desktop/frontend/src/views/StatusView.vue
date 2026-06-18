@@ -2,7 +2,7 @@
   <section class="client-dashboard">
     <template v-if="viewMode === 'overview'">
       <section class="overview-hero">
-        <div class="connection-strip">
+        <div class="connection-strip compact-connection">
           <div class="connection-state">
             <n-tag
               round
@@ -18,32 +18,18 @@
             </div>
           </div>
 
-          <n-form
-            class="quick-form"
-            label-placement="left"
-            :show-feedback="false"
-          >
-            <n-input
-              v-model:value="relayForm.server_addr"
-              class="relay-input"
-              placeholder="127.0.0.1:7000"
-            />
-            <n-input
-              v-model:value="relayForm.auth_token"
-              class="token-input"
-              type="password"
-              show-password-on="click"
-              :placeholder="t('connection.relayTokenPlaceholder')"
-            />
+          <div class="primary-action-stack">
             <n-button
               type="primary"
+              size="large"
               :loading="store.isConnecting"
               :disabled="!canConnect || store.isConnecting"
               @click="handlePrimaryConnection"
             >
               {{ primaryButtonLabel }}
             </n-button>
-          </n-form>
+            <span>{{ connectionTargetLabel }}</span>
+          </div>
         </div>
 
         <n-alert
@@ -136,13 +122,40 @@
                 <strong>{{ t('tunnel.title') }}</strong>
                 <span>{{ t('tunnel.subtitle') }}</span>
               </div>
-              <n-button
-                type="primary"
-                size="small"
-                @click="showForm = !showForm"
-              >
-                {{ showForm ? t('tunnel.cancel') : t('tunnel.newTunnel') }}
-              </n-button>
+              <div class="tunnel-toolbar">
+                <n-input
+                  v-model:value="searchKeyword"
+                  class="tunnel-search"
+                  size="small"
+                  clearable
+                  :placeholder="t('tunnel.searchPlaceholder')"
+                />
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="!store.isConnected || startableTunnels.length === 0 || isBatchBusy"
+                  :loading="batchAction === 'start'"
+                  @click="handleStartAll"
+                >
+                  {{ t('tunnel.startAll') }}
+                </n-button>
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="runningTunnels.length === 0 || isBatchBusy"
+                  :loading="batchAction === 'stop'"
+                  @click="handleStopAll"
+                >
+                  {{ t('tunnel.stopAll') }}
+                </n-button>
+                <n-button
+                  type="primary"
+                  size="small"
+                  @click="showForm = !showForm"
+                >
+                  {{ showForm ? t('tunnel.cancel') : t('tunnel.newTunnel') }}
+                </n-button>
+              </div>
             </div>
           </template>
 
@@ -199,12 +212,12 @@
           </n-collapse-transition>
 
           <n-empty
-            v-if="store.tunnels.length === 0 && !showForm"
+            v-if="filteredTunnels.length === 0 && !showForm"
             class="empty-state"
-            :description="t('tunnel.emptyTitle')"
+            :description="store.tunnels.length === 0 ? t('tunnel.emptyTitle') : t('tunnel.noSearchResult')"
           >
             <template #extra>
-              <span>{{ t('tunnel.emptyText') }}</span>
+              <span>{{ store.tunnels.length === 0 ? t('tunnel.emptyText') : t('tunnel.noSearchResultHint') }}</span>
             </template>
           </n-empty>
 
@@ -213,7 +226,7 @@
             class="tunnel-list"
           >
             <article
-              v-for="tunnel in store.tunnels"
+              v-for="tunnel in filteredTunnels"
               :key="tunnel.id"
               class="tunnel-item"
             >
@@ -258,6 +271,7 @@
                   size="small"
                   type="primary"
                   :disabled="!store.isConnected || store.busyTunnelIds.has(tunnel.id)"
+                  :loading="store.busyTunnelIds.has(tunnel.id)"
                   @click="handleStart(tunnel.id)"
                 >
                   {{ t('tunnel.start') }}
@@ -267,19 +281,28 @@
                   size="small"
                   secondary
                   :disabled="store.busyTunnelIds.has(tunnel.id)"
+                  :loading="store.busyTunnelIds.has(tunnel.id)"
                   @click="handleStop(tunnel.id)"
                 >
                   {{ t('tunnel.stop') }}
                 </n-button>
-                <n-button
-                  size="small"
-                  type="error"
-                  secondary
-                  :disabled="store.busyTunnelIds.has(tunnel.id)"
-                  @click="handleDelete(tunnel.id)"
+                <n-popconfirm
+                  :positive-text="t('common.confirm')"
+                  :negative-text="t('common.cancel')"
+                  @positive-click="handleDelete(tunnel.id)"
                 >
-                  {{ t('tunnel.delete') }}
-                </n-button>
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      type="error"
+                      secondary
+                      :disabled="store.busyTunnelIds.has(tunnel.id)"
+                    >
+                      {{ t('tunnel.delete') }}
+                    </n-button>
+                  </template>
+                  {{ t('tunnel.deleteConfirm') }}
+                </n-popconfirm>
               </n-space>
             </article>
           </div>
@@ -310,6 +333,7 @@ import {
   NGrid,
   NInput,
   NInputNumber,
+  NPopconfirm,
   NSelect,
   NSpace,
   NTag,
@@ -342,6 +366,8 @@ const RECENT_LOG_LIMIT = 6
 const store = useTunnelStore()
 const { t } = useI18n()
 const showForm = ref(false)
+const searchKeyword = ref('')
+const batchAction = ref<'start' | 'stop' | ''>('')
 const relayForm = ref({
   server_addr: store.serverAddr,
   auth_token: store.authToken,
@@ -393,7 +419,8 @@ const summaryMetrics = computed<SummaryMetric[]>(() => [
 ])
 
 const recentLogs = computed(() => store.activityLogs.slice(0, RECENT_LOG_LIMIT))
-const canConnect = computed(() => relayForm.value.server_addr.trim().length > 0)
+const connectionTargetLabel = computed(() => store.serverAddr || t('connection.relayAddress'))
+const canConnect = computed(() => store.serverAddr.trim().length > 0)
 const canCreateTunnel = computed(() => {
   return (
     form.value.name.trim().length > 0 &&
@@ -404,6 +431,17 @@ const canCreateTunnel = computed(() => {
     form.value.remote_port <= 65535
   )
 })
+const filteredTunnels = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (!keyword) return store.tunnels
+  return store.tunnels.filter((tunnel) => {
+    return [tunnel.name, tunnel.proxy_type, tunnel.local_addr, String(tunnel.local_port), String(tunnel.remote_port), tunnel.status]
+      .some((value) => value.toLowerCase().includes(keyword))
+  })
+})
+const runningTunnels = computed(() => store.tunnels.filter((tunnel) => isTunnelRunning(tunnel.status)))
+const startableTunnels = computed(() => store.tunnels.filter((tunnel) => !isTunnelRunning(tunnel.status)))
+const isBatchBusy = computed(() => batchAction.value !== '')
 
 // translateStatus 将后端状态字符串映射为当前语言文案。
 const translateStatus = (status: string): string => {
@@ -464,7 +502,10 @@ const handlePrimaryConnection = async (): Promise<void> => {
 
 const handleConnect = async (): Promise<void> => {
   if (!canConnect.value) return
-  await store.connectServer(relayForm.value)
+  await store.connectServer({
+    server_addr: store.serverAddr,
+    auth_token: store.authToken,
+  })
 }
 
 const handleDisconnect = async (): Promise<void> => {
@@ -499,6 +540,30 @@ const handleStart = async (id: string): Promise<void> => {
 
 const handleStop = async (id: string): Promise<void> => {
   await store.stopTunnel(id)
+}
+
+const handleStartAll = async (): Promise<void> => {
+  if (!store.isConnected || startableTunnels.value.length === 0) return
+  batchAction.value = 'start'
+  try {
+    for (const tunnel of startableTunnels.value) {
+      await store.startTunnel(tunnel.id)
+    }
+  } finally {
+    batchAction.value = ''
+  }
+}
+
+const handleStopAll = async (): Promise<void> => {
+  if (runningTunnels.value.length === 0) return
+  batchAction.value = 'stop'
+  try {
+    for (const tunnel of runningTunnels.value) {
+      await store.stopTunnel(tunnel.id)
+    }
+  } finally {
+    batchAction.value = ''
+  }
 }
 
 // refreshClientState 定期刷新桌面端状态，保持界面与本地代理同步。
@@ -558,6 +623,10 @@ onUnmounted(() => {
   gap: 18px;
 }
 
+.compact-connection {
+  min-height: 148px;
+}
+
 .connection-state {
   min-width: 0;
   display: flex;
@@ -583,6 +652,21 @@ onUnmounted(() => {
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.primary-action-stack {
+  min-width: 190px;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.primary-action-stack span {
+  max-width: 280px;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .quick-form {
@@ -760,6 +844,17 @@ onUnmounted(() => {
   gap: 16px;
 }
 
+.tunnel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tunnel-search {
+  width: 190px;
+}
+
 .tunnel-form {
   margin-bottom: 14px;
   padding: 14px;
@@ -841,6 +936,22 @@ onUnmounted(() => {
 
   .quick-form {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .primary-action-stack {
+    justify-items: stretch;
+  }
+
+  .primary-action-stack span {
+    text-align: left;
+  }
+
+  .tunnel-toolbar {
+    justify-content: flex-start;
+  }
+
+  .tunnel-search {
+    width: min(100%, 320px);
   }
 }
 

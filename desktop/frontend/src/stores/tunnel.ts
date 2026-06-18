@@ -3,6 +3,9 @@ import { ref, computed } from 'vue'
 import {
   ApplyVirtualNetwork,
   ClearActivityLogs,
+  CheckForUpdate,
+  CollectDiagnostics,
+  ExportConfig,
   GetTunnels,
   CreateTunnel,
   DeleteFavoritePort,
@@ -21,8 +24,15 @@ import {
   GetP2PStatus,
   GetNATType,
   ResetVirtualNetwork,
+  GetAppearanceSettings,
+  GetGeneralSettings,
+  GetAutoStartEnabled,
   SaveFavoritePort,
+  SaveAppearanceSettings,
   SaveServerSettings,
+  SaveGeneralSettings,
+  SetAutoStartEnabled,
+  ImportConfig,
   ScanLocalPorts,
   type FavoritePortInfo,
   type FavoritePortInput,
@@ -34,6 +44,11 @@ import {
   type RuntimeStatus,
   type ServerConfigInput,
   type ServerSettings,
+  type AppearanceSettings,
+  type GeneralSettings,
+  type UpdateInfo,
+  type DiagnosticsInfo,
+  type ExportConfigOptions,
   type VirtualNetworkState,
 } from '../api/app'
 
@@ -78,6 +93,22 @@ export const useTunnelStore = defineStore('tunnels', () => {
     stun_server: 'stun.l.google.com:19302',
     stun_alt_server: 'stun.l.google.com:19302',
   })
+  const appearanceSettings = ref<AppearanceSettings>({
+    theme_mode: 'dark',
+    motion_level: 'normal',
+    language: 'zh-CN',
+    accent_color: '#00ffff',
+  })
+  const generalSettings = ref<GeneralSettings>({
+    auto_connect: false,
+    minimize_to_tray: false,
+    start_minimized: false,
+    export_include_tokens: false,
+    tray_supported: false,
+  })
+  const updateInfo = ref<UpdateInfo | null>(null)
+  const diagnosticsInfo = ref<DiagnosticsInfo | null>(null)
+  const autoStartEnabled = ref(false)
   const lastError = ref<string>('')
   const isConnecting = ref<boolean>(false)
   const isApplyingNetwork = ref<boolean>(false)
@@ -161,6 +192,105 @@ export const useTunnelStore = defineStore('tunnels', () => {
       await SaveServerSettings(settings)
       serverSettings.value = { ...settings }
       syncSettingsToRelayForm(settings)
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const loadAppearanceSettings = async (): Promise<void> => {
+    try {
+      appearanceSettings.value = await GetAppearanceSettings()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const saveAppearanceSettings = async (settings: AppearanceSettings): Promise<void> => {
+    lastError.value = ''
+    try {
+      await SaveAppearanceSettings(settings)
+      appearanceSettings.value = { ...settings }
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const loadGeneralSettings = async (): Promise<void> => {
+    try {
+      generalSettings.value = await GetGeneralSettings()
+      autoStartEnabled.value = await GetAutoStartEnabled()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const saveGeneralSettings = async (settings: GeneralSettings): Promise<void> => {
+    lastError.value = ''
+    try {
+      await SaveGeneralSettings(settings)
+      generalSettings.value = { ...settings }
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const setAutoStartEnabled = async (enabled: boolean): Promise<void> => {
+    lastError.value = ''
+    try {
+      await SetAutoStartEnabled(enabled)
+      autoStartEnabled.value = enabled
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const exportConfig = async (options: ExportConfigOptions): Promise<string> => {
+    lastError.value = ''
+    try {
+      return await ExportConfig(options)
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const importConfig = async (data: string): Promise<void> => {
+    lastError.value = ''
+    try {
+      await ImportConfig(data)
+      await loadServerSettings()
+      await loadAppearanceSettings()
+      await loadGeneralSettings()
+      await loadTunnels()
+      await loadFavoritePorts()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const checkForUpdate = async (): Promise<UpdateInfo> => {
+    lastError.value = ''
+    try {
+      updateInfo.value = await CheckForUpdate()
+      return updateInfo.value
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const collectDiagnostics = async (): Promise<DiagnosticsInfo> => {
+    lastError.value = ''
+    try {
+      diagnosticsInfo.value = await CollectDiagnostics()
+      return diagnosticsInfo.value
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -443,6 +573,11 @@ export const useTunnelStore = defineStore('tunnels', () => {
     serverAddr,
     authToken,
     serverSettings,
+    appearanceSettings,
+    generalSettings,
+    updateInfo,
+    diagnosticsInfo,
+    autoStartEnabled,
     lastError,
     isConnecting,
     isApplyingNetwork,
@@ -466,7 +601,16 @@ export const useTunnelStore = defineStore('tunnels', () => {
     activeTunnelCount,
     openPortCount,
     loadServerSettings,
+    loadAppearanceSettings,
+    saveAppearanceSettings,
+    loadGeneralSettings,
+    saveGeneralSettings,
     saveServerSettings,
+    setAutoStartEnabled,
+    exportConfig,
+    importConfig,
+    checkForUpdate,
+    collectDiagnostics,
     loadTunnels,
     createTunnel,
     deleteTunnel,

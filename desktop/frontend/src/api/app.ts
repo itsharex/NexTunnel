@@ -33,6 +33,41 @@ export interface ServerSettings {
   stun_alt_server: string
 }
 
+export interface AppearanceSettings {
+  theme_mode: string
+  motion_level: string
+  language: string
+  accent_color: string
+}
+
+export interface GeneralSettings {
+  auto_connect: boolean
+  minimize_to_tray: boolean
+  start_minimized: boolean
+  export_include_tokens: boolean
+  tray_supported: boolean
+}
+
+export interface ExportConfigOptions {
+  include_sensitive: boolean
+}
+
+export interface UpdateInfo {
+  available: boolean
+  current_version: string
+  latest_version: string
+  url: string
+  changelog: string
+  error: string
+}
+
+export interface DiagnosticsInfo {
+  text: string
+  generated_at: string
+  connection_status: string
+  nat_type: string
+}
+
 export interface PlatformCapabilities {
   HasKernelTUN: boolean
   HasUserspaceNetstack: boolean
@@ -167,6 +202,19 @@ const PREVIEW_SETTINGS: ServerSettings = {
   stun_server: 'stun.l.google.com:19302',
   stun_alt_server: 'stun.l.google.com:19302',
 }
+const PREVIEW_APPEARANCE_SETTINGS: AppearanceSettings = {
+  theme_mode: 'dark',
+  motion_level: 'normal',
+  language: 'zh-CN',
+  accent_color: '#00ffff',
+}
+const PREVIEW_GENERAL_SETTINGS: GeneralSettings = {
+  auto_connect: false,
+  minimize_to_tray: false,
+  start_minimized: false,
+  export_include_tokens: false,
+  tray_supported: false,
+}
 const PREVIEW_VIRTUAL_NETWORK: VirtualNetworkState = {
   applied: false,
   interface: '',
@@ -295,6 +343,42 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
   GetNATType: () => '',
   GetServerSettings: () => PREVIEW_SETTINGS,
   SaveServerSettings: () => undefined,
+  GetAppearanceSettings: () => PREVIEW_APPEARANCE_SETTINGS,
+  SaveAppearanceSettings: () => undefined,
+  GetGeneralSettings: () => PREVIEW_GENERAL_SETTINGS,
+  SaveGeneralSettings: () => undefined,
+  ExportConfig: (input: unknown) => {
+    const options = input as ExportConfigOptions
+    return JSON.stringify(
+      {
+        version: 1,
+        server: options.include_sensitive ? PREVIEW_SETTINGS : { ...PREVIEW_SETTINGS, relay_token: '', control_plane_token: '' },
+        appearance: PREVIEW_APPEARANCE_SETTINGS,
+        general: PREVIEW_GENERAL_SETTINGS,
+        tunnels: [],
+        favorite_ports: PREVIEW_FAVORITE_PORTS,
+      },
+      null,
+      2,
+    )
+  },
+  ImportConfig: () => undefined,
+  CheckForUpdate: () => ({
+    available: false,
+    current_version: PREVIEW_VERSION,
+    latest_version: PREVIEW_VERSION,
+    url: '',
+    changelog: '',
+    error: '',
+  }),
+  CollectDiagnostics: () => ({
+    text: 'NexTunnel Diagnostics\nPreview mode\n',
+    generated_at: new Date().toISOString(),
+    connection_status: 'disconnected',
+    nat_type: 'preview',
+  }),
+  GetAutoStartEnabled: () => false,
+  SetAutoStartEnabled: () => undefined,
   GetRuntimeStatus: () => ({
     connection_status: 'disconnected',
     p2p_status: '',
@@ -417,6 +501,46 @@ export const GetServerSettings = (): Promise<ServerSettings> => {
 
 export const SaveServerSettings = (settings: ServerSettings): Promise<void> => {
   return call<void>('SaveServerSettings', settings)
+}
+
+export const GetAppearanceSettings = (): Promise<AppearanceSettings> => {
+  return call<AppearanceSettings>('GetAppearanceSettings')
+}
+
+export const SaveAppearanceSettings = (settings: AppearanceSettings): Promise<void> => {
+  return call<void>('SaveAppearanceSettings', settings)
+}
+
+export const GetGeneralSettings = (): Promise<GeneralSettings> => {
+  return call<GeneralSettings>('GetGeneralSettings')
+}
+
+export const SaveGeneralSettings = (settings: GeneralSettings): Promise<void> => {
+  return call<void>('SaveGeneralSettings', settings)
+}
+
+export const ExportConfig = (options: ExportConfigOptions): Promise<string> => {
+  return call<string>('ExportConfig', options)
+}
+
+export const ImportConfig = (data: string): Promise<void> => {
+  return call<void>('ImportConfig', data)
+}
+
+export const CheckForUpdate = (): Promise<UpdateInfo> => {
+  return call<UpdateInfo>('CheckForUpdate')
+}
+
+export const CollectDiagnostics = (): Promise<DiagnosticsInfo> => {
+  return call<DiagnosticsInfo>('CollectDiagnostics')
+}
+
+export const GetAutoStartEnabled = (): Promise<boolean> => {
+  return call<boolean>('GetAutoStartEnabled')
+}
+
+export const SetAutoStartEnabled = (enabled: boolean): Promise<void> => {
+  return call<void>('SetAutoStartEnabled', enabled)
 }
 
 export const GetRuntimeStatus = (): Promise<RuntimeStatus> => {
