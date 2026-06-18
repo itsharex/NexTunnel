@@ -64,6 +64,7 @@ ENV_FILE="${CONFIG_DIR%/}/server.env"
 BIN_DIR="${INSTALL_DIR%/}/bin"
 WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
 DEPLOY_DIR="${INSTALL_DIR%/}/deploy/server"
+SCRIPTS_DIR="${INSTALL_DIR%/}/scripts"
 CONTROL_PLANE_SERVICE_NAME=""
 RELAY_SERVICE_NAME=""
 NAT_SERVICE_NAME=""
@@ -103,7 +104,7 @@ usage() {
 常用选项：
   --package-url URL        指定服务端 Release 包地址，支持 https://、file:// 或本地文件路径
   --sha256 HASH            可选，校验服务端 Release 包 SHA256
-  --version VERSION        指定 GitHub Release 版本，例如 v0.3.3-alpha；默认 latest
+  --version VERSION        指定 GitHub Release 版本，例如 v0.4.1-alpha；默认 latest
   --release-base-url URL   指定 Release 下载基址；默认使用 GitHub Releases
   --github-proxy URL       可选，仅代理脚本自动生成的 GitHub 下载地址；生产环境建议使用可信自建代理
   --arch ARCH              指定架构 amd64/arm64；默认自动识别
@@ -163,6 +164,7 @@ while [[ $# -gt 0 ]]; do
       BIN_DIR="${INSTALL_DIR%/}/bin"
       WEB_DIR="${INSTALL_DIR%/}/web/dashboard"
       DEPLOY_DIR="${INSTALL_DIR%/}/deploy/server"
+      SCRIPTS_DIR="${INSTALL_DIR%/}/scripts"
       shift 2
       ;;
     --config-dir)
@@ -546,6 +548,12 @@ find_deploy_script_dir() {
   fi
 }
 
+find_package_file() {
+  local root_dir="$1"
+  local relative_path="$2"
+  find "${root_dir}" -type f -path "*/${relative_path}" -print -quit
+}
+
 runtime_service_names() {
   printf '%s\n' "${SERVICE_NAMES[@]}"
   if [[ "${DASHBOARD_ENABLED}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
@@ -712,8 +720,14 @@ install_release_package() {
   local nat_binary
   local cli_binary
   local dashboard_binary
+  local edge_rehearsal_binary
+  local ebpf_verify_binary
   local dashboard_web_dir
   local deploy_script_dir
+  local verify_dashboard_script
+  local verify_edge_script
+  local verify_ebpf_script
+  local xdp_source_file
 
   resolved_package_url="$(resolve_package_url)"
   tmp_dir="$(mktemp -d)"
@@ -733,10 +747,16 @@ install_release_package() {
   nat_binary="$(find_binary "${extract_dir}" nat-detector)"
   cli_binary="$(optional_find_binary "${extract_dir}" nextunnel)"
   dashboard_binary="$(optional_find_binary "${extract_dir}" dashboard)"
+  edge_rehearsal_binary="$(optional_find_binary "${extract_dir}" edge-rehearsal)"
+  ebpf_verify_binary="$(optional_find_binary "${extract_dir}" ebpf-verify)"
   dashboard_web_dir="$(find_dashboard_web_dir "${extract_dir}")"
   deploy_script_dir="$(find_deploy_script_dir "${extract_dir}")"
+  verify_dashboard_script="$(find_package_file "${extract_dir}" "scripts/verify-dashboard.ps1")"
+  verify_edge_script="$(find_package_file "${extract_dir}" "scripts/verify-edge-rehearsal.ps1")"
+  verify_ebpf_script="$(find_package_file "${extract_dir}" "scripts/verify-ebpf-linux.sh")"
+  xdp_source_file="$(find_package_file "${extract_dir}" "xdp_forwarder.c")"
 
-  mkdir -p "${BIN_DIR}" "${WEB_DIR}" "${DEPLOY_DIR}"
+  mkdir -p "${BIN_DIR}" "${WEB_DIR}" "${DEPLOY_DIR}" "${SCRIPTS_DIR}"
   install -m 0755 "${relay_binary}" "${BIN_DIR}/relay-server"
   install -m 0755 "${control_binary}" "${BIN_DIR}/control-plane"
   install -m 0755 "${nat_binary}" "${BIN_DIR}/nat-detector"
@@ -750,6 +770,16 @@ install_release_package() {
   else
     warn "Release 包未包含 dashboard 二进制，本次仅安装核心三服务。"
   fi
+  if [[ -n "${edge_rehearsal_binary}" ]]; then
+    install -m 0755 "${edge_rehearsal_binary}" "${BIN_DIR}/edge-rehearsal"
+  else
+    warn "Release 包未包含 edge-rehearsal 验证命令。"
+  fi
+  if [[ -n "${ebpf_verify_binary}" ]]; then
+    install -m 0755 "${ebpf_verify_binary}" "${BIN_DIR}/ebpf-verify"
+  else
+    warn "Release 包未包含 ebpf-verify 验证命令。"
+  fi
   if [[ -n "${dashboard_web_dir}" ]]; then
     rm -rf "${WEB_DIR:?}/"*
     cp -a "${dashboard_web_dir}/." "${WEB_DIR}/"
@@ -762,6 +792,18 @@ install_release_package() {
     write_script_local_env
   else
     warn "Release 包未包含 deploy/server 安装脚本。"
+  fi
+  if [[ -n "${verify_dashboard_script}" ]]; then
+    install -m 0644 "${verify_dashboard_script}" "${SCRIPTS_DIR}/verify-dashboard.ps1"
+  fi
+  if [[ -n "${verify_edge_script}" ]]; then
+    install -m 0644 "${verify_edge_script}" "${SCRIPTS_DIR}/verify-edge-rehearsal.ps1"
+  fi
+  if [[ -n "${verify_ebpf_script}" ]]; then
+    install -m 0755 "${verify_ebpf_script}" "${SCRIPTS_DIR}/verify-ebpf-linux.sh"
+  fi
+  if [[ -n "${xdp_source_file}" ]]; then
+    install -m 0644 "${xdp_source_file}" "${INSTALL_DIR%/}/xdp_forwarder.c"
   fi
   rm -rf "${tmp_dir}"
   trap - EXIT
@@ -897,12 +939,12 @@ EOF
 
 prepare_permissions() {
   create_system_user
-  mkdir -p "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
+  mkdir -p "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${DEPLOY_DIR}" "${SCRIPTS_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
   chmod 750 "${CONFIG_DIR}"
   chmod 750 "${DATA_DIR}"
   if [[ "${SERVICE_USER}" != "root" ]]; then
     chown -R root:"${SERVICE_GROUP}" "${INSTALL_DIR}" "${CONFIG_DIR}"
-    chmod 750 "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${CONFIG_DIR}"
+    chmod 750 "${INSTALL_DIR}" "${BIN_DIR}" "${WEB_DIR}" "${DEPLOY_DIR}" "${SCRIPTS_DIR}" "${CONFIG_DIR}"
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
   fi
 }

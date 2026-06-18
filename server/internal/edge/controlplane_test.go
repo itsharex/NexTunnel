@@ -43,11 +43,14 @@ func TestControlPlaneClient_RegisterNode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if received.ID != "edge-1" {
-		t.Fatalf("expected node ID edge-1, got %s", received.ID)
+	if received.NodeID != "edge-1" {
+		t.Fatalf("expected node ID edge-1, got %s", received.NodeID)
 	}
 	if received.Region != "us-east" {
 		t.Fatalf("expected region us-east, got %s", received.Region)
+	}
+	if received.Metadata["addr"] != "10.0.0.1:4433" {
+		t.Fatalf("expected metadata addr, got %q", received.Metadata["addr"])
 	}
 	if gotAuth != "Bearer test-token" {
 		t.Fatalf("expected Bearer auth, got %q", gotAuth)

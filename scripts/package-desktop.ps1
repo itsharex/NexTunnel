@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v0.3.3-alpha",
+  [string]$Version = "v0.4.1-alpha",
   [string]$Platform = "windows/amd64",
   [switch]$SkipFrontend
 )
@@ -114,7 +114,7 @@ function New-DesktopArchive {
     "NexTunnel desktop package"
     "Version: $releaseVersion"
     "ApplicationVersion: $normalizedVersion"
-    "WindowsResourceVersion: 0.3.3"
+    "WindowsResourceVersion: 0.4.1"
     "Target: $Platform"
     "Binary: $binaryOutputName"
     "WebView2: download strategy"

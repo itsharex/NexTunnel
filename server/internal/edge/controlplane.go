@@ -66,22 +66,27 @@ func NewControlPlaneClient(cfg ControlPlaneConfig) *ControlPlaneClient {
 
 // nodeRegistration is the payload for POST /api/v1/nodes.
 type nodeRegistration struct {
-	ID       string            `json:"id"`
-	Addr     string            `json:"addr"`
-	Region   string            `json:"region"`
-	Role     string            `json:"role"`
-	Tags     map[string]string `json:"tags,omitempty"`
-	Capacity int               `json:"capacity"`
+	NodeID    string            `json:"node_id"`
+	PublicKey string            `json:"public_key,omitempty"`
+	Addr      string            `json:"addr"`
+	Region    string            `json:"region"`
+	NATType   string            `json:"nat_type,omitempty"`
+	Role      string            `json:"role"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Capacity  int               `json:"capacity"`
 }
 
 // RegisterNode registers an edge node with the Control Plane.
 func (c *ControlPlaneClient) RegisterNode(ctx context.Context, node *EdgeNode) error {
 	payload := nodeRegistration{
-		ID:       node.ID,
+		NodeID:   node.ID,
 		Addr:     node.Addr,
 		Region:   node.Region,
+		NATType:  "edge",
 		Role:     string(node.Role),
 		Tags:     node.Tags,
+		Metadata: edgeNodeMetadata(node),
 		Capacity: node.Capacity,
 	}
 
@@ -116,11 +121,23 @@ func (c *ControlPlaneClient) RegisterNode(ctx context.Context, node *EdgeNode) e
 	return nil
 }
 
+func edgeNodeMetadata(node *EdgeNode) map[string]string {
+	metadata := map[string]string{
+		"addr":     node.Addr,
+		"role":     string(node.Role),
+		"capacity": fmt.Sprintf("%d", node.Capacity),
+	}
+	for key, value := range node.Tags {
+		metadata["tag."+key] = value
+	}
+	return metadata
+}
+
 // heartbeatPayload is the payload for POST /api/v1/nodes/{id}/heartbeat.
 type heartbeatPayload struct {
-	Status    string        `json:"status"`
-	Latency   time.Duration `json:"latency_ns"`
-	LastSeen  time.Time     `json:"last_seen"`
+	Status   string        `json:"status"`
+	Latency  time.Duration `json:"latency_ns"`
+	LastSeen time.Time     `json:"last_seen"`
 }
 
 // SendHeartbeat sends a heartbeat for a specific node.

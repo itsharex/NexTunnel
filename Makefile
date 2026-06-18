@@ -1,6 +1,9 @@
-.PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test clean help
+.PHONY: all dev dev-server-web build package-cli package-server package-desktop lint test verify-edge verify-ebpf-linux verify-tun verify-p2p-tun verify-dashboard clean help
 
-VERSION ?= v0.3.3-alpha
+VERSION ?= v0.4.1-alpha
+MAC_HOST ?= 10.160.166.44
+MAC_USER ?= lizhigang
+MAC_PORT ?= 22
 
 # Default target
 all: build
@@ -44,6 +47,8 @@ build-server:
 	cd server && go build -o ../build/relay-server ./cmd/relay
 	cd server && go build -o ../build/nat-detector ./cmd/nat-detector
 	cd server && go build -o ../build/dashboard ./cmd/dashboard
+	cd server && go build -o ../build/edge-rehearsal ./cmd/edge-rehearsal
+	cd server && go build -o ../build/ebpf-verify ./cmd/ebpf-verify
 	cd cli && go build -o ../build/nextunnel .
 
 ## lint: Run all linters
@@ -73,6 +78,26 @@ test-go:
 test-frontend:
 	cd desktop/frontend && npm run test
 	cd server/web && npm run test
+
+## verify-dashboard: Run Dashboard production API verification; pass DASHBOARD_URL, DASHBOARD_PASSWORD, optional DASHBOARD_ORIGIN
+verify-dashboard:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-dashboard.ps1 -BaseUrl "$(DASHBOARD_URL)" -Password "$(DASHBOARD_PASSWORD)" -AllowedOrigin "$(DASHBOARD_ORIGIN)" -ReportPath "dist/verification/dashboard-report.json"
+
+## verify-tun: Run local real TUN and route apply/reset verification
+verify-tun:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-tun.ps1
+
+## verify-p2p-tun: Run Windows/macOS real TUN and P2P verification; pass MAC_HOST, MAC_USER, optional RELAY_ADDR, RELAY_TOKEN
+verify-p2p-tun:
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-p2p-tun.ps1 -MacHost "$(MAC_HOST)" -MacUser "$(MAC_USER)" -MacPort "$(MAC_PORT)" -RelayAddr "$(RELAY_ADDR)" -RelayToken "$(RELAY_TOKEN)"
+
+## verify-edge: Run Edge/Anycast rehearsal; optional CONTROL_URL, CONTROL_TOKEN, REGISTER_REMOTE=true
+verify-edge:
+	pwsh -NoProfile -ExecutionPolicy Bypass -Command "$$argsList = @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/verify-edge-rehearsal.ps1','-ControlUrl','$(CONTROL_URL)','-ControlToken','$(CONTROL_TOKEN)'); if ('$(REGISTER_REMOTE)' -eq 'true') { $$argsList += '-RegisterRemote' }; & pwsh @argsList"
+
+## verify-ebpf-linux: Compile and attach XDP on Linux; pass INTERFACE_NAME=eth0 as needed
+verify-ebpf-linux:
+	bash scripts/verify-ebpf-linux.sh
 
 ## clean: Remove build artifacts
 clean:

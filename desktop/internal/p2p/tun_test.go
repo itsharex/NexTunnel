@@ -89,4 +89,77 @@ func TestPlatformCapabilities(t *testing.T) {
 	if !caps.HasUserspaceNetstack {
 		t.Error("HasUserspaceNetstack should be true")
 	}
+	if caps.ProductionMode == "" {
+		t.Error("ProductionMode should be set")
+	}
+}
+
+func TestEvaluatePlatformCapabilities_WindowsMissingWintun(t *testing.T) {
+	caps := evaluatePlatformCapabilities(tunPreflightInput{
+		platformName:      "windows",
+		hasKernelSupport:  true,
+		hasUserspaceStack: true,
+		needsPrivilege:    true,
+		privileged:        true,
+		wintun:            wintunPreflightResult{required: true, found: false},
+		linuxTunAvailable: true,
+	})
+
+	if caps.KernelTUNReady {
+		t.Fatal("missing wintun.dll must block kernel TUN")
+	}
+	if caps.ProductionMode != ProductionModeP2POnly {
+		t.Fatalf("ProductionMode = %q, want %q", caps.ProductionMode, ProductionModeP2POnly)
+	}
+	if !hasIssue(caps.BlockingIssues, "wintun_dll_missing") {
+		t.Fatalf("expected wintun_dll_missing issue, got %+v", caps.BlockingIssues)
+	}
+}
+
+func TestEvaluatePlatformCapabilities_DarwinNeedsPrivilege(t *testing.T) {
+	caps := evaluatePlatformCapabilities(tunPreflightInput{
+		platformName:      "darwin",
+		hasKernelSupport:  true,
+		hasUserspaceStack: true,
+		needsPrivilege:    true,
+		privileged:        false,
+		linuxTunAvailable: true,
+	})
+
+	if caps.KernelTUNReady {
+		t.Fatal("non-root darwin process must not be kernel TUN ready")
+	}
+	if !hasIssue(caps.BlockingIssues, "privilege_required") {
+		t.Fatalf("expected privilege_required issue, got %+v", caps.BlockingIssues)
+	}
+}
+
+func TestEvaluatePlatformCapabilities_KernelReady(t *testing.T) {
+	caps := evaluatePlatformCapabilities(tunPreflightInput{
+		platformName:      "linux",
+		hasKernelSupport:  true,
+		hasUserspaceStack: true,
+		needsPrivilege:    true,
+		privileged:        true,
+		linuxTunAvailable: true,
+	})
+
+	if !caps.KernelTUNReady {
+		t.Fatalf("expected kernel TUN ready, got %+v", caps)
+	}
+	if caps.ProductionMode != ProductionModeKernelTUN {
+		t.Fatalf("ProductionMode = %q, want %q", caps.ProductionMode, ProductionModeKernelTUN)
+	}
+	if len(caps.BlockingIssues) != 0 {
+		t.Fatalf("expected no blocking issues, got %+v", caps.BlockingIssues)
+	}
+}
+
+func hasIssue(issues []PlatformIssue, code string) bool {
+	for _, issue := range issues {
+		if issue.Code == code {
+			return true
+		}
+	}
+	return false
 }

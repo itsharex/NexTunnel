@@ -38,6 +38,19 @@ export interface PlatformCapabilities {
   HasUserspaceNetstack: boolean
   NeedsAdminPrivilege: boolean
   PlatformName: string
+  ProductionMode: string
+  KernelTUNReady: boolean
+  UserspaceModeAllowed: boolean
+  BlockingIssues: PlatformIssue[]
+  DegradedFeatures: PlatformIssue[]
+  RecommendedActions: string[]
+}
+
+export interface PlatformIssue {
+  code: string
+  severity: string
+  message: string
+  action: string
 }
 
 export interface VirtualNetworkRoute {
@@ -169,6 +182,19 @@ const PREVIEW_TUN: PlatformCapabilities = {
   HasUserspaceNetstack: true,
   NeedsAdminPrivilege: false,
   PlatformName: 'preview',
+  ProductionMode: 'p2p_only',
+  KernelTUNReady: false,
+  UserspaceModeAllowed: true,
+  BlockingIssues: [],
+  DegradedFeatures: [
+    {
+      code: 'preview_mode',
+      severity: 'info',
+      message: 'Preview mode does not create system TUN devices.',
+      action: 'Run the desktop app for production preflight.',
+    },
+  ],
+  RecommendedActions: [],
 }
 const PREVIEW_FAVORITE_PORTS: FavoritePortInfo[] = [
   {

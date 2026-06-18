@@ -74,7 +74,7 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.3.3-alpha"
+var AppVersion = "0.4.1-alpha"
 
 // App is the main Wails application struct.
 type App struct {

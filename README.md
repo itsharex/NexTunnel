@@ -370,6 +370,20 @@ cd server
 docker build -t nextunnel-server .
 ```
 
+### 生产验证
+
+Beta 发布前建议按 [生产验证手册](docs/deploy/production-verification.md) 执行 Dashboard、TUN、Windows/macOS P2P、eBPF 和多地域 Edge 演练：
+
+```bash
+make verify-edge
+make verify-tun
+make verify-p2p-tun MAC_HOST=10.160.166.44 MAC_USER=lizhigang
+DASHBOARD_URL=https://dashboard.example.com DASHBOARD_PASSWORD=<password> make verify-dashboard
+sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
+```
+
+验证报告默认输出到 `dist/verification/`。eBPF、真实 TUN 和 Windows/macOS P2P 验证会修改本机网络状态，只应在授权的实机或隔离节点执行。
+
 ---
 
 ## 常用命令

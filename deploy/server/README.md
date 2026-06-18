@@ -32,12 +32,12 @@ nextunnel-server/
 
 ## 统一 CLI
 
-从 `v0.3.3-alpha` 起，Release 同时发布独立 CLI 包：
+从 `v0.4.1-alpha` 起，Release 同时发布独立 CLI 包：
 
 ```text
-nextunnel-cli-v0.3.3-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.3.3-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.3.3-alpha-windows-amd64.zip
+nextunnel-cli-v0.4.1-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.4.1-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.4.1-alpha-windows-amd64.zip
 ```
 
 常用命令：
@@ -69,9 +69,9 @@ nextunnel desktop disconnect
 
 ```bash
 curl -fL -o /tmp/nextunnel-install.sh \
-  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.3.3-alpha/deploy/server/install.sh
+  https://raw.githubusercontent.com/Lee-zg/NexTunnel/v0.4.1-alpha/deploy/server/install.sh
 chmod +x /tmp/nextunnel-install.sh
-sudo /tmp/nextunnel-install.sh install --version v0.3.3-alpha
+sudo /tmp/nextunnel-install.sh install --version v0.4.1-alpha
 ```
 
 ```bash
@@ -95,7 +95,7 @@ sudo NON_INTERACTIVE=true \
 指定版本或源地址：
 
 ```bash
-sudo ./install.sh install --version v0.3.3-alpha
+sudo ./install.sh install --version v0.4.1-alpha
 sudo ./install.sh install --package-url https://mirror.example.com/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url /tmp/nextunnel-server-linux-amd64.tar.gz
 sudo ./install.sh install --package-url file:///tmp/nextunnel-server-linux-amd64.tar.gz --sha256 <sha256>
@@ -112,17 +112,17 @@ sudo /tmp/nextunnel-install.sh install \
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN 后指定下载基址：
 
 ```bash
-sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.3-alpha \
-  ./install.sh install --version v0.3.3-alpha --sha256 <sha256>
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.4.1-alpha \
+  ./install.sh install --version v0.4.1-alpha --sha256 <sha256>
 ```
 
 如果只是临时加速 GitHub 下载，可以使用可信的自建代理。`--github-proxy` 只会改写脚本自动生成的 GitHub Release 下载地址；显式传入 `--package-url` 或 `--release-base-url` 时不会再使用代理：
 
 ```bash
-sudo ./install.sh install --version v0.3.3-alpha \
+sudo ./install.sh install --version v0.4.1-alpha \
   --github-proxy https://your-proxy.example.com/
 
-sudo ./install.sh install --version v0.3.3-alpha \
+sudo ./install.sh install --version v0.4.1-alpha \
   --github-proxy 'https://your-proxy.example.com/?url={url}'
 ```
 
@@ -133,7 +133,7 @@ sudo ./install.sh status
 sudo ./install.sh logs
 sudo ./install.sh health
 sudo ./install.sh restart
-sudo ./install.sh update --version v0.3.3-alpha
+sudo ./install.sh update --version v0.4.1-alpha
 sudo ./install.sh down
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge
@@ -203,11 +203,11 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 指定源地址：
 
 ```powershell
-.\install.ps1 -Action install -Version v0.3.3-alpha
+.\install.ps1 -Action install -Version v0.4.1-alpha
 .\install.ps1 -Action install -PackageUrl "https://mirror.example.com/nextunnel-server-windows-amd64.zip"
 .\install.ps1 -Action install -PackageUrl "C:\Temp\nextunnel-server-windows-amd64.zip" -PackageSha256 "<sha256>"
-.\install.ps1 -Action install -Version v0.3.3-alpha -ReleaseBaseUrl "https://cos.example.com/nextunnel/v0.3.3-alpha" -PackageSha256 "<sha256>"
-.\install.ps1 -Action install -Version v0.3.3-alpha -GithubProxy "https://your-proxy.example.com/"
+.\install.ps1 -Action install -Version v0.4.1-alpha -ReleaseBaseUrl "https://cos.example.com/nextunnel/v0.4.1-alpha" -PackageSha256 "<sha256>"
+.\install.ps1 -Action install -Version v0.4.1-alpha -GithubProxy "https://your-proxy.example.com/"
 ```
 
 常用管理命令：
@@ -217,7 +217,7 @@ $env:DASHBOARD_ADMIN_PASSWORD = "replace-with-strong-password"
 .\install.ps1 -Action logs
 .\install.ps1 -Action health
 .\install.ps1 -Action restart
-.\install.ps1 -Action update -Version v0.3.3-alpha
+.\install.ps1 -Action update -Version v0.4.1-alpha
 .\install.ps1 -Action down
 .\install.ps1 -Action uninstall
 ```
@@ -287,7 +287,7 @@ sudo NON_INTERACTIVE=true \
   RELAY_AUTH_TOKEN='replace-with-strong-token' \
   CONTROL_PLANE_API_TOKEN='replace-with-strong-token' \
   DASHBOARD_ADMIN_PASSWORD='replace-with-strong-password' \
-  ./install.sh install --version v0.3.3-alpha
+  ./install.sh install --version v0.4.1-alpha
 ```
 
 如果使用自建源：
@@ -334,7 +334,7 @@ sudo systemctl status nextunnel-relay.service nextunnel-control-plane.service ne
 
 ```bash
 cd /opt/nextunnel-deploy
-sudo ./install.sh update --version v0.3.3-alpha
+sudo ./install.sh update --version v0.4.1-alpha
 sudo ./install.sh health
 ```
 
@@ -393,6 +393,10 @@ sudo ./install.sh health
 - `GET /api/v1/health` 验证 Dashboard。
 
 NAT Detector 使用 UDP 服务，通常通过客户端 STUN 检测流程验证。
+
+## 生产验收
+
+服务健康检查通过后，建议回到仓库根目录执行 `docs/deploy/production-verification.md` 中的验收命令，覆盖 Dashboard HTTPS/CORS/鉴权、真实 TUN/路由、Linux eBPF XDP 和多地域 Edge/Anycast 演练。验证报告默认写入 `dist/verification/`，用于发布前归档。
 
 ## 安全建议
 

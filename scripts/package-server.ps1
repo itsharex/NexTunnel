@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v0.3.3-alpha",
+  [string]$Version = "v0.4.1-alpha",
   [switch]$SkipWeb
 )
 
@@ -77,6 +77,8 @@ function New-ServerArchive {
     go build -trimpath -ldflags="-s -w" -o (Join-Path $binDir "relay-server$Exe") ./cmd/relay
     go build -trimpath -ldflags="-s -w" -o (Join-Path $binDir "nat-detector$Exe") ./cmd/nat-detector
     go build -trimpath -ldflags="-s -w" -o (Join-Path $binDir "dashboard$Exe") ./cmd/dashboard
+    go build -trimpath -ldflags="-s -w" -o (Join-Path $binDir "edge-rehearsal$Exe") ./cmd/edge-rehearsal
+    go build -trimpath -ldflags="-s -w" -o (Join-Path $binDir "ebpf-verify$Exe") ./cmd/ebpf-verify
   } finally {
     Pop-Location
   }
@@ -94,6 +96,12 @@ function New-ServerArchive {
   New-Item -ItemType Directory -Path $packageDeployDir -Force | Out-Null
   Copy-Item -LiteralPath (Join-Path $deployRoot "install.sh") -Destination (Join-Path $packageDeployDir "install.sh") -Force
   Copy-Item -LiteralPath (Join-Path $deployRoot "install.ps1") -Destination (Join-Path $packageDeployDir "install.ps1") -Force
+  $packageScriptsDir = Join-Path $packageDir "scripts"
+  New-Item -ItemType Directory -Path $packageScriptsDir -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\verify-dashboard.ps1") -Destination (Join-Path $packageScriptsDir "verify-dashboard.ps1") -Force
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\verify-edge-rehearsal.ps1") -Destination (Join-Path $packageScriptsDir "verify-edge-rehearsal.ps1") -Force
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\verify-ebpf-linux.sh") -Destination (Join-Path $packageScriptsDir "verify-ebpf-linux.sh") -Force
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "server\internal\ebpf\xdp_forwarder.c") -Destination (Join-Path $packageDir "xdp_forwarder.c") -Force
   @(
     "NexTunnel server package",
     "Version: $releaseVersion",
@@ -103,12 +111,19 @@ function New-ServerArchive {
     "  bin/relay-server$Exe",
     "  bin/nat-detector$Exe",
     "  bin/dashboard$Exe",
+    "  bin/edge-rehearsal$Exe",
+    "  bin/ebpf-verify$Exe",
     "  bin/nextunnel$Exe",
     "Web:",
     "  web/dashboard",
     "Deploy:",
     "  deploy/server/install.sh",
-    "  deploy/server/install.ps1"
+    "  deploy/server/install.ps1",
+    "Verification:",
+    "  scripts/verify-dashboard.ps1",
+    "  scripts/verify-edge-rehearsal.ps1",
+    "  scripts/verify-ebpf-linux.sh",
+    "  xdp_forwarder.c"
   ) | Set-Content -Path (Join-Path $packageDir "MANIFEST.txt") -Encoding UTF8
 
   if ($Archive -eq "tar.gz") {

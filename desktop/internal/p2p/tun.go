@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"runtime"
@@ -82,16 +83,24 @@ type PlatformCapabilities struct {
 
 	// PlatformName is the OS name (e.g., "windows", "darwin", "linux").
 	PlatformName string
-}
 
-// CurrentPlatform returns the capabilities of the current platform.
-func CurrentPlatform() PlatformCapabilities {
-	return PlatformCapabilities{
-		HasKernelTUN:         hasKernelTUNSupport(),
-		HasUserspaceNetstack: true,
-		NeedsAdminPrivilege:  runtime.GOOS != "windows",
-		PlatformName:         runtime.GOOS,
-	}
+	// ProductionMode marks the highest supported production data-plane mode.
+	ProductionMode string
+
+	// KernelTUNReady indicates if real system TUN can be used immediately.
+	KernelTUNReady bool
+
+	// UserspaceModeAllowed indicates if the current runtime can fall back to userspace-only mode.
+	UserspaceModeAllowed bool
+
+	// BlockingIssues lists missing production prerequisites.
+	BlockingIssues []PlatformIssue
+
+	// DegradedFeatures lists features that can still run but are not production TUN.
+	DegradedFeatures []PlatformIssue
+
+	// RecommendedActions gives operator-facing remediation steps.
+	RecommendedActions []string
 }
 
 // CreateTUN attempts to create a kernel TUN device. If that fails,
@@ -103,6 +112,15 @@ func CreateTUN(cfg TUNConfig) (TUNDevice, error) {
 	}
 	// Fall back to userspace netTun
 	return newNetTun(cfg.MTU), nil
+}
+
+// CreateKernelTUN 创建真实内核 TUN 设备；生产验证必须使用它，避免 netTun 回退掩盖驱动或权限问题。
+func CreateKernelTUN(cfg TUNConfig) (TUNDevice, error) {
+	dev, err := createKernelTUN(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create kernel tun on %s: %w", runtime.GOOS, err)
+	}
+	return dev, nil
 }
 
 // hasKernelTUNSupport checks if the current platform has kernel TUN available.

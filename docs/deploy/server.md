@@ -30,14 +30,14 @@ docker-compose up -d
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN，再使用自定义 Release 下载基址：
 
 ```bash
-sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.3.3-alpha \
-  ./install.sh install --version v0.3.3-alpha --sha256 <sha256>
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.4.1-alpha \
+  ./install.sh install --version v0.4.1-alpha --sha256 <sha256>
 ```
 
 临时方案可以使用可信自建 GitHub 代理：
 
 ```bash
-sudo ./install.sh install --version v0.3.3-alpha \
+sudo ./install.sh install --version v0.4.1-alpha \
   --github-proxy https://your-proxy.example.com/
 ```
 
@@ -77,6 +77,10 @@ sudo /opt/nextunnel/deploy/server/install.sh restart
 `up` 和 `restart` 会等待 systemd 服务进入 active 状态，并自动执行 Control Plane、Relay 和 Dashboard 健康检查。
 
 腾讯云安全组和服务器防火墙至少需要放行 `7000/tcp`；启用 QUIC/NAT 检测时还需要 `7443/udp`、`3478/udp`，Dashboard 需要 `8080/tcp`。
+
+## 生产验收
+
+服务启动和健康检查通过后，继续按 [生产验证手册](./production-verification.md) 执行 Dashboard HTTPS/CORS/鉴权、P2P/TUN、eBPF Linux 和多地域 Edge 演练。验证报告默认写入 `dist/verification/`，可作为 Beta 发布前验收附件。
 
 ## 同机测试和 WSL 验证
 

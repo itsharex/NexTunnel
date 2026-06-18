@@ -101,6 +101,7 @@ struct bpf_map_def {
 	__u32 key_size;
 	__u32 value_size;
 	__u32 max_entries;
+	__u32 map_flags;
 };
 
 struct bpf_map_def SEC("maps") l4_rules = {

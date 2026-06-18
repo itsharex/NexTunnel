@@ -1,5 +1,16 @@
 # 更新日志
 
+## v0.4.1-alpha
+
+- 新增生产验证手册，覆盖 Dashboard HTTPS/CORS/鉴权、Windows/macOS P2P/TUN、Linux eBPF XDP 和多地域 Edge/Anycast 演练。
+- 发布包补充 Dashboard、Edge rehearsal、eBPF verify 等验证入口，服务端包内包含验证脚本和 `xdp_forwarder.c`。
+- Dashboard 生产部署联调脚本可验证健康检查、登录、token、CORS、节点、ACL 和告警接口。
+- Windows/macOS P2P/TUN 验证脚本支持临时 SSH 公钥接入、双端候选交换、直连优先、Relay 降级和 JSON 报告汇总。
+- 桌面端新增真实 TUN 生产预检，明确提示 Windows `wintun.dll` 缺失、管理员权限不足、macOS sudo/root 权限不足和 Linux `/dev/net/tun` 缺失。
+- P2P/TUN 验证器改为真实内核 TUN 创建，不再用用户态 `netTun` 回退掩盖生产问题。
+- 修复 macOS utun 控制器结构和数据包读写方式，为真实 utun 创建与收发验证打基础。
+- 发布前已确认 P2P 直连链路可用；真实系统路由 TUN 仍需在 Windows 提供匹配架构 `wintun.dll`，并在 macOS 使用可用的 sudo/root 权限完成最终实机验收。
+
 ## v0.3.3-alpha
 
 - CLI 增强服务端安装参数透传，支持 `--service-prefix`、自定义安装目录、端口、下载镜像、token 和 Dashboard 初始化参数。

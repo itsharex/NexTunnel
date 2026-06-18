@@ -3,7 +3,9 @@
 package p2p
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -20,8 +22,9 @@ type kernelTUN struct {
 }
 
 const (
-	AF_SYSTEM    = 32
-	SYS_CONTROL  = 2
+	AF_SYSTEM       = 32
+	AF_SYS_CONTROL  = 2
+	SYS_CONTROL     = 2
 	UTUN_OPT_IFNAME = 2
 )
 
@@ -32,12 +35,10 @@ func createKernelTUN(cfg TUNConfig) (TUNDevice, error) {
 		return nil, fmt.Errorf("socket AF_SYSTEM: %w", err)
 	}
 
-	// Find utun control ID
+	// 按 Darwin ctl_info 的真实布局查询 utun 控制器 ID。
 	var ctlInfo struct {
-		ctlID  uint32
-		flags  uint32
-		reserved [32]byte
-		name   [96]byte
+		ctlID uint32
+		name  [96]byte
 	}
 	copy(ctlInfo.name[:], "com.apple.net.utun_control")
 
@@ -47,17 +48,18 @@ func createKernelTUN(cfg TUNConfig) (TUNDevice, error) {
 		return nil, fmt.Errorf("ioctl CTLIOCGINFO: %w", errno)
 	}
 
-	// Connect to utun
+	// sockaddr_ctl 必须包含 ss_sysaddr=AF_SYS_CONTROL，否则 connect 会失败或行为不确定。
 	var sc struct {
-		scLen    uint8
-		scFamily uint8
-		ssPad1   [2]byte
-		scID     uint32
-		scUnit   uint32
-		reserved [28]byte
+		scLen     uint8
+		scFamily  uint8
+		ssSysAddr uint16
+		scID      uint32
+		scUnit    uint32
+		reserved  [20]byte
 	}
 	sc.scLen = uint8(unsafe.Sizeof(sc))
 	sc.scFamily = AF_SYSTEM
+	sc.ssSysAddr = AF_SYS_CONTROL
 	sc.scID = ctlInfo.ctlID
 	sc.scUnit = 0 // auto-assign
 
@@ -93,27 +95,48 @@ func createKernelTUN(cfg TUNConfig) (TUNDevice, error) {
 }
 
 func (t *kernelTUN) ReadPacket(buf []byte) (int, error) {
-	// macOS utun prepends a 4-byte family header
-	hdr := make([]byte, 4)
-	if _, err := t.file.Read(hdr); err != nil {
+	if len(buf) == 0 {
+		return 0, fmt.Errorf("read packet buffer is empty")
+	}
+	// utun 是数据报 socket，4 字节地址族头和 IP 包必须一次性读取，不能分两次 Read。
+	packet := make([]byte, len(buf)+4)
+	n, err := t.file.Read(packet)
+	if err != nil {
 		return 0, err
 	}
-	return t.file.Read(buf)
+	if n < 4 {
+		return 0, fmt.Errorf("utun packet too short: %d", n)
+	}
+	return copy(buf, packet[4:n]), nil
 }
 
 func (t *kernelTUN) WritePacket(buf []byte) (int, error) {
-	// macOS utun prepends a 4-byte family header
-	version := buf[0] >> 4
-	hdr := []byte{0, 0, 0, 0}
-	if version == 4 {
-		hdr[3] = 2 // AF_INET
-	} else {
-		hdr[3] = 30 // AF_INET6
+	if len(buf) == 0 {
+		return 0, fmt.Errorf("write packet buffer is empty")
 	}
-	if _, err := t.file.Write(hdr); err != nil {
+	version := buf[0] >> 4
+	family := uint32(syscall.AF_INET)
+	if version == 4 {
+		family = syscall.AF_INET
+	} else if version == 6 {
+		family = syscall.AF_INET6
+	} else {
+		return 0, fmt.Errorf("unsupported IP version: %d", version)
+	}
+	packet := make([]byte, len(buf)+4)
+	binary.BigEndian.PutUint32(packet[:4], family)
+	copy(packet[4:], buf)
+	n, err := t.file.Write(packet)
+	if err != nil {
 		return 0, err
 	}
-	return t.file.Write(buf)
+	if n != len(packet) {
+		if n <= 4 {
+			return 0, io.ErrShortWrite
+		}
+		return n - 4, io.ErrShortWrite
+	}
+	return len(buf), nil
 }
 
 func (t *kernelTUN) Close() error {

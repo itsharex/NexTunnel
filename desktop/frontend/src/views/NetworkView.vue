@@ -80,6 +80,23 @@
             </n-tag>
           </div>
         </div>
+
+        <div
+          v-if="platformIssues.length > 0"
+          class="issue-list"
+        >
+          <article
+            v-for="issue in platformIssues"
+            :key="issue.code"
+            class="issue-item"
+            :class="issue.severity"
+          >
+            <div>
+              <strong>{{ issue.message }}</strong>
+              <span>{{ issue.action }}</span>
+            </div>
+          </article>
+        </div>
       </n-card>
     </div>
 
@@ -179,11 +196,25 @@ const platformFacts = computed(() => {
   const tun = runtime.value?.tun
   return [
     { label: t('network.platformName'), value: tun?.PlatformName || '--', ok: Boolean(tun?.PlatformName) },
+    { label: t('network.productionMode'), value: translateProductionMode(tun?.ProductionMode), ok: tun?.ProductionMode === 'kernel_tun' },
+    { label: t('network.kernelTunReady'), value: tun?.KernelTUNReady ? t('network.ready') : t('network.notReady'), ok: Boolean(tun?.KernelTUNReady) },
     { label: t('network.kernelTun'), value: tun?.HasKernelTUN ? t('network.available') : t('network.unavailable'), ok: Boolean(tun?.HasKernelTUN) },
     { label: t('network.userspaceTun'), value: tun?.HasUserspaceNetstack ? t('network.available') : t('network.unavailable'), ok: Boolean(tun?.HasUserspaceNetstack) },
     { label: t('network.adminRequired'), value: tun?.NeedsAdminPrivilege ? t('network.required') : t('network.notRequired'), ok: !tun?.NeedsAdminPrivilege },
   ]
 })
+
+const platformIssues = computed(() => {
+  const tun = runtime.value?.tun
+  return [...(tun?.BlockingIssues ?? []), ...(tun?.DegradedFeatures ?? [])]
+})
+
+const translateProductionMode = (mode?: string): string => {
+  if (!mode) return '--'
+  const key = `network.productionModes.${mode}`
+  const translated = t(key)
+  return translated === key ? mode : translated
+}
 
 const handleApplyVirtualNetwork = async (): Promise<void> => {
   try {
@@ -262,7 +293,8 @@ onMounted(async () => {
 }
 
 .network-facts,
-.capability-list {
+.capability-list,
+.issue-list {
   display: grid;
   gap: 10px;
   margin-bottom: 16px;
@@ -293,6 +325,41 @@ onMounted(async () => {
   font-size: 13px;
   overflow-wrap: anywhere;
   text-align: right;
+}
+
+.issue-list {
+  margin-bottom: 0;
+}
+
+.issue-item {
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(9, 17, 32, 0.56);
+}
+
+.issue-item.blocker {
+  border-color: rgba(255, 89, 89, 0.4);
+}
+
+.issue-item.warning {
+  border-color: rgba(244, 185, 66, 0.4);
+}
+
+.issue-item div {
+  display: grid;
+  gap: 4px;
+}
+
+.issue-item strong {
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.issue-item span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .command-log {
