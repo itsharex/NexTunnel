@@ -229,6 +229,7 @@ nextunnel doctor
 | Node.js | >= 18 |
 | Wails CLI | v2.x |
 | Docker & Docker Compose | （服务端部署可选） |
+| GNU Make | 可选；Windows PowerShell 可使用 `.\make.ps1` |
 
 ### 安装 Wails CLI
 
@@ -247,6 +248,12 @@ cd NexTunnel
 
 ```bash
 make install-deps
+```
+
+Windows PowerShell：
+
+```powershell
+.\make.ps1 install-deps
 ```
 
 或手动安装：
@@ -269,18 +276,51 @@ cd desktop/frontend && npm install && cd ../..
 make dev
 ```
 
+Windows PowerShell：
+
+```powershell
+.\make.ps1 dev
+```
+
+> 如需在 Windows 中继续使用裸命令 `make dev`，需要先安装 GNU Make 并确认 `make.exe` 已加入 `PATH`。
+
 ### 构建桌面应用
 
 ```bash
 make build
 ```
 
+Windows PowerShell：
+
+```powershell
+.\make.ps1 build
+```
+
 构建产物位于 `desktop/build/bin/`。
+
+### 桌面安装包
+
+v0.5.0-alpha 起桌面端提供 Windows NSIS 安装包、Windows zip 便携包和 macOS DMG：
+
+```bash
+make package-desktop VERSION=v0.5.0-alpha
+make package-macos VERSION=v0.5.0-alpha
+```
+
+Windows 安装器使用 Wails 官方 NSIS 流程，安装时会请求管理员权限并检测 `wintun.dll`。缺失时可自动下载官方 Wintun 包并复制匹配架构 DLL，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 把官方 DLL 放到 `NexTunnel.exe` 同目录。
+
+macOS 使用 `.app + .dmg` 分发，DMG 内含 Applications 拖拽入口和权限说明。alpha 默认未签名；发布脚本预留 Developer ID 签名与 notarization 环境变量，真实系统路由仍需要运行时管理员授权、授权 helper 或 LaunchDaemon 支持。
 
 ### 构建服务端
 
 ```bash
 make build-server
+```
+
+Windows PowerShell：
+
+```powershell
+.\make.ps1 build-server
 ```
 
 生成四个二进制文件至 `build/` 目录：
@@ -389,18 +429,19 @@ sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
 
 ## 常用命令
 
-```bash
-make help            # 查看所有可用命令
-make dev             # 启动桌面开发服务器
-make build           # 构建桌面应用
-make build-server    # 构建服务端二进制
-make test            # 运行所有测试（Go + 前端）
-make test-go         # 运行 Go 测试
-make test-frontend   # 运行前端测试
-make lint            # 代码检查（Go + 前端）
-make clean           # 清理构建产物
-make install-deps    # 安装所有依赖
-```
+| 功能 | GNU Make | Windows PowerShell |
+|------|----------|--------------------|
+| 查看所有可用命令 | `make help` | `.\make.ps1 help` |
+| 启动桌面开发服务器 | `make dev` | `.\make.ps1 dev` |
+| 启动服务端管理 Web 控制台 | `make dev-server-web` | `.\make.ps1 dev-server-web` |
+| 构建桌面应用 | `make build` | `.\make.ps1 build` |
+| 构建服务端二进制 | `make build-server` | `.\make.ps1 build-server` |
+| 运行所有测试（Go + 前端） | `make test` | `.\make.ps1 test` |
+| 运行 Go 测试 | `make test-go` | `.\make.ps1 test-go` |
+| 运行前端测试 | `make test-frontend` | `.\make.ps1 test-frontend` |
+| 代码检查（Go + 前端） | `make lint` | `.\make.ps1 lint` |
+| 清理构建产物 | `make clean` | `.\make.ps1 clean` |
+| 安装所有依赖 | `make install-deps` | `.\make.ps1 install-deps` |
 
 ---
 
@@ -410,8 +451,8 @@ make install-deps    # 安装所有依赖
 
 1. Fork 本仓库
 2. 创建功能分支：`git checkout -b feature/your-feature`
-3. 提交代码前运行测试：`make test`
-4. 确保代码检查通过：`make lint`
+3. 提交代码前运行测试：`make test` 或 `.\make.ps1 test`
+4. 确保代码检查通过：`make lint` 或 `.\make.ps1 lint`
 5. 提交 Pull Request
 
 ---

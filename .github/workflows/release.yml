@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag, for example v0.4.1-alpha'
+        description: 'Release tag, for example v0.5.0-alpha'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   desktop-windows:
-    name: Desktop Windows package
+    name: Desktop Windows installers
     runs-on: windows-latest
 
     steps:
@@ -44,14 +44,25 @@ jobs:
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
       - name: Install desktop frontend dependencies
         working-directory: desktop/frontend
         shell: pwsh
         run: npm ci
 
-      - name: Package desktop
+      - name: Package desktop installers
         shell: pwsh
-        run: ./scripts/package-desktop.ps1 -Version "$env:RELEASE_VERSION"
+        env:
+          NEXTUNNEL_WINTUN_SHA256: ${{ secrets.NEXTUNNEL_WINTUN_SHA256 }}
+        run: |
+          $arguments = @("-Version", "$env:RELEASE_VERSION", "-Installer", "nsis")
+          if (-not [string]::IsNullOrWhiteSpace($env:NEXTUNNEL_WINTUN_SHA256)) {
+            $arguments += @("-WintunSha256", "$env:NEXTUNNEL_WINTUN_SHA256")
+          }
+          ./scripts/package-desktop.ps1 @arguments
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -59,8 +70,53 @@ jobs:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
           files: |
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64-installer.exe
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64-installer.exe.sha256
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64-installer.MANIFEST.txt
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64.zip.sha256
+
+  desktop-macos:
+    name: Desktop macOS DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install desktop frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+
+      - name: Package macOS DMG
+        shell: bash
+        run: bash scripts/package-macos.sh --version "$RELEASE_VERSION"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          files: |
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-darwin-universal.dmg
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-darwin-universal.dmg.sha256
+            dist/nextunnel-${{ env.RELEASE_VERSION }}-darwin-universal.MANIFEST.txt
 
   cli-packages:
     name: CLI packages

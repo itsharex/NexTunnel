@@ -8,6 +8,7 @@ import {
   ExportConfig,
   GetTunnels,
   CreateTunnel,
+  UpdateTunnel,
   DeleteFavoritePort,
   DeleteTunnel,
   DetectNAT,
@@ -69,6 +70,10 @@ export interface CreateTunnelInput {
   local_addr: string
   local_port: number
   remote_port: number
+}
+
+export interface UpdateTunnelInput extends CreateTunnelInput {
+  id: string
 }
 
 export interface TrafficSample {
@@ -315,6 +320,24 @@ export const useTunnelStore = defineStore('tunnels', () => {
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       console.error('Failed to create tunnel:', e)
+      throw e
+    }
+  }
+
+  const updateTunnel = async (input: UpdateTunnelInput): Promise<Tunnel> => {
+    try {
+      const updated = (await UpdateTunnel(input)) as Tunnel
+      const index = tunnels.value.findIndex((tunnel) => tunnel.id === updated.id)
+      if (index >= 0) {
+        tunnels.value.splice(index, 1, updated)
+      } else {
+        tunnels.value.push(updated)
+      }
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+      return updated
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      console.error('Failed to update tunnel:', e)
       throw e
     }
   }
@@ -613,6 +636,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     collectDiagnostics,
     loadTunnels,
     createTunnel,
+    updateTunnel,
     deleteTunnel,
     connectServer,
     disconnectServer,

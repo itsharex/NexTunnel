@@ -123,6 +123,99 @@ func TestCreateTunnelWritesActivityLog(t *testing.T) {
 	}
 }
 
+func TestUpdateTunnelWritesActivityLog(t *testing.T) {
+	app := newTestApp(t)
+
+	tunnelInfo, err := app.CreateTunnel(CreateTunnelInput{
+		Name:       "web",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  3000,
+		RemotePort: 13000,
+	})
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+
+	updated, err := app.UpdateTunnel(UpdateTunnelInput{
+		ID:         tunnelInfo.ID,
+		Name:       "web-updated",
+		ProxyType:  "http",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  5173,
+		RemotePort: 15173,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTunnel: %v", err)
+	}
+	if updated.Name != "web-updated" || updated.ProxyType != "http" || updated.LocalPort != 5173 || updated.RemotePort != 15173 {
+		t.Fatalf("unexpected updated tunnel: %+v", updated)
+	}
+
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategoryOperation, Limit: 10})
+	if !containsActivityAction(logs, activityActionUpdateTunnel) {
+		t.Fatalf("expected update tunnel activity log, got %+v", logs)
+	}
+}
+
+func TestUpdateTunnelRejectsInvalidInput(t *testing.T) {
+	app := newTestApp(t)
+
+	if _, err := app.UpdateTunnel(UpdateTunnelInput{Name: "web", LocalAddr: "127.0.0.1", LocalPort: 3000, RemotePort: 13000}); err == nil {
+		t.Fatal("expected missing tunnel id to fail")
+	}
+
+	tunnelInfo, err := app.CreateTunnel(CreateTunnelInput{
+		Name:       "web",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  3000,
+		RemotePort: 13000,
+	})
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	if _, err := app.UpdateTunnel(UpdateTunnelInput{
+		ID:         tunnelInfo.ID,
+		Name:       "web",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  0,
+		RemotePort: 13000,
+	}); err == nil {
+		t.Fatal("expected invalid local port to fail")
+	}
+}
+
+func TestUpdateTunnelRejectsRunningTunnel(t *testing.T) {
+	app := newTestApp(t)
+
+	tunnelInfo, err := app.CreateTunnel(CreateTunnelInput{
+		Name:       "web",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  3000,
+		RemotePort: 13000,
+	})
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	if err := app.store.UpdateStatus(tunnelInfo.ID, statusRunning); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	if _, err := app.UpdateTunnel(UpdateTunnelInput{
+		ID:         tunnelInfo.ID,
+		Name:       "web-updated",
+		ProxyType:  "tcp",
+		LocalAddr:  "127.0.0.1",
+		LocalPort:  3001,
+		RemotePort: 13001,
+	}); err == nil {
+		t.Fatal("expected running tunnel update to fail")
+	}
+}
+
 func TestRuntimeErrorWritesActivityLog(t *testing.T) {
 	app := newTestApp(t)
 

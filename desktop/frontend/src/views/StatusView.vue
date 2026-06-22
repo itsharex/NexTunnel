@@ -2,8 +2,8 @@
   <section class="client-dashboard">
     <template v-if="viewMode === 'overview'">
       <section class="overview-hero">
-        <div class="connection-strip compact-connection">
-          <div class="connection-state">
+        <div class="connection-layout">
+          <div class="connection-copy">
             <n-tag
               round
               :type="statusTagType"
@@ -12,23 +12,42 @@
               <span class="status-dot" />
               {{ statusLabel }}
             </n-tag>
-            <div>
-              <strong>{{ heroTitle }}</strong>
-              <span>{{ heroSubtitle }}</span>
+
+            <div class="hero-copy-stack">
+              <h2>{{ heroTitle }}</h2>
+              <p>{{ heroSubtitle }}</p>
+              <div class="connection-hint">
+                <strong>{{ connectionHintTitle }}</strong>
+                <span>{{ connectionHintText }}</span>
+              </div>
             </div>
           </div>
 
-          <div class="primary-action-stack">
-            <n-button
-              type="primary"
-              size="large"
-              :loading="store.isConnecting"
+          <div
+            class="connect-action"
+            :class="connectionActionClass"
+          >
+            <div
+              class="tunnel-animation"
+              aria-hidden="true"
+            >
+              <span class="orbit orbit-a" />
+              <span class="orbit orbit-b" />
+              <span class="node node-left" />
+              <span class="node node-right" />
+              <span class="beam beam-a" />
+              <span class="beam beam-b" />
+            </div>
+            <button
+              class="connect-button"
+              :class="{ active: store.isConnected }"
+              type="button"
               :disabled="!canConnect || store.isConnecting"
               @click="handlePrimaryConnection"
             >
-              {{ primaryButtonLabel }}
-            </n-button>
-            <span>{{ connectionTargetLabel }}</span>
+              <span>{{ primaryButtonLabel }}</span>
+            </button>
+            <span class="connect-caption">{{ connectionTargetLabel }}</span>
           </div>
         </div>
 
@@ -130,89 +149,39 @@
                   clearable
                   :placeholder="t('tunnel.searchPlaceholder')"
                 />
-                <n-button
-                  size="small"
-                  secondary
-                  :disabled="!store.isConnected || startableTunnels.length === 0 || isBatchBusy"
-                  :loading="batchAction === 'start'"
-                  @click="handleStartAll"
-                >
-                  {{ t('tunnel.startAll') }}
-                </n-button>
-                <n-button
-                  size="small"
-                  secondary
-                  :disabled="runningTunnels.length === 0 || isBatchBusy"
-                  :loading="batchAction === 'stop'"
-                  @click="handleStopAll"
-                >
-                  {{ t('tunnel.stopAll') }}
-                </n-button>
-                <n-button
-                  type="primary"
-                  size="small"
-                  @click="showForm = !showForm"
-                >
-                  {{ showForm ? t('tunnel.cancel') : t('tunnel.newTunnel') }}
-                </n-button>
+                <div class="tunnel-toolbar-actions">
+                  <n-button
+                    size="small"
+                    secondary
+                    :disabled="!store.isConnected || startableTunnels.length === 0 || isBatchBusy"
+                    :loading="batchAction === 'start'"
+                    @click="handleStartAll"
+                  >
+                    {{ t('tunnel.startAll') }}
+                  </n-button>
+                  <n-button
+                    size="small"
+                    secondary
+                    :disabled="runningTunnels.length === 0 || isBatchBusy"
+                    :loading="batchAction === 'stop'"
+                    @click="handleStopAll"
+                  >
+                    {{ t('tunnel.stopAll') }}
+                  </n-button>
+                  <n-button
+                    type="primary"
+                    size="small"
+                    @click="openCreateModal"
+                  >
+                    {{ t('tunnel.newTunnel') }}
+                  </n-button>
+                </div>
               </div>
             </div>
           </template>
 
-          <n-collapse-transition :show="showForm">
-            <n-form
-              class="tunnel-form"
-              label-placement="top"
-              :show-feedback="false"
-            >
-              <n-grid
-                :cols="6"
-                :x-gap="10"
-                :y-gap="10"
-                responsive="screen"
-              >
-                <n-form-item-gi :label="t('tunnel.name')">
-                  <n-input v-model:value="form.name" />
-                </n-form-item-gi>
-                <n-form-item-gi :label="t('tunnel.protocol')">
-                  <n-select
-                    v-model:value="form.proxy_type"
-                    :options="protocolOptions"
-                  />
-                </n-form-item-gi>
-                <n-form-item-gi :label="t('tunnel.localAddress')">
-                  <n-input v-model:value="form.local_addr" />
-                </n-form-item-gi>
-                <n-form-item-gi :label="t('tunnel.localPort')">
-                  <n-input-number
-                    v-model:value="form.local_port"
-                    :min="1"
-                    :max="65535"
-                  />
-                </n-form-item-gi>
-                <n-form-item-gi :label="t('tunnel.remotePort')">
-                  <n-input-number
-                    v-model:value="form.remote_port"
-                    :min="0"
-                    :max="65535"
-                  />
-                </n-form-item-gi>
-                <n-form-item-gi label=" ">
-                  <n-button
-                    type="primary"
-                    block
-                    :disabled="!canCreateTunnel"
-                    @click="handleCreate"
-                  >
-                    {{ t('tunnel.create') }}
-                  </n-button>
-                </n-form-item-gi>
-              </n-grid>
-            </n-form>
-          </n-collapse-transition>
-
           <n-empty
-            v-if="filteredTunnels.length === 0 && !showForm"
+            v-if="filteredTunnels.length === 0"
             class="empty-state"
             :description="store.tunnels.length === 0 ? t('tunnel.emptyTitle') : t('tunnel.noSearchResult')"
           >
@@ -286,6 +255,14 @@
                 >
                   {{ t('tunnel.stop') }}
                 </n-button>
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="store.busyTunnelIds.has(tunnel.id)"
+                  @click="handleEdit(tunnel)"
+                >
+                  {{ t('tunnel.edit') }}
+                </n-button>
                 <n-popconfirm
                   :positive-text="t('common.confirm')"
                   :negative-text="t('common.cancel')"
@@ -307,15 +284,83 @@
             </article>
           </div>
         </n-card>
-
-        <n-card
-          class="port-panel"
-          :bordered="false"
-        >
-          <LocalPortManager @use-port="handleUsePort" />
-        </n-card>
       </section>
     </template>
+
+    <n-modal
+      v-model:show="showTunnelModal"
+      preset="card"
+      class="tunnel-modal"
+      :title="modalTitle"
+      :bordered="false"
+      :segmented="{ content: true, footer: 'soft' }"
+    >
+      <n-form
+        class="tunnel-form"
+        label-placement="top"
+        :show-feedback="false"
+      >
+        <n-grid
+          :cols="2"
+          :x-gap="14"
+          :y-gap="14"
+          responsive="screen"
+        >
+          <n-form-item-gi :label="t('tunnel.name')">
+            <n-input v-model:value="form.name" />
+          </n-form-item-gi>
+          <n-form-item-gi :label="t('tunnel.protocol')">
+            <n-select
+              v-model:value="form.proxy_type"
+              :options="protocolOptions"
+            />
+          </n-form-item-gi>
+          <n-form-item-gi :label="t('tunnel.localAddress')">
+            <n-input v-model:value="form.local_addr" />
+          </n-form-item-gi>
+          <n-form-item-gi :label="t('tunnel.localPortPreset')">
+            <n-select
+              v-model:value="selectedPortValue"
+              filterable
+              clearable
+              :options="portSelectOptions"
+              :placeholder="t('tunnel.localPortSelectPlaceholder')"
+              @update:value="handlePortSelect"
+            />
+          </n-form-item-gi>
+          <n-form-item-gi :label="t('tunnel.localPort')">
+            <n-input-number
+              v-model:value="form.local_port"
+              :min="1"
+              :max="65535"
+            />
+          </n-form-item-gi>
+          <n-form-item-gi :label="t('tunnel.remotePort')">
+            <n-input-number
+              v-model:value="form.remote_port"
+              :min="0"
+              :max="65535"
+            />
+          </n-form-item-gi>
+        </n-grid>
+      </n-form>
+
+      <template #footer>
+        <div class="modal-actions">
+          <n-button @click="showTunnelModal = false">
+            {{ t('common.cancel') }}
+          </n-button>
+          <n-button
+            type="primary"
+            :disabled="!canSubmitTunnel"
+            :loading="isSavingTunnel"
+            @click="handleSubmitTunnel"
+          >
+            {{ submitButtonLabel }}
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
   </section>
 </template>
 
@@ -326,23 +371,23 @@ import {
   NAlert,
   NButton,
   NCard,
-  NCollapseTransition,
   NEmpty,
   NForm,
   NFormItemGi,
   NGrid,
   NInput,
   NInputNumber,
+  NModal,
   NPopconfirm,
   NSelect,
   NSpace,
   NTag,
+  useMessage,
   type SelectOption,
 } from 'naive-ui'
-import LocalPortManager from '../components/LocalPortManager.vue'
 import TrafficFlowChart from '../components/TrafficFlowChart.vue'
 import { useTunnelStore } from '../stores/tunnel'
-import type { FavoritePortInfo, LocalPortScanResult } from '../api/app'
+import type { FavoritePortInfo, LocalPortScanResult, TunnelInfo } from '../api/app'
 
 withDefaults(
   defineProps<{
@@ -361,24 +406,43 @@ interface SummaryMetric {
 
 type TagType = 'default' | 'error' | 'success' | 'warning' | 'info'
 type PortLike = FavoritePortInfo | LocalPortScanResult
+type TunnelFormMode = 'create' | 'edit'
+type TunnelForm = {
+  name: string
+  proxy_type: string
+  local_addr: string
+  local_port: number
+  remote_port: number
+}
+type GroupedSelectOption = SelectOption & {
+  type: 'group'
+  key: string
+  children: SelectOption[]
+}
 
 const RECENT_LOG_LIMIT = 6
+const DEFAULT_TUNNEL_FORM: TunnelForm = {
+  name: '',
+  proxy_type: 'tcp',
+  local_addr: '127.0.0.1',
+  local_port: 8080,
+  remote_port: 80,
+}
 const store = useTunnelStore()
+const message = useMessage()
 const { t } = useI18n()
-const showForm = ref(false)
+const showTunnelModal = ref(false)
+const tunnelFormMode = ref<TunnelFormMode>('create')
+const editingTunnelId = ref('')
+const selectedPortValue = ref<string | null>(null)
+const isSavingTunnel = ref(false)
 const searchKeyword = ref('')
 const batchAction = ref<'start' | 'stop' | ''>('')
 const relayForm = ref({
   server_addr: store.serverAddr,
   auth_token: store.authToken,
 })
-const form = ref({
-  name: '',
-  proxy_type: 'tcp',
-  local_addr: '127.0.0.1',
-  local_port: 8080,
-  remote_port: 80,
-})
+const form = ref<TunnelForm>({ ...DEFAULT_TUNNEL_FORM })
 
 const protocolOptions: SelectOption[] = [
   { label: 'TCP', value: 'tcp' },
@@ -398,6 +462,20 @@ const heroSubtitle = computed(() =>
 const primaryButtonLabel = computed(() => {
   if (store.isConnecting) return t('connection.connecting')
   return store.isConnected ? t('connection.disconnect') : t('connection.connectNow')
+})
+const connectionHintTitle = computed(() => {
+  if (!canConnect.value) return t('connection.hints.missingTitle')
+  if (store.isConnecting) return t('connection.hints.connectingTitle')
+  if (store.isConnected) return t('connection.hints.connectedTitle')
+  if (store.lastError) return t('connection.hints.errorTitle')
+  return t('connection.hints.readyTitle')
+})
+const connectionHintText = computed(() => {
+  if (!canConnect.value) return t('connection.hints.missingText')
+  if (store.isConnecting) return t('connection.hints.connectingText')
+  if (store.isConnected) return t('connection.hints.connectedText')
+  if (store.lastError) return t('connection.hints.errorText')
+  return t('connection.hints.readyText')
 })
 
 const summaryMetrics = computed<SummaryMetric[]>(() => [
@@ -421,7 +499,7 @@ const summaryMetrics = computed<SummaryMetric[]>(() => [
 const recentLogs = computed(() => store.activityLogs.slice(0, RECENT_LOG_LIMIT))
 const connectionTargetLabel = computed(() => store.serverAddr || t('connection.relayAddress'))
 const canConnect = computed(() => store.serverAddr.trim().length > 0)
-const canCreateTunnel = computed(() => {
+const canSubmitTunnel = computed(() => {
   return (
     form.value.name.trim().length > 0 &&
     form.value.local_addr.trim().length > 0 &&
@@ -442,6 +520,30 @@ const filteredTunnels = computed(() => {
 const runningTunnels = computed(() => store.tunnels.filter((tunnel) => isTunnelRunning(tunnel.status)))
 const startableTunnels = computed(() => store.tunnels.filter((tunnel) => !isTunnelRunning(tunnel.status)))
 const isBatchBusy = computed(() => batchAction.value !== '')
+const connectionActionClass = computed(() => ({
+  connected: store.isConnected,
+  connecting: store.isConnecting,
+  disconnected: !store.isConnected && !store.isConnecting,
+}))
+const modalTitle = computed(() => (tunnelFormMode.value === 'edit' ? t('tunnel.editTunnel') : t('tunnel.newTunnel')))
+const submitButtonLabel = computed(() => (tunnelFormMode.value === 'edit' ? t('tunnel.saveEdit') : t('tunnel.create')))
+const portSelectOptions = computed<Array<SelectOption | GroupedSelectOption>>(() => {
+  const groups = store.favoritePorts.reduce<Record<string, FavoritePortInfo[]>>((result, port) => {
+    const category = port.category || 'custom'
+    result[category] = result[category] || []
+    result[category].push(port)
+    return result
+  }, {})
+  return Object.keys(groups).sort().map((category) => ({
+    type: 'group',
+    label: translatePortCategory(category),
+    key: category,
+    children: groups[category].map((port) => ({
+      label: `${port.name}  ${port.protocol.toUpperCase()} ${port.port}`,
+      value: port.id,
+    })),
+  }))
+})
 
 // translateStatus 将后端状态字符串映射为当前语言文案。
 const translateStatus = (status: string): string => {
@@ -460,6 +562,12 @@ const translateConnectionType = (connectionType: string): string => {
 
 const translateLogCategory = (category: string): string => {
   const key = `logs.categories.${category}`
+  const translated = t(key)
+  return translated === key ? category : translated
+}
+
+const translatePortCategory = (category: string): string => {
+  const key = `ports.categories.${category}`
   const translated = t(key)
   return translated === key ? category : translated
 }
@@ -512,14 +620,13 @@ const handleDisconnect = async (): Promise<void> => {
   await store.disconnectServer()
 }
 
-const handleCreate = async (): Promise<void> => {
-  if (!canCreateTunnel.value) return
-  await store.createTunnel(form.value)
-  showForm.value = false
-  form.value = { name: '', proxy_type: 'tcp', local_addr: '127.0.0.1', local_port: 8080, remote_port: 80 }
+const resetTunnelForm = (): void => {
+  form.value = { ...DEFAULT_TUNNEL_FORM }
+  selectedPortValue.value = null
+  editingTunnelId.value = ''
 }
 
-const handleUsePort = (port: PortLike): void => {
+const fillTunnelFormFromPort = (port: PortLike): void => {
   form.value = {
     name: port.name || `local-${port.port}`,
     proxy_type: port.protocol || 'tcp',
@@ -527,7 +634,59 @@ const handleUsePort = (port: PortLike): void => {
     local_port: port.port,
     remote_port: port.port,
   }
-  showForm.value = true
+}
+
+const openCreateModal = (): void => {
+  tunnelFormMode.value = 'create'
+  resetTunnelForm()
+  showTunnelModal.value = true
+}
+
+const handleEdit = (tunnel: TunnelInfo): void => {
+  if (isTunnelRunning(tunnel.status)) {
+    message.warning(t('tunnel.stopBeforeEdit'))
+    return
+  }
+  tunnelFormMode.value = 'edit'
+  editingTunnelId.value = tunnel.id
+  selectedPortValue.value = null
+  form.value = {
+    name: tunnel.name,
+    proxy_type: tunnel.proxy_type,
+    local_addr: tunnel.local_addr,
+    local_port: tunnel.local_port,
+    remote_port: tunnel.remote_port,
+  }
+  showTunnelModal.value = true
+}
+
+const handlePortSelect = (value: string | number | null): void => {
+  const nextValue = value == null ? null : String(value)
+  selectedPortValue.value = nextValue
+  if (!nextValue) return
+  const port = store.favoritePorts.find((item) => item.id === nextValue)
+  if (!port) return
+  fillTunnelFormFromPort(port)
+}
+
+const handleSubmitTunnel = async (): Promise<void> => {
+  if (!canSubmitTunnel.value || isSavingTunnel.value) return
+  isSavingTunnel.value = true
+  try {
+    if (tunnelFormMode.value === 'edit') {
+      await store.updateTunnel({ id: editingTunnelId.value, ...form.value })
+      message.success(t('tunnel.updateSuccess'))
+    } else {
+      await store.createTunnel(form.value)
+      message.success(t('tunnel.createSuccess'))
+    }
+    showTunnelModal.value = false
+    resetTunnelForm()
+  } catch {
+    message.error(store.lastError || t('tunnel.saveFailed'))
+  } finally {
+    isSavingTunnel.value = false
+  }
 }
 
 const handleDelete = async (id: string): Promise<void> => {
@@ -594,16 +753,20 @@ onUnmounted(() => {
 
 <style scoped>
 .client-dashboard {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .overview-hero,
 .traffic-panel,
 .recent-log-panel,
-.tunnel-panel,
-.port-panel {
+.tunnel-panel {
   border: 1px solid var(--line-soft);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
@@ -616,69 +779,63 @@ onUnmounted(() => {
   border-radius: 8px;
 }
 
-.connection-strip {
+.connection-layout {
+  min-height: 232px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(520px, auto);
+  grid-template-columns: minmax(0, 1fr) 260px;
   align-items: center;
-  gap: 18px;
+  gap: 28px;
 }
 
-.compact-connection {
-  min-height: 148px;
-}
-
-.connection-state {
+.connection-copy {
   min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.hero-copy-stack {
+  min-width: 0;
+  display: grid;
   gap: 14px;
 }
 
-.connection-state div {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.connection-state strong {
+.hero-copy-stack h2 {
+  max-width: 620px;
+  margin: 0;
   color: var(--text-main);
-  font-size: 18px;
+  font-size: 34px;
+  line-height: 1.14;
 }
 
-.connection-state span:last-child {
-  overflow: hidden;
+.hero-copy-stack p {
+  max-width: 640px;
+  margin: 0;
   color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.connection-hint {
+  max-width: 520px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-cyan);
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.08), rgba(138, 43, 226, 0.05));
+}
+
+.connection-hint strong {
+  color: var(--text-main);
   font-size: 13px;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.primary-action-stack {
-  min-width: 190px;
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-}
-
-.primary-action-stack span {
-  max-width: 280px;
-  color: var(--text-muted);
+.connection-hint span {
+  color: var(--text-dim);
   font-size: 12px;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-.quick-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.85fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.relay-input,
-.token-input {
-  min-width: 0;
+  line-height: 1.5;
 }
 
 .status-dot {
@@ -693,6 +850,220 @@ onUnmounted(() => {
 
 .error-alert {
   margin-top: 12px;
+}
+
+.connect-action {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+}
+
+.tunnel-animation {
+  position: absolute;
+  inset: 12px;
+  pointer-events: none;
+}
+
+.orbit,
+.node,
+.beam {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.orbit {
+  inset: 20px;
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  border-radius: 50%;
+  opacity: 0.74;
+}
+
+.orbit-b {
+  inset: 42px;
+  border-color: rgba(138, 43, 226, 0.22);
+  transform: rotate(28deg) scaleY(0.62);
+}
+
+.node {
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--nex-cyan);
+  box-shadow: 0 0 14px rgba(0, 255, 255, 0.72);
+  transform: translateY(-50%);
+}
+
+.node-left {
+  left: 24px;
+}
+
+.node-right {
+  right: 24px;
+}
+
+.beam {
+  top: 50%;
+  left: 52px;
+  right: 52px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.96), transparent);
+  opacity: 0.62;
+  transform: translateY(-50%) scaleX(0.66);
+}
+
+.beam-b {
+  background: linear-gradient(90deg, transparent, rgba(138, 43, 226, 0.9), transparent);
+  transform: translateY(-50%) rotate(90deg) scaleX(0.48);
+}
+
+.connect-button {
+  position: relative;
+  z-index: 1;
+  width: 192px;
+  height: 192px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.45), transparent 22%),
+    var(--accent-gradient);
+  color: white;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow:
+    0 0 30px rgba(138, 43, 226, 0.34),
+    inset 0 0 24px rgba(255, 255, 255, 0.18);
+  transition:
+    transform var(--duration-small) var(--ease-standard),
+    box-shadow var(--duration-small) var(--ease-standard),
+    filter var(--duration-small) var(--ease-standard);
+}
+
+.connect-button::before,
+.connect-button::after {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  opacity: 0.65;
+}
+
+.connect-button::after {
+  inset: 34px;
+  border-color: rgba(0, 255, 255, 0.28);
+}
+
+.connect-button span {
+  position: relative;
+  z-index: 1;
+}
+
+.connect-button:hover:not(:disabled) {
+  transform: scale(1.025);
+  box-shadow:
+    0 0 42px rgba(0, 255, 255, 0.32),
+    inset 0 0 24px rgba(255, 255, 255, 0.2);
+}
+
+.connect-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.45);
+  opacity: 0.64;
+}
+
+.connect-button.active {
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.35), transparent 22%),
+    linear-gradient(135deg, #ef4444, #8a2be2);
+}
+
+.connect-caption {
+  max-width: 240px;
+  color: var(--text-dim);
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .connect-action.connecting .orbit-a {
+    animation: tunnelOrbit 1400ms linear infinite;
+  }
+
+  .connect-action.connecting .orbit-b {
+    animation: tunnelOrbitReverse 1800ms linear infinite;
+  }
+
+  .connect-action.connecting .beam-a {
+    animation: tunnelBeam 1200ms var(--ease-standard) infinite;
+  }
+
+  .connect-action.connecting .beam-b {
+    animation: tunnelBeam 1400ms var(--ease-standard) infinite 120ms;
+  }
+
+  .connect-action.connected .beam,
+  .connect-action.connected .node {
+    animation: tunnelPulse 2200ms var(--ease-standard) infinite;
+  }
+
+  .connect-action.disconnected .beam {
+    transform: translateY(-50%) scaleX(0.2);
+    opacity: 0.22;
+  }
+}
+
+@keyframes tunnelOrbit {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tunnelOrbitReverse {
+  from {
+    transform: rotate(28deg) scaleY(0.62);
+  }
+
+  to {
+    transform: rotate(-332deg) scaleY(0.62);
+  }
+}
+
+@keyframes tunnelBeam {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: translateY(-50%) scaleX(0.28);
+  }
+
+  50% {
+    opacity: 0.86;
+    transform: translateY(-50%) scaleX(0.88);
+  }
+}
+
+@keyframes tunnelPulse {
+  0%,
+  100% {
+    opacity: 0.46;
+  }
+
+  50% {
+    opacity: 0.92;
+  }
 }
 
 .overview-grid {
@@ -839,24 +1210,36 @@ onUnmounted(() => {
 }
 
 .tunnels-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.42fr);
-  gap: 16px;
+  min-width: 0;
+  display: block;
 }
 
 .tunnel-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  min-width: min(620px, 100%);
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: center;
   gap: 8px;
 }
 
+.tunnel-toolbar-actions {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
 .tunnel-search {
-  width: 190px;
+  min-width: 0;
+  width: 100%;
+}
+
+:global(.tunnel-modal) {
+  width: min(760px, calc(100vw - 48px));
 }
 
 .tunnel-form {
-  margin-bottom: 14px;
   padding: 14px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
@@ -923,10 +1306,16 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
 @media (max-width: 1280px) {
-  .connection-strip,
-  .overview-grid,
-  .tunnels-layout {
+  .connection-layout,
+  .overview-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       'metrics'
@@ -934,24 +1323,12 @@ onUnmounted(() => {
       'logs';
   }
 
-  .quick-form {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  }
-
-  .primary-action-stack {
-    justify-items: stretch;
-  }
-
-  .primary-action-stack span {
-    text-align: left;
+  .connect-action {
+    justify-self: center;
   }
 
   .tunnel-toolbar {
-    justify-content: flex-start;
-  }
-
-  .tunnel-search {
-    width: min(100%, 320px);
+    grid-template-columns: minmax(220px, 1fr) auto;
   }
 }
 
@@ -964,12 +1341,27 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
+  .tunnel-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .tunnel-toolbar-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .tunnel-meta {
     flex-wrap: wrap;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .orbit,
+  .node,
+  .beam {
+    animation: none !important;
+  }
+
   .tunnel-item {
     transition: none;
   }

@@ -50,6 +50,7 @@ const (
 	activityActionConnectServer      = "connect_server"
 	activityActionDisconnectServer   = "disconnect_server"
 	activityActionCreateTunnel       = "create_tunnel"
+	activityActionUpdateTunnel       = "update_tunnel"
 	activityActionStartTunnel        = "start_tunnel"
 	activityActionStopTunnel         = "stop_tunnel"
 	activityActionDeleteTunnel       = "delete_tunnel"
@@ -74,7 +75,7 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.4.1-alpha"
+var AppVersion = "0.5.0-alpha"
 
 // App is the main Wails application struct.
 type App struct {
@@ -296,6 +297,16 @@ type CreateTunnelInput struct {
 	RemotePort int    `json:"remote_port"`
 }
 
+// UpdateTunnelInput is the input for updating a stopped tunnel configuration.
+type UpdateTunnelInput struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ProxyType  string `json:"proxy_type"`
+	LocalAddr  string `json:"local_addr"`
+	LocalPort  int    `json:"local_port"`
+	RemotePort int    `json:"remote_port"`
+}
+
 type ServerConfigInput struct {
 	ServerAddr string `json:"server_addr"`
 	AuthToken  string `json:"auth_token"`
@@ -376,6 +387,78 @@ func (a *App) CreateTunnel(input CreateTunnelInput) (*TunnelInfo, error) {
 		TargetID:   tc.ID,
 		Title:      "隧道配置已创建",
 		Message:    fmt.Sprintf("创建隧道 %s，映射 %s:%d 到远端端口 %d。", tc.Name, tc.LocalAddr, tc.LocalPort, tc.RemotePort),
+		Metadata: map[string]string{
+			"name":        tc.Name,
+			"proxy_type":  tc.ProxyType,
+			"local_addr":  tc.LocalAddr,
+			"local_port":  fmt.Sprintf("%d", tc.LocalPort),
+			"remote_port": fmt.Sprintf("%d", tc.RemotePort),
+		},
+	})
+	return info, nil
+}
+
+// UpdateTunnel 更新已停止的隧道配置，避免运行时代理和持久化配置短暂不一致。
+func (a *App) UpdateTunnel(input UpdateTunnelInput) (*TunnelInfo, error) {
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		err := fmt.Errorf("tunnel id is required")
+		a.recordError(err)
+		return nil, err
+	}
+	if err := validateCreateTunnelInput(CreateTunnelInput{
+		Name:       input.Name,
+		ProxyType:  input.ProxyType,
+		LocalAddr:  input.LocalAddr,
+		LocalPort:  input.LocalPort,
+		RemotePort: input.RemotePort,
+	}); err != nil {
+		a.recordError(err)
+		return nil, err
+	}
+	tc, err := a.store.Get(id)
+	if err != nil {
+		a.recordError(err)
+		return nil, err
+	}
+	if tc == nil {
+		err := fmt.Errorf("tunnel config not found: %s", id)
+		a.recordError(err)
+		return nil, err
+	}
+	if isPersistedTunnelEnabled(tc.Status) || (a.manager != nil && a.manager.HasTunnel(tc.Name)) {
+		err := fmt.Errorf("stop tunnel before editing")
+		a.recordError(err)
+		return nil, err
+	}
+	proxyType := input.ProxyType
+	if proxyType == "" {
+		proxyType = defaultProxyType
+	}
+	tc.Name = input.Name
+	tc.ProxyType = proxyType
+	tc.LocalAddr = input.LocalAddr
+	tc.LocalPort = input.LocalPort
+	tc.RemotePort = input.RemotePort
+	if err := a.store.Update(tc); err != nil {
+		a.recordError(err)
+		return nil, err
+	}
+	info := &TunnelInfo{
+		ID: tc.ID, Name: tc.Name, ProxyType: tc.ProxyType,
+		LocalAddr: tc.LocalAddr, LocalPort: tc.LocalPort,
+		RemotePort: tc.RemotePort, Status: tc.Status,
+		ConnectionType: a.tunnelConnectionType(tc.Status),
+	}
+	a.clearError()
+	a.appendActivityLog(activityLog{
+		Level:      activityLogLevelInfo,
+		Category:   activityLogCategoryOperation,
+		Action:     activityActionUpdateTunnel,
+		TargetType: activityTargetTunnel,
+		TargetID:   tc.ID,
+		Title:      "隧道配置已更新",
+		Message:    fmt.Sprintf("更新隧道 %s，映射 %s:%d 到远端端口 %d。", tc.Name, tc.LocalAddr, tc.LocalPort, tc.RemotePort),
 		Metadata: map[string]string{
 			"name":        tc.Name,
 			"proxy_type":  tc.ProxyType,

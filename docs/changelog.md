@@ -1,5 +1,14 @@
 # 更新日志
 
+## v0.5.0-alpha
+
+- Windows 桌面端新增 Wails 官方 NSIS 安装包，安装器使用管理员权限安装应用、检测 `wintun.dll`，并提供自动下载官方 Wintun 包或手动安装的路径。
+- macOS 桌面端新增 `.app + .dmg` 打包方案，DMG 内置 Applications 拖拽入口、安装说明和未签名 alpha 标记；脚本预留 Developer ID 签名和 notarization 钩子。
+- 发布流程新增 Windows installer、Windows zip 和 macOS DMG 资产，所有安装包生成 SHA256 校验文件和 manifest。
+- 桌面发布脚本增加 `-Installer`、`-WintunDownloadUrl`、`-WintunSha256`、`-SkipZip` 参数；zip 便携包继续支持通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 随包放置官方 DLL。
+- Release workflow 拆分 Windows 与 macOS 桌面包构建，上传最终安装器、压缩包和校验文件，避免发布中间目录、缓存、旧版本 exe 和临时资源。
+- 版本入口统一升级到 `v0.5.0-alpha` / `0.5.0`，发布文档补充 Wintun、管理员权限、签名/公证和资源精简说明。
+
 ## v0.4.1-alpha
 
 - 新增生产验证手册，覆盖 Dashboard HTTPS/CORS/鉴权、Windows/macOS P2P/TUN、Linux eBPF XDP 和多地域 Edge/Anycast 演练。

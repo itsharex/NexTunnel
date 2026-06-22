@@ -182,8 +182,13 @@ onMounted(async () => {
 
 <style scoped>
 .logs-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   display: grid;
   gap: 14px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .logs-toolbar,

@@ -1,37 +1,23 @@
 <template>
   <section class="network-view">
-    <div class="network-grid">
-      <n-card
-        class="network-panel"
-        :bordered="false"
-      >
-        <template #header>
-          <div class="panel-title">
-            <div>
-              <strong>{{ t('network.virtualNetwork') }}</strong>
-              <span>{{ t('network.virtualNetworkSubtitle') }}</span>
-            </div>
-            <n-tag
-              round
-              :type="virtualNetwork?.applied ? 'success' : 'warning'"
-              :bordered="false"
-            >
-              {{ virtualNetwork?.applied ? t('network.applied') : t('network.notApplied') }}
-            </n-tag>
-          </div>
-        </template>
-
-        <div class="network-facts">
-          <div
-            v-for="item in virtualNetworkFacts"
-            :key="item.label"
-            class="fact-row"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
+    <n-card
+      class="network-hero"
+      :bordered="false"
+    >
+      <div class="network-hero-copy">
+        <n-tag
+          round
+          :type="virtualNetwork?.applied ? 'success' : 'warning'"
+          :bordered="false"
+        >
+          {{ virtualNetwork?.applied ? t('network.applied') : t('network.notApplied') }}
+        </n-tag>
+        <div>
+          <strong>{{ t('network.virtualNetwork') }}</strong>
+          <span>{{ t('network.virtualNetworkSubtitle') }}</span>
         </div>
-
+      </div>
+      <div class="network-hero-actions">
         <n-space>
           <n-button
             type="primary"
@@ -48,10 +34,37 @@
             {{ t('network.resetRoutes') }}
           </n-button>
         </n-space>
+      </div>
+    </n-card>
+
+    <div class="network-main-grid">
+      <n-card
+        class="network-panel virtual-panel"
+        :bordered="false"
+      >
+        <template #header>
+          <div class="panel-title">
+            <div>
+              <strong>{{ t('network.virtualNetwork') }}</strong>
+              <span>{{ t('network.virtualNetworkSubtitle') }}</span>
+            </div>
+          </div>
+        </template>
+
+        <div class="network-facts virtual-facts">
+          <div
+            v-for="item in virtualNetworkFacts"
+            :key="item.label"
+            class="fact-row"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
       </n-card>
 
       <n-card
-        class="network-panel"
+        class="network-panel platform-panel"
         :bordered="false"
       >
         <template #header>
@@ -63,7 +76,7 @@
           </div>
         </template>
 
-        <div class="capability-list">
+        <div class="capability-grid">
           <div
             v-for="item in platformFacts"
             :key="item.label"
@@ -80,27 +93,27 @@
             </n-tag>
           </div>
         </div>
-
-        <div
-          v-if="platformIssues.length > 0"
-          class="issue-list"
-        >
-          <article
-            v-for="issue in platformIssues"
-            :key="issue.code"
-            class="issue-item"
-            :class="issue.severity"
-          >
-            <div>
-              <strong>{{ issue.message }}</strong>
-              <span>{{ issue.action }}</span>
-            </div>
-          </article>
-        </div>
       </n-card>
     </div>
 
-    <div class="network-grid">
+    <div
+      v-if="platformIssues.length > 0"
+      class="issue-list"
+    >
+      <article
+        v-for="issue in platformIssues"
+        :key="issue.code"
+        class="issue-item"
+        :class="issue.severity"
+      >
+        <div>
+          <strong>{{ issue.message }}</strong>
+          <span>{{ issue.action }}</span>
+        </div>
+      </article>
+    </div>
+
+    <div class="network-bottom-grid">
       <n-card
         class="network-panel"
         :bordered="false"
@@ -250,22 +263,77 @@ onMounted(async () => {
 
 <style scoped>
 .network-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   display: grid;
-  gap: 18px;
+  grid-template-rows: auto auto auto;
+  gap: 16px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
-.network-grid {
+.network-main-grid,
+.network-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.8fr);
-  gap: 18px;
+  gap: 16px;
 }
 
-.network-panel {
+.network-main-grid {
+  grid-template-columns: minmax(420px, 1.12fr) minmax(360px, 0.88fr);
+}
+
+.network-bottom-grid {
+  grid-template-columns: minmax(360px, 0.78fr) minmax(420px, 1fr);
+}
+
+.network-hero,
+.network-panel,
+.issue-list {
   border: 1px solid var(--line-soft);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
     var(--surface-bg);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
+}
+
+.network-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.network-hero-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.network-hero-copy div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.network-hero-copy strong {
+  color: var(--text-main);
+  font-size: 20px;
+}
+
+.network-hero-copy span {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.network-hero-actions {
+  flex: 0 0 auto;
+}
+
+.network-panel {
+  min-width: 0;
 }
 
 .panel-title {
@@ -293,11 +361,14 @@ onMounted(async () => {
 }
 
 .network-facts,
-.capability-list,
-.issue-list {
+.capability-grid {
   display: grid;
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.virtual-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .fact-row,
@@ -327,8 +398,17 @@ onMounted(async () => {
   text-align: right;
 }
 
-.issue-list {
+.capability-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 0;
+}
+
+.issue-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
 }
 
 .issue-item {
@@ -364,7 +444,7 @@ onMounted(async () => {
 
 .command-log {
   min-height: 180px;
-  max-height: 260px;
+  max-height: 220px;
   overflow: auto;
   padding: 12px;
   border: 1px solid rgba(0, 255, 255, 0.16);
@@ -381,8 +461,21 @@ onMounted(async () => {
 }
 
 @media (max-width: 1180px) {
-  .network-grid {
+  .network-main-grid,
+  .network-bottom-grid,
+  .virtual-facts,
+  .capability-grid,
+  .issue-list {
     grid-template-columns: 1fr;
+  }
+
+  .network-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .network-hero-actions {
+    width: 100%;
   }
 }
 </style>

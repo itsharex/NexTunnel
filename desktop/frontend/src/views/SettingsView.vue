@@ -689,10 +689,15 @@ onMounted(async () => {
 
 <style scoped>
 .settings-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: 292px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .settings-sidebar,

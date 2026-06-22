@@ -19,6 +19,10 @@ export interface CreateTunnelInput {
   remote_port: number
 }
 
+export interface UpdateTunnelInput extends CreateTunnelInput {
+  id: string
+}
+
 export interface ServerConfigInput {
   server_addr: string
   auth_token: string
@@ -332,6 +336,14 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
       connection_type: 'standby',
     }
   },
+  UpdateTunnel: (input: unknown) => {
+    const tunnelInput = input as UpdateTunnelInput
+    return {
+      ...tunnelInput,
+      status: PREVIEW_TUNNEL_STATUS,
+      connection_type: 'standby',
+    }
+  },
   DeleteTunnel: () => undefined,
   StartTunnel: () => undefined,
   StopTunnel: () => undefined,
@@ -457,6 +469,10 @@ export const GetTunnels = (): Promise<TunnelInfo[]> => {
 
 export const CreateTunnel = (input: CreateTunnelInput): Promise<TunnelInfo> => {
   return call<TunnelInfo>('CreateTunnel', input)
+}
+
+export const UpdateTunnel = (input: UpdateTunnelInput): Promise<TunnelInfo> => {
+  return call<TunnelInfo>('UpdateTunnel', input)
 }
 
 export const DeleteTunnel = (id: string): Promise<void> => {

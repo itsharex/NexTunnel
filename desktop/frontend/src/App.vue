@@ -642,10 +642,11 @@ select {
   flex-direction: column;
   gap: 16px;
   padding: 24px 28px 28px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .content-header {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -665,6 +666,14 @@ select {
   line-height: 1.16;
 }
 
+.content-shell > .client-dashboard,
+.content-shell > .network-view,
+.content-shell > .logs-view,
+.content-shell > .settings-view {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .n-card {
   backdrop-filter: blur(12px);
 }
@@ -672,6 +681,13 @@ select {
 .view-switch-enter-active,
 .view-switch-leave-active {
   transition: opacity var(--duration-medium) var(--ease-standard), transform var(--duration-medium) var(--ease-standard);
+}
+
+.view-switch-enter-active,
+.view-switch-leave-active,
+.view-switch-enter-to,
+.view-switch-leave-from {
+  min-height: 0;
 }
 
 .view-switch-enter-from,
