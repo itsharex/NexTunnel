@@ -202,6 +202,42 @@ function Set-InstallerConfig {
   ) | Set-Content -Path $installerConfigPath -Encoding UTF8
 }
 
+function Add-NSISToPath {
+  if ($Installer -ne "nsis") {
+    return
+  }
+
+  $existingMakensis = Get-Command makensis -ErrorAction SilentlyContinue
+  if ($existingMakensis) {
+    Write-Host "NSIS 已可用：$($existingMakensis.Source)"
+    return
+  }
+
+  $candidatePaths = [System.Collections.Generic.List[string]]::new()
+  if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+    $candidatePaths.Add((Join-Path $env:ProgramFiles "NSIS\makensis.exe")) | Out-Null
+  }
+  $programFilesX86 = ${env:ProgramFiles(x86)}
+  if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
+    $candidatePaths.Add((Join-Path $programFilesX86 "NSIS\makensis.exe")) | Out-Null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
+    $candidatePaths.Add((Join-Path $env:ChocolateyInstall "bin\makensis.exe")) | Out-Null
+    $candidatePaths.Add((Join-Path $env:ChocolateyInstall "lib\nsis\tools\makensis.exe")) | Out-Null
+  }
+
+  foreach ($candidatePath in $candidatePaths) {
+    if (Test-Path $candidatePath) {
+      $nsisDirectory = Split-Path -Parent (Resolve-Path $candidatePath).Path
+      $env:PATH = "$nsisDirectory;$env:PATH"
+      Write-Host "已加入 NSIS 路径：$nsisDirectory"
+      return
+    }
+  }
+
+  throw "未找到 makensis.exe。请先安装 NSIS，或把 makensis.exe 所在目录加入 PATH。"
+}
+
 function Invoke-WailsBuild {
   Write-Host "打包桌面端 $releaseVersion ($Platform)"
   New-DirectoryIfMissing -Path $goCacheRoot
@@ -322,6 +358,7 @@ New-DirectoryIfMissing -Path $distRoot
 Set-InstallerConfig
 try {
   Invoke-FrontendBuild
+  Add-NSISToPath
   Invoke-WailsBuild
   New-PortableArchive
   Rename-NSISInstaller
