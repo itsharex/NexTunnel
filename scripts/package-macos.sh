@@ -46,7 +46,25 @@ if [[ -z "${VERSION// }" ]]; then
   exit 1
 fi
 
-if [[ ! "$VERSION" =~ ^v?[0-9A-Za-z][0-9A-Za-z.\-+]*$ ]]; then
+VERSION_BODY="${VERSION#v}"
+if [[ -z "$VERSION_BODY" ]]; then
+  echo "Version 包含非法字符：$VERSION" >&2
+  exit 1
+fi
+case "${VERSION_BODY:0:1}" in
+  [A-Za-z0-9]) ;;
+  *)
+    echo "Version 包含非法字符：$VERSION" >&2
+    exit 1
+    ;;
+esac
+case "$VERSION_BODY" in
+  *[!A-Za-z0-9.+-]*)
+    echo "Version 包含非法字符：$VERSION" >&2
+    exit 1
+    ;;
+esac
+if [[ "$VERSION" != "$VERSION_BODY" && "${VERSION:0:1}" != "v" ]]; then
   echo "Version 包含非法字符：$VERSION" >&2
   exit 1
 fi

@@ -58,9 +58,12 @@ jobs:
         env:
           NEXTUNNEL_WINTUN_SHA256: ${{ secrets.NEXTUNNEL_WINTUN_SHA256 }}
         run: |
-          $arguments = @("-Version", "$env:RELEASE_VERSION", "-Installer", "nsis")
+          $arguments = @{
+            Version = "$env:RELEASE_VERSION"
+            Installer = "nsis"
+          }
           if (-not [string]::IsNullOrWhiteSpace($env:NEXTUNNEL_WINTUN_SHA256)) {
-            $arguments += @("-WintunSha256", "$env:NEXTUNNEL_WINTUN_SHA256")
+            $arguments.WintunSha256 = "$env:NEXTUNNEL_WINTUN_SHA256"
           }
           ./scripts/package-desktop.ps1 @arguments
 
@@ -69,6 +72,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          overwrite_files: true
           files: |
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64-installer.exe
             dist/nextunnel-${{ env.RELEASE_VERSION }}-windows-amd64-installer.exe.sha256
@@ -113,6 +117,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          overwrite_files: true
           files: |
             dist/nextunnel-${{ env.RELEASE_VERSION }}-darwin-universal.dmg
             dist/nextunnel-${{ env.RELEASE_VERSION }}-darwin-universal.dmg.sha256
@@ -140,6 +145,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          overwrite_files: true
           files: |
             dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-amd64.tar.gz
             dist/nextunnel-cli-${{ env.RELEASE_VERSION }}-linux-amd64.tar.gz.sha256
@@ -190,6 +196,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          overwrite_files: true
           files: |
             dist/nextunnel-server-linux-amd64.tar.gz
             dist/nextunnel-server-linux-amd64.tar.gz.sha256
@@ -237,6 +244,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
           prerelease: ${{ contains(env.RELEASE_VERSION, '-alpha') || contains(env.RELEASE_VERSION, '-beta') || contains(env.RELEASE_VERSION, '-rc') }}
+          overwrite_files: true
           files: |
             dist/nextunnel-docs-${{ env.RELEASE_VERSION }}.tar.gz
             dist/nextunnel-docs-${{ env.RELEASE_VERSION }}.tar.gz.sha256
