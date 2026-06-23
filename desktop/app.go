@@ -61,6 +61,7 @@ const (
 	activityActionScanLocalPorts     = "scan_local_ports"
 	activityActionSaveFavoritePort   = "save_favorite_port"
 	activityActionDeleteFavoritePort = "delete_favorite_port"
+	activityActionRepairWintun       = "repair_wintun"
 	activityActionRuntimeError       = "runtime_error"
 	activityActionClearActivityLogs  = "clear_activity_logs"
 	activityTargetServer             = "server"
@@ -71,6 +72,7 @@ const (
 	activityTargetPort               = "port"
 	activityTargetRuntime            = "runtime"
 	activityTargetLog                = "activity_log"
+	activityTargetWintun             = "wintun"
 	maxActivityLogMessageLength      = 1200
 )
 

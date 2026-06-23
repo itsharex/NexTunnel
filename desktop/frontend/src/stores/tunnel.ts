@@ -18,6 +18,7 @@ import {
   DisconnectServer,
   GetConnectionStatus,
   GetRuntimeStatus,
+  GetWintunStatus,
   GetServerSettings,
   GetTrafficStats,
   ListFavoritePorts,
@@ -34,6 +35,8 @@ import {
   SaveGeneralSettings,
   SetAutoStartEnabled,
   ImportConfig,
+  RepairWintun,
+  RelaunchAsAdminForWintunRepair,
   ScanLocalPorts,
   type FavoritePortInfo,
   type FavoritePortInput,
@@ -51,6 +54,8 @@ import {
   type DiagnosticsInfo,
   type ExportConfigOptions,
   type VirtualNetworkState,
+  type WintunStatus,
+  type RepairWintunInput,
 } from '../api/app'
 
 export interface Tunnel {
@@ -135,6 +140,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
   const natType = ref<string>('')
   const runtimeStatus = ref<RuntimeStatus | null>(null)
   const virtualNetwork = ref<VirtualNetworkState | null>(null)
+  const wintunStatus = ref<WintunStatus | null>(null)
+  const isRepairingWintun = ref<boolean>(false)
   const lastNATDetection = ref<NATDetectionInfo | null>(null)
 
   const tunnelCount = computed(() => tunnels.value.length)
@@ -445,6 +452,45 @@ export const useTunnelStore = defineStore('tunnels', () => {
       pushTrafficSample(trafficStats.value)
       virtualNetwork.value = runtimeStatus.value.virtual_network
       lastError.value = runtimeStatus.value.last_error
+      await refreshWintunStatus()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const refreshWintunStatus = async (): Promise<void> => {
+    try {
+      wintunStatus.value = await GetWintunStatus()
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      throw e
+    }
+  }
+
+  const repairWintun = async (input: RepairWintunInput = { source: 'download' }): Promise<WintunStatus> => {
+    isRepairingWintun.value = true
+    lastError.value = ''
+    try {
+      const status = await RepairWintun(input)
+      wintunStatus.value = status
+      await refreshRuntimeStatus()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+      return status
+    } catch (e) {
+      lastError.value = extractErrorMessage(e)
+      await refreshWintunStatus().catch(() => undefined)
+      throw e
+    } finally {
+      isRepairingWintun.value = false
+    }
+  }
+
+  const relaunchAsAdminForWintunRepair = async (): Promise<void> => {
+    lastError.value = ''
+    try {
+      await RelaunchAsAdminForWintunRepair()
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
@@ -618,6 +664,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     natType,
     runtimeStatus,
     virtualNetwork,
+    wintunStatus,
+    isRepairingWintun,
     lastNATDetection,
     tunnelCount,
     isConnected,
@@ -644,6 +692,9 @@ export const useTunnelStore = defineStore('tunnels', () => {
     stopTunnel,
     refreshStatus,
     refreshRuntimeStatus,
+    refreshWintunStatus,
+    repairWintun,
+    relaunchAsAdminForWintunRepair,
     applyVirtualNetwork,
     resetVirtualNetwork,
     detectNAT,

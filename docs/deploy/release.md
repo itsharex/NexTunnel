@@ -17,16 +17,23 @@ Windows 推荐发布 NSIS 安装包和 zip 便携包：
 .\scripts\package-desktop.ps1 -Version v0.5.0-alpha -Installer nsis
 ```
 
-NSIS 安装包会检测 `wintun.dll`。缺失时，安装器可以从 WireGuard 官方资源下载 Wintun ZIP、可选校验 SHA256，并复制匹配架构的 DLL 到应用目录。发布时建议配置校验值：
+NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 Wintun ZIP、校验 SHA256、抽取 `bin/amd64/wintun.dll`，再把 DLL 打进安装包。安装时优先离线复制内置 DLL 到 `NexTunnel.exe` 同目录，只有内置 DLL 缺失时才走联网下载兜底。当前官方 Wintun 0.14.1 ZIP SHA256 为：
+
+```text
+07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
+```
+
+可显式指定校验值和模式：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
   -Version v0.5.0-alpha `
   -Installer nsis `
-  -WintunSha256 "<official-wintun-zip-sha256>"
+  -WintunMode bundled `
+  -WintunSha256 "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 ```
 
-zip 便携包仍支持把官方 DLL 随包放入应用目录：
+`-WintunDllPath` 可用于本地指定已经校验过的官方 DLL，优先级高于下载。zip 便携包仍支持把官方 DLL 随包放入应用目录；如果旧包或手动复制导致 DLL 缺失，桌面端网络页会显示 Wintun 状态，并提供“修复 Wintun”和“以管理员身份重启修复”入口：
 
 ```powershell
 $env:NEXTUNNEL_WINTUN_DLL="D:\path\to\wintun.dll"
@@ -88,12 +95,13 @@ cd server/web && npm run build
 cd docs && npm run docs:build
 ```
 
-发布前还应按 `docs/deploy/production-verification.md` 更新生产验证状态。真实 TUN 验证需要 Windows 管理员权限和匹配架构 `wintun.dll`；macOS 需要授权 helper、LaunchDaemon 或可用的 `sudo -n`。Dashboard 若没有可用 HTTPS 域名，应使用 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 隧道完成 API 验收，不能把管理员密码发送到公网 HTTP。
+发布前还应按 `docs/deploy/production-verification.md` 更新生产验证状态。真实 TUN 验证需要 Windows 管理员权限和匹配架构 `wintun.dll`。安装 DLL 只解决“找不到 DLL”，首次创建或管理 Wintun adapter 仍需要管理员权限；macOS 需要授权 helper、LaunchDaemon 或可用的 `sudo -n`。Dashboard 若没有可用 HTTPS 域名，应使用 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 隧道完成 API 验收，不能把管理员密码发送到公网 HTTP。
 
 发布后需要确认：
 
 - Release 页面存在所有安装器、压缩包和校验文件。
-- Windows 安装器可启动并显示 Wintun 检测/下载/跳过路径。
+- Windows 安装器可启动并显示自定义欢迎页、安装位置、桌面快捷方式、Wintun 检测、内置安装/下载兜底/手动/跳过路径和完成页立即运行选项。
+- Windows zip 包或旧安装缺少 DLL 时，网络页可显示 Wintun 路径、架构状态和修复入口。
 - macOS DMG 可挂载并包含 `NexTunnel.app`、Applications 链接、README 和 manifest。
 - `install.sh` 可以通过 `releases/download/v0.5.0-alpha/install.sh` 下载。
 - `nextunnel-docs-v0.5.0-alpha.tar.gz` 可下载，且校验文件匹配。

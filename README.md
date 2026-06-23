@@ -307,7 +307,7 @@ make package-desktop VERSION=v0.5.0-alpha
 make package-macos VERSION=v0.5.0-alpha
 ```
 
-Windows 安装器使用 Wails 官方 NSIS 流程，安装时会请求管理员权限并检测 `wintun.dll`。缺失时可自动下载官方 Wintun 包并复制匹配架构 DLL，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 把官方 DLL 放到 `NexTunnel.exe` 同目录。
+Windows 安装器使用 Wails 官方 NSIS 流程和自定义暗色向导，支持安装位置、桌面快捷方式、完成后立即运行和 Wintun 组件选择。默认发布包会内置经过 SHA256 校验的官方 `wintun.dll`，安装时离线复制到 `NexTunnel.exe` 同目录；联网下载只作为兜底路径，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 放入官方 DLL，缺失时可在桌面端网络页使用“修复 Wintun”入口。
 
 macOS 使用 `.app + .dmg` 分发，DMG 内含 Applications 拖拽入口和权限说明。alpha 默认未签名；发布脚本预留 Developer ID 签名与 notarization 环境变量，真实系统路由仍需要运行时管理员授权、授权 helper 或 LaunchDaemon 支持。
 

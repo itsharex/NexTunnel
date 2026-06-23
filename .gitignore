@@ -16,6 +16,7 @@ desktop/build/windows/*
 !desktop/build/windows/installer/
 !desktop/build/windows/installer/**
 desktop/build/windows/installer/nextunnel_installer_config.local.nsh
+desktop/build/windows/installer/resources/wintun*.dll
 desktop/build/windows/installer/wails_tools.nsh
 desktop/build/windows/installer/tmp/
 

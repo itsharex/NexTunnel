@@ -93,6 +93,20 @@ export interface PlatformIssue {
   action: string
 }
 
+export interface WintunStatus {
+  found: boolean
+  path: string
+  arch_compatible: boolean
+  installable: boolean
+  needs_admin: boolean
+  message: string
+  action: string
+}
+
+export interface RepairWintunInput {
+  source: 'bundled' | 'download'
+}
+
 export interface VirtualNetworkRoute {
   destination: string
   gateway: string
@@ -400,6 +414,25 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
     traffic_stats: PREVIEW_TRAFFIC_STATS,
     last_error: '',
   }),
+  GetWintunStatus: () => ({
+    found: false,
+    path: '',
+    arch_compatible: false,
+    installable: false,
+    needs_admin: false,
+    message: 'Preview mode does not manage Wintun.',
+    action: 'Run the desktop app on Windows.',
+  }),
+  RepairWintun: () => ({
+    found: false,
+    path: '',
+    arch_compatible: false,
+    installable: false,
+    needs_admin: false,
+    message: 'Preview mode does not manage Wintun.',
+    action: 'Run the desktop app on Windows.',
+  }),
+  RelaunchAsAdminForWintunRepair: () => undefined,
   ApplyVirtualNetwork: () => PREVIEW_VIRTUAL_NETWORK,
   ResetVirtualNetwork: () => PREVIEW_VIRTUAL_NETWORK,
   DetectNAT: () => ({
@@ -561,6 +594,18 @@ export const SetAutoStartEnabled = (enabled: boolean): Promise<void> => {
 
 export const GetRuntimeStatus = (): Promise<RuntimeStatus> => {
   return call<RuntimeStatus>('GetRuntimeStatus')
+}
+
+export const GetWintunStatus = (): Promise<WintunStatus> => {
+  return call<WintunStatus>('GetWintunStatus')
+}
+
+export const RepairWintun = (input: RepairWintunInput): Promise<WintunStatus> => {
+  return call<WintunStatus>('RepairWintun', input)
+}
+
+export const RelaunchAsAdminForWintunRepair = (): Promise<void> => {
+  return call<void>('RelaunchAsAdminForWintunRepair')
 }
 
 export const ApplyVirtualNetwork = (): Promise<VirtualNetworkState> => {

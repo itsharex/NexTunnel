@@ -2,10 +2,12 @@
 
 ## v0.5.0-alpha
 
-- Windows 桌面端新增 Wails 官方 NSIS 安装包，安装器使用管理员权限安装应用、检测 `wintun.dll`，并提供自动下载官方 Wintun 包或手动安装的路径。
+- Windows 桌面端新增 Wails 官方 NSIS 安装包，安装器使用可审计的 NSIS 原生自定义界面，支持自定义安装位置、桌面快捷方式、完成后立即运行和 Wintun 组件页。
+- Wintun 改为内置优先策略：发布脚本下载官方 Wintun ZIP、校验 SHA256、抽取匹配架构 DLL 打进安装包；安装时离线复制，联网下载只作为兜底路径。
+- 桌面网络页新增 Wintun 状态与修复入口，zip 包或旧安装缺失 `wintun.dll` 时可下载官方包、校验后修复，并在权限不足时请求管理员模式修复。
 - macOS 桌面端新增 `.app + .dmg` 打包方案，DMG 内置 Applications 拖拽入口、安装说明和未签名 alpha 标记；脚本预留 Developer ID 签名和 notarization 钩子。
 - 发布流程新增 Windows installer、Windows zip 和 macOS DMG 资产，所有安装包生成 SHA256 校验文件和 manifest。
-- 桌面发布脚本增加 `-Installer`、`-WintunDownloadUrl`、`-WintunSha256`、`-SkipZip` 参数；zip 便携包继续支持通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 随包放置官方 DLL。
+- 桌面发布脚本增加 `-Installer`、`-WintunMode`、`-WintunDownloadUrl`、`-WintunSha256`、`-SkipZip` 参数；zip 便携包继续支持通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 随包放置官方 DLL。
 - Release workflow 拆分 Windows 与 macOS 桌面包构建，上传最终安装器、压缩包和校验文件，避免发布中间目录、缓存、旧版本 exe 和临时资源。
 - 版本入口统一升级到 `v0.5.0-alpha` / `0.5.0`，发布文档补充 Wintun、管理员权限、签名/公证和资源精简说明。
 

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -13,6 +14,10 @@ import (
 var assets embed.FS
 
 func main() {
+	if runWintunRepairCommandIfRequested(os.Args[1:]) {
+		return
+	}
+
 	app := NewApp()
 
 	err := wails.Run(&options.App{

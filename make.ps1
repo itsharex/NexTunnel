@@ -13,6 +13,7 @@ Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DefaultVersion = "v0.5.0-alpha"
+$DefaultWintunSha256 = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 $DefaultMacHost = "10.160.166.44"
 $DefaultMacUser = "lizhigang"
 $DefaultMacPort = "22"
@@ -241,8 +242,8 @@ function Invoke-Target {
         "package-desktop" {
             $version = Get-SettingValue -Name "VERSION" -DefaultValue $DefaultVersion
             $wintunDll = Get-SettingValue -Name "WINTUN_DLL" -DefaultValue ""
-            $wintunSha256 = Get-SettingValue -Name "WINTUN_SHA256" -DefaultValue ""
-            Invoke-RepoScript -ScriptPath "scripts\package-desktop.ps1" -Arguments @("-Version", $version, "-WintunDllPath", $wintunDll, "-WintunSha256", $wintunSha256)
+            $wintunSha256 = Get-SettingValue -Name "WINTUN_SHA256" -DefaultValue $DefaultWintunSha256
+            Invoke-RepoScript -ScriptPath "scripts\package-desktop.ps1" -Arguments @("-Version", $version, "-WintunMode", "bundled", "-WintunDllPath", $wintunDll, "-WintunSha256", $wintunSha256)
         }
         "package-macos" {
             $version = Get-SettingValue -Name "VERSION" -DefaultValue $DefaultVersion

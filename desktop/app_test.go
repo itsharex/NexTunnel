@@ -67,6 +67,37 @@ func TestServerSettingsDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeWintunRepairSource(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty defaults to download", source: "", want: wintunRepairSourceDownload},
+		{name: "download accepted", source: " download ", want: wintunRepairSourceDownload},
+		{name: "bundled accepted", source: "Bundled", want: wintunRepairSourceBundled},
+		{name: "invalid rejected", source: "mirror", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeWintunRepairSource(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected unsupported Wintun repair source to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalizeWintunRepairSource: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("source = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFavoritePortLifecycle(t *testing.T) {
 	app := newTestApp(t)
 

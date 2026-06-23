@@ -3,9 +3,11 @@ param(
   [string]$Platform = "windows/amd64",
   [ValidateSet("none", "nsis")]
   [string]$Installer = "nsis",
+  [ValidateSet("bundled", "download", "manual")]
+  [string]$WintunMode = "bundled",
   [string]$WintunDllPath = "",
   [string]$WintunDownloadUrl = "https://www.wintun.net/builds/wintun-0.14.1.zip",
-  [string]$WintunSha256 = "",
+  [string]$WintunSha256 = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
   [switch]$SkipFrontend,
   [switch]$SkipZip
 )
@@ -19,8 +21,12 @@ $distRoot = Join-Path $repositoryRoot "dist"
 $releaseVersion = $Version.Trim()
 $supportedDesktopPlatform = "windows/amd64"
 $wintunMachineAmd64 = 0x8664
+$wintunArchiveRelativeDllPath = "wintun\bin\amd64\wintun.dll"
 $installerConfigPath = Join-Path $desktopRoot "build\windows\installer\nextunnel_installer_config.local.nsh"
+$installerBundledWintunPath = Join-Path $desktopRoot "build\windows\installer\resources\wintun-amd64.dll"
 $goCacheRoot = Join-Path $repositoryRoot ".gocache-release"
+$wintunDownloadRoot = Join-Path $repositoryRoot ".tmp\wintun-release"
+$preparedWintunDllPath = ""
 
 if ([string]::IsNullOrWhiteSpace($releaseVersion)) {
   throw "Version 不能为空"
@@ -33,6 +39,9 @@ if ($Platform -ne $supportedDesktopPlatform) {
 }
 if ($Installer -eq "none" -and $SkipZip) {
   throw "Installer=none 时不能同时使用 -SkipZip，否则不会生成任何桌面发布资产"
+}
+if (($WintunMode -eq "bundled" -or $WintunMode -eq "download") -and [string]::IsNullOrWhiteSpace($WintunSha256)) {
+  throw "WintunMode=$WintunMode 时必须提供 WintunSha256，避免发布不可校验的 DLL 来源"
 }
 
 $normalizedVersion = $releaseVersion.TrimStart("v")
@@ -79,6 +88,21 @@ function New-Sha256File {
   return $checksumPath
 }
 
+function Assert-Sha256File {
+  param(
+    [string]$Path,
+    [string]$ExpectedSha256
+  )
+  if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+    throw "缺少 SHA256，无法校验文件：$Path"
+  }
+  $actualHash = (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
+  $expectedHash = $ExpectedSha256.Trim().ToLowerInvariant()
+  if ($actualHash -ne $expectedHash) {
+    throw "SHA256 校验失败：$Path expected=$expectedHash actual=$actualHash"
+  }
+}
+
 function Get-WintunDllCandidatePath {
   $candidatePaths = [System.Collections.Generic.List[string]]::new()
   if (-not [string]::IsNullOrWhiteSpace($WintunDllPath)) {
@@ -103,6 +127,13 @@ function Get-WintunDllCandidatePath {
     }
   }
   return ""
+}
+
+function Get-PreparedWintunDllPath {
+  if (-not [string]::IsNullOrWhiteSpace($preparedWintunDllPath) -and (Test-Path $preparedWintunDllPath)) {
+    return $preparedWintunDllPath
+  }
+  return Get-WintunDllCandidatePath
 }
 
 function Get-PEDllMachine {
@@ -148,6 +179,48 @@ function Assert-WintunDllArchitecture {
   if ($actualMachine -ne $expectedMachine) {
     throw ("wintun.dll 架构不匹配：path={0} expected=0x{1:X4} actual=0x{2:X4}" -f $Path, $expectedMachine, $actualMachine)
   }
+}
+
+function Save-OfficialWintunDll {
+  if ($WintunMode -ne "bundled") {
+    return
+  }
+
+  $existingWintunPath = Get-WintunDllCandidatePath
+  if (-not [string]::IsNullOrWhiteSpace($existingWintunPath)) {
+    Assert-WintunDllArchitecture -Path $existingWintunPath
+    New-DirectoryIfMissing -Path (Split-Path -Parent $installerBundledWintunPath)
+    Copy-Item -LiteralPath $existingWintunPath -Destination $installerBundledWintunPath -Force
+    $script:preparedWintunDllPath = $installerBundledWintunPath
+    Write-Host "已使用本地官方 Wintun DLL：$existingWintunPath"
+    return
+  }
+
+  if ($WintunDownloadUrl -notmatch '^https://') {
+    throw "WintunDownloadUrl 必须使用 HTTPS：$WintunDownloadUrl"
+  }
+  New-DirectoryIfMissing -Path $wintunDownloadRoot
+  New-DirectoryIfMissing -Path (Split-Path -Parent $installerBundledWintunPath)
+
+  $wintunZipPath = Join-Path $wintunDownloadRoot "wintun.zip"
+  $wintunExtractRoot = Join-Path $wintunDownloadRoot "extract"
+  if (Test-Path $wintunExtractRoot) {
+    Remove-Item -LiteralPath $wintunExtractRoot -Recurse -Force
+  }
+
+  Write-Host "下载官方 Wintun 包：$WintunDownloadUrl"
+  Invoke-WebRequest -Uri $WintunDownloadUrl -OutFile $wintunZipPath
+  Assert-Sha256File -Path $wintunZipPath -ExpectedSha256 $WintunSha256
+
+  Expand-Archive -Path $wintunZipPath -DestinationPath $wintunExtractRoot -Force
+  $extractedDllPath = Join-Path $wintunExtractRoot $wintunArchiveRelativeDllPath
+  if (-not (Test-Path $extractedDllPath)) {
+    throw "官方 Wintun 包中未找到预期 DLL：$wintunArchiveRelativeDllPath"
+  }
+  Assert-WintunDllArchitecture -Path $extractedDllPath
+  Copy-Item -LiteralPath $extractedDllPath -Destination $installerBundledWintunPath -Force
+  $script:preparedWintunDllPath = $installerBundledWintunPath
+  Write-Host "已准备内置 Wintun DLL：$installerBundledWintunPath"
 }
 
 function Invoke-FrontendBuild {
@@ -199,7 +272,11 @@ function Set-InstallerConfig {
   @(
     "!define WINTUN_DOWNLOAD_URL `"$WintunDownloadUrl`""
     "!define WINTUN_SHA256 `"$($WintunSha256.Trim())`""
+    "!define WINTUN_MODE `"$WintunMode`""
   ) | Set-Content -Path $installerConfigPath -Encoding UTF8
+  if ($WintunMode -eq "bundled" -and (Test-Path $installerBundledWintunPath)) {
+    Add-Content -Path $installerConfigPath -Encoding UTF8 -Value "!define WINTUN_BUNDLED_DLL `"resources\wintun-amd64.dll`""
+  }
 }
 
 function Add-NSISToPath {
@@ -259,6 +336,9 @@ function Invoke-WailsBuild {
       $buildArguments += "-nsis"
     }
     & wails @buildArguments
+    if ($LASTEXITCODE -ne 0) {
+      throw "Wails 构建失败，退出码：$LASTEXITCODE"
+    }
   } finally {
     $env:GOCACHE = $previousGoCache
     Pop-Location
@@ -281,7 +361,7 @@ function New-PortableArchive {
   New-Item -ItemType Directory -Path $targetDirectory | Out-Null
 
   Copy-Item -LiteralPath $binarySource -Destination $binaryTarget
-  $wintunSourcePath = Get-WintunDllCandidatePath
+  $wintunSourcePath = Get-PreparedWintunDllPath
   $wintunManifestLine = "Wintun: missing; zip users must place official wintun.dll beside NexTunnel.exe or use NEXTUNNEL_WINTUN_DLL"
   if (-not [string]::IsNullOrWhiteSpace($wintunSourcePath)) {
     Assert-WintunDllArchitecture -Path $wintunSourcePath
@@ -328,7 +408,11 @@ function Rename-NSISInstaller {
   $checksumPath = New-Sha256File -Path $installerTarget
 
   $manifestPath = Join-Path $distRoot "$targetName-installer.MANIFEST.txt"
-  $wintunMode = if ([string]::IsNullOrWhiteSpace($WintunSha256)) { "download-on-install; sha256 not pinned" } else { "download-on-install; sha256 pinned" }
+  $wintunMode = switch ($WintunMode) {
+    "bundled" { "bundled; fallback download sha256 pinned" }
+    "download" { "download-on-install; sha256 pinned" }
+    default { "manual" }
+  }
   @(
     "NexTunnel desktop installer"
     "Version: $releaseVersion"
@@ -355,6 +439,7 @@ function Remove-InstallerConfig {
 }
 
 New-DirectoryIfMissing -Path $distRoot
+Save-OfficialWintunDll
 Set-InstallerConfig
 try {
   Invoke-FrontendBuild
