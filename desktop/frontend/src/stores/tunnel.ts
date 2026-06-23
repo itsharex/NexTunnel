@@ -89,6 +89,12 @@ export interface TrafficSample {
 
 const MAX_TRAFFIC_HISTORY_LENGTH = 40
 const DEFAULT_ACTIVITY_LOG_LIMIT = 100
+const MIN_CONNECTION_ANIMATION_MS = 1800
+
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs)
+  })
 
 export const useTunnelStore = defineStore('tunnels', () => {
   const tunnels = ref<Tunnel[]>([])
@@ -102,11 +108,23 @@ export const useTunnelStore = defineStore('tunnels', () => {
     control_plane_token: '',
     stun_server: 'stun.l.google.com:19302',
     stun_alt_server: 'stun.l.google.com:19302',
+    active_node_id: 'default',
+    nodes: [
+      {
+        id: 'default',
+        name: '默认节点',
+        relay_addr: '127.0.0.1:7000',
+        relay_token: '',
+        control_plane_url: '',
+        control_plane_token: '',
+        stun_server: 'stun.l.google.com:19302',
+        stun_alt_server: 'stun.l.google.com:19302',
+      },
+    ],
   })
   const appearanceSettings = ref<AppearanceSettings>({
     theme_mode: 'dark',
     motion_level: 'normal',
-    language: 'zh-CN',
     accent_color: '#00ffff',
   })
   const generalSettings = ref<GeneralSettings>({
@@ -115,6 +133,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     start_minimized: false,
     export_include_tokens: false,
     tray_supported: false,
+    language: 'zh-CN',
   })
   const updateInfo = ref<UpdateInfo | null>(null)
   const diagnosticsInfo = ref<DiagnosticsInfo | null>(null)
@@ -364,11 +383,13 @@ export const useTunnelStore = defineStore('tunnels', () => {
   const connectServer = async (input?: ServerConfigInput): Promise<void> => {
     isConnecting.value = true
     lastError.value = ''
+    const startedAt = Date.now()
     try {
       const cfg = input ?? { server_addr: serverAddr.value, auth_token: authToken.value }
       serverAddr.value = cfg.server_addr
       authToken.value = cfg.auth_token
       await ConnectServer(cfg)
+      await wait(Math.max(0, MIN_CONNECTION_ANIMATION_MS - (Date.now() - startedAt)))
       await refreshStatus()
       await loadTunnels()
       await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
@@ -376,6 +397,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
       lastError.value = extractErrorMessage(e)
       throw e
     } finally {
+      await wait(Math.max(0, MIN_CONNECTION_ANIMATION_MS - (Date.now() - startedAt)))
       isConnecting.value = false
     }
   }

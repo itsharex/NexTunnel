@@ -31,12 +31,20 @@
               class="tunnel-animation"
               aria-hidden="true"
             >
+              <span class="tunnel-core" />
               <span class="orbit orbit-a" />
               <span class="orbit orbit-b" />
+              <span class="orbit orbit-c" />
               <span class="node node-left" />
               <span class="node node-right" />
               <span class="beam beam-a" />
               <span class="beam beam-b" />
+              <span
+                v-for="particle in tunnelParticles"
+                :key="particle"
+                class="data-particle"
+                :class="`particle-${particle}`"
+              />
             </div>
             <button
               class="connect-button"
@@ -421,6 +429,7 @@ type GroupedSelectOption = SelectOption & {
 }
 
 const RECENT_LOG_LIMIT = 6
+const CONNECTION_SETTLE_DELAY_MS = 620
 const DEFAULT_TUNNEL_FORM: TunnelForm = {
   name: '',
   proxy_type: 'tcp',
@@ -477,7 +486,6 @@ const connectionHintText = computed(() => {
   if (store.lastError) return t('connection.hints.errorText')
   return t('connection.hints.readyText')
 })
-
 const summaryMetrics = computed<SummaryMetric[]>(() => [
   {
     label: t('metrics.upload'),
@@ -524,9 +532,11 @@ const connectionActionClass = computed(() => ({
   connected: store.isConnected,
   connecting: store.isConnecting,
   disconnected: !store.isConnected && !store.isConnecting,
+  errored: Boolean(store.lastError) && !store.isConnected,
 }))
 const modalTitle = computed(() => (tunnelFormMode.value === 'edit' ? t('tunnel.editTunnel') : t('tunnel.newTunnel')))
 const submitButtonLabel = computed(() => (tunnelFormMode.value === 'edit' ? t('tunnel.saveEdit') : t('tunnel.create')))
+const tunnelParticles = Array.from({ length: 16 }, (_, index) => index + 1)
 const portSelectOptions = computed<Array<SelectOption | GroupedSelectOption>>(() => {
   const groups = store.favoritePorts.reduce<Record<string, FavoritePortInfo[]>>((result, port) => {
     const category = port.category || 'custom'
@@ -544,6 +554,10 @@ const portSelectOptions = computed<Array<SelectOption | GroupedSelectOption>>(()
     })),
   }))
 })
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs)
+  })
 
 // translateStatus 将后端状态字符串映射为当前语言文案。
 const translateStatus = (status: string): string => {
@@ -610,14 +624,30 @@ const handlePrimaryConnection = async (): Promise<void> => {
 
 const handleConnect = async (): Promise<void> => {
   if (!canConnect.value) return
-  await store.connectServer({
-    server_addr: store.serverAddr,
-    auth_token: store.authToken,
-  })
+  try {
+    await store.connectServer({
+      server_addr: store.serverAddr,
+      auth_token: store.authToken,
+    })
+    await wait(CONNECTION_SETTLE_DELAY_MS)
+    await store.refreshStatus()
+    if (store.isConnected) {
+      message.success(t('connection.messages.connectSuccess'))
+      return
+    }
+    message.error(store.lastError || t('connection.messages.connectFailed'))
+  } catch {
+    message.error(store.lastError || t('connection.messages.connectFailed'))
+  }
 }
 
 const handleDisconnect = async (): Promise<void> => {
-  await store.disconnectServer()
+  try {
+    await store.disconnectServer()
+    message.success(t('connection.messages.disconnectSuccess'))
+  } catch {
+    message.error(store.lastError || t('connection.messages.disconnectFailed'))
+  }
 }
 
 const resetTunnelForm = (): void => {
@@ -867,10 +897,22 @@ onUnmounted(() => {
 
 .orbit,
 .node,
-.beam {
+.beam,
+.tunnel-core,
+.data-particle {
   position: absolute;
   display: block;
   pointer-events: none;
+}
+
+.tunnel-core {
+  inset: 34px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(0, 255, 255, 0.18), transparent 34%),
+    conic-gradient(from 90deg, transparent, rgba(0, 255, 255, 0.2), transparent 34%, rgba(138, 43, 226, 0.22), transparent 70%);
+  opacity: 0.54;
+  transform: perspective(280px) rotateX(66deg) scale(0.92);
 }
 
 .orbit {
@@ -884,6 +926,12 @@ onUnmounted(() => {
   inset: 42px;
   border-color: rgba(138, 43, 226, 0.22);
   transform: rotate(28deg) scaleY(0.62);
+}
+
+.orbit-c {
+  inset: 66px;
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: rotate(-42deg) scaleY(0.46);
 }
 
 .node {
@@ -919,6 +967,35 @@ onUnmounted(() => {
   background: linear-gradient(90deg, transparent, rgba(138, 43, 226, 0.9), transparent);
   transform: translateY(-50%) rotate(90deg) scaleX(0.48);
 }
+
+.data-particle {
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--nex-cyan);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(18px) scaleY(0.24);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.48);
+}
+
+.particle-1 { --particle-angle: 0deg; }
+.particle-2 { --particle-angle: 24deg; }
+.particle-3 { --particle-angle: 48deg; }
+.particle-4 { --particle-angle: 72deg; }
+.particle-5 { --particle-angle: 96deg; }
+.particle-6 { --particle-angle: 120deg; }
+.particle-7 { --particle-angle: 144deg; }
+.particle-8 { --particle-angle: 168deg; }
+.particle-9 { --particle-angle: 192deg; }
+.particle-10 { --particle-angle: 216deg; }
+.particle-11 { --particle-angle: 240deg; }
+.particle-12 { --particle-angle: 264deg; }
+.particle-13 { --particle-angle: 288deg; }
+.particle-14 { --particle-angle: 312deg; }
+.particle-15 { --particle-angle: 336deg; }
+.particle-16 { --particle-angle: 348deg; }
 
 .connect-button {
   position: relative;
@@ -1003,6 +1080,14 @@ onUnmounted(() => {
     animation: tunnelOrbitReverse 1800ms linear infinite;
   }
 
+  .connect-action.connecting .orbit-c {
+    animation: tunnelOrbitTilt 2200ms linear infinite;
+  }
+
+  .connect-action.connecting .tunnel-core {
+    animation: tunnelCoreWarp 1200ms var(--ease-standard) infinite;
+  }
+
   .connect-action.connecting .beam-a {
     animation: tunnelBeam 1200ms var(--ease-standard) infinite;
   }
@@ -1011,9 +1096,48 @@ onUnmounted(() => {
     animation: tunnelBeam 1400ms var(--ease-standard) infinite 120ms;
   }
 
+  .connect-action.connecting .data-particle {
+    animation: tunnelParticle 980ms cubic-bezier(0.2, 0.82, 0.22, 1) infinite;
+  }
+
+  .connect-action.connecting .particle-2,
+  .connect-action.connecting .particle-7,
+  .connect-action.connecting .particle-12 {
+    animation-delay: 110ms;
+  }
+
+  .connect-action.connecting .particle-3,
+  .connect-action.connecting .particle-8,
+  .connect-action.connecting .particle-13 {
+    animation-delay: 220ms;
+  }
+
+  .connect-action.connecting .particle-4,
+  .connect-action.connecting .particle-9,
+  .connect-action.connecting .particle-14 {
+    animation-delay: 330ms;
+  }
+
+  .connect-action.connecting .particle-5,
+  .connect-action.connecting .particle-10,
+  .connect-action.connecting .particle-15 {
+    animation-delay: 440ms;
+  }
+
+  .connect-action.connecting .particle-6,
+  .connect-action.connecting .particle-11,
+  .connect-action.connecting .particle-16 {
+    animation-delay: 550ms;
+  }
+
   .connect-action.connected .beam,
-  .connect-action.connected .node {
+  .connect-action.connected .node,
+  .connect-action.connected .tunnel-core {
     animation: tunnelPulse 2200ms var(--ease-standard) infinite;
+  }
+
+  .connect-action.errored .tunnel-animation {
+    animation: tunnelGlitch 420ms cubic-bezier(0.4, 0, 0.2, 1) 2;
   }
 
   .connect-action.disconnected .beam {
@@ -1039,6 +1163,64 @@ onUnmounted(() => {
 
   to {
     transform: rotate(-332deg) scaleY(0.62);
+  }
+}
+
+@keyframes tunnelOrbitTilt {
+  from {
+    transform: rotate(-42deg) scaleY(0.46);
+  }
+
+  to {
+    transform: rotate(318deg) scaleY(0.46);
+  }
+}
+
+@keyframes tunnelCoreWarp {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: perspective(280px) rotateX(66deg) scale(0.86);
+  }
+
+  50% {
+    opacity: 0.88;
+    transform: perspective(280px) rotateX(66deg) scale(1.08);
+  }
+}
+
+@keyframes tunnelParticle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(18px) scaleY(0.24);
+  }
+
+  22% {
+    opacity: 0.88;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(112px) scaleY(2.4);
+  }
+}
+
+@keyframes tunnelGlitch {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(-5px, 2px) skewX(-4deg);
+  }
+
+  50% {
+    transform: translate(4px, -2px) skewX(3deg);
+  }
+
+  75% {
+    transform: translate(-2px, -1px) skewX(-2deg);
   }
 }
 
@@ -1358,7 +1540,9 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .orbit,
   .node,
-  .beam {
+  .beam,
+  .tunnel-core,
+  .data-particle {
     animation: none !important;
   }
 

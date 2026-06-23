@@ -1,12 +1,16 @@
 <template>
   <n-config-provider
-    :theme="darkTheme"
+    :theme="naiveTheme"
     :theme-overrides="themeOverrides"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
   >
     <n-message-provider>
-      <div class="app-shell">
+      <div
+        class="app-shell"
+        :class="appThemeClass"
+        :style="appThemeStyle"
+      >
         <div
           class="network-background"
           aria-hidden="true"
@@ -23,13 +27,6 @@
           </div>
 
           <div class="titlebar-actions">
-            <n-select
-              v-model:value="currentLocale"
-              class="language-select"
-              size="small"
-              :options="localeOptions"
-              @update:value="handleLocaleChange"
-            />
             <n-button
               quaternary
               circle
@@ -165,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   darkTheme,
@@ -175,11 +172,11 @@ import {
   NConfigProvider,
   NIcon,
   NMessageProvider,
-  NSelect,
   NSpace,
   NTag,
   zhCN,
   type GlobalThemeOverrides,
+  type GlobalTheme,
 } from 'naive-ui'
 import { LayoutDashboard, Network, Route, ScrollText, Settings, type LucideIcon } from 'lucide-vue-next'
 import StatusView from './views/StatusView.vue'
@@ -205,25 +202,37 @@ type AppView = 'overview' | 'tunnels' | 'network' | 'logs' | 'settings'
 const { t, locale } = useI18n()
 const store = useTunnelStore()
 const version = ref('0.0.0')
-const currentLocale = ref<SupportedLocale>('zh-CN')
+const prefersDarkMode = ref(true)
 const activeView = ref<AppView>('overview')
 const NAV_ITEM_STEP = 70
 
-const themeOverrides: GlobalThemeOverrides = {
+const normalizedAccentColor = computed(() => {
+  const value = store.appearanceSettings.accent_color
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#00ffff'
+})
+
+const resolvedThemeMode = computed(() => {
+  if (store.appearanceSettings.theme_mode === 'system') {
+    return prefersDarkMode.value ? 'dark' : 'light'
+  }
+  return store.appearanceSettings.theme_mode === 'light' ? 'light' : 'dark'
+})
+
+const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   common: {
-    primaryColor: '#00ffff',
-    primaryColorHover: '#33f6f6',
-    primaryColorPressed: '#00d5d5',
+    primaryColor: normalizedAccentColor.value,
+    primaryColorHover: normalizedAccentColor.value,
+    primaryColorPressed: normalizedAccentColor.value,
     primaryColorSuppl: '#8a2be2',
     borderRadius: '8px',
-    bodyColor: '#091120',
-    cardColor: 'rgba(18, 31, 52, 0.82)',
-    modalColor: '#111c2f',
-    popoverColor: '#111c2f',
-    textColorBase: '#feffff',
-    textColor1: '#feffff',
-    textColor2: '#d2e0ec',
-    textColor3: '#a8a9a9',
+    bodyColor: resolvedThemeMode.value === 'dark' ? '#091120' : '#f4f8fb',
+    cardColor: resolvedThemeMode.value === 'dark' ? 'rgba(18, 31, 52, 0.82)' : 'rgba(255, 255, 255, 0.88)',
+    modalColor: resolvedThemeMode.value === 'dark' ? '#111c2f' : '#ffffff',
+    popoverColor: resolvedThemeMode.value === 'dark' ? '#111c2f' : '#ffffff',
+    textColorBase: resolvedThemeMode.value === 'dark' ? '#feffff' : '#091120',
+    textColor1: resolvedThemeMode.value === 'dark' ? '#feffff' : '#091120',
+    textColor2: resolvedThemeMode.value === 'dark' ? '#d2e0ec' : '#24364d',
+    textColor3: resolvedThemeMode.value === 'dark' ? '#a8a9a9' : '#58677a',
   },
   Button: {
     borderRadiusMedium: '8px',
@@ -232,21 +241,23 @@ const themeOverrides: GlobalThemeOverrides = {
   Card: {
     borderRadius: '8px',
   },
-}
+}))
 
-const localeOptions = computed(() => [
-  {
-    label: t('settings.simplifiedChinese'),
-    value: 'zh-CN',
-  },
-  {
-    label: t('settings.english'),
-    value: 'en-US',
-  },
-])
-
+const currentLocale = computed<SupportedLocale>(() => {
+  return SUPPORTED_LOCALES.includes(store.generalSettings.language as SupportedLocale)
+    ? (store.generalSettings.language as SupportedLocale)
+    : 'zh-CN'
+})
+const naiveTheme = computed<GlobalTheme | null>(() => (resolvedThemeMode.value === 'dark' ? darkTheme : null))
 const naiveLocale = computed(() => (currentLocale.value === 'zh-CN' ? zhCN : enUS))
 const naiveDateLocale = computed(() => (currentLocale.value === 'zh-CN' ? dateZhCN : null))
+const appThemeClass = computed(() => ({
+  'theme-light': resolvedThemeMode.value === 'light',
+  'motion-reduced': store.appearanceSettings.motion_level === 'reduced',
+}))
+const appThemeStyle = computed(() => ({
+  '--nex-cyan': normalizedAccentColor.value,
+}))
 
 const navItems = computed<NavItem[]>(() => [
   {
@@ -305,13 +316,6 @@ const connectionTagType = computed(() => {
   return 'error'
 })
 
-// handleLocaleChange 切换当前界面语言，默认语言为简体中文。
-const handleLocaleChange = (value: SupportedLocale): void => {
-  if (!SUPPORTED_LOCALES.includes(value)) return
-  currentLocale.value = value
-  locale.value = value
-}
-
 // loadVersion 兼容 Wails 注入失败场景，保证普通浏览器预览仍可打开。
 const loadVersion = async (): Promise<void> => {
   try {
@@ -321,8 +325,27 @@ const loadVersion = async (): Promise<void> => {
   }
 }
 
+const bindSystemTheme = (): void => {
+  if (!window.matchMedia) return
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  prefersDarkMode.value = mediaQuery.matches
+  mediaQuery.addEventListener?.('change', (event) => {
+    prefersDarkMode.value = event.matches
+  })
+}
+
+watch(
+  currentLocale,
+  (value) => {
+    locale.value = value
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
-  locale.value = currentLocale.value
+  bindSystemTheme()
+  await store.loadAppearanceSettings()
+  await store.loadGeneralSettings()
   await store.loadServerSettings()
   await store.refreshRuntimeStatus()
   await loadVersion()
@@ -377,6 +400,50 @@ body {
   background: var(--bg-dark);
   color: var(--text-main);
   font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.app-shell * {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.app-shell *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-shell *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-shell *::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: content-box;
+}
+
+.content-shell:hover *,
+.content-shell:focus-within *,
+.settings-content:hover *,
+.settings-content:focus-within * {
+  scrollbar-color: color-mix(in srgb, var(--nex-cyan) 56%, transparent) transparent;
+}
+
+.content-shell:hover *::-webkit-scrollbar-thumb,
+.content-shell:focus-within *::-webkit-scrollbar-thumb,
+.settings-content:hover *::-webkit-scrollbar-thumb,
+.settings-content:focus-within *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--nex-cyan) 78%, transparent), rgba(138, 43, 226, 0.72));
+  background-clip: content-box;
+  box-shadow: inset 0 0 0 1px rgba(254, 255, 255, 0.1);
+}
+
+.content-shell:hover *::-webkit-scrollbar-track,
+.content-shell:focus-within *::-webkit-scrollbar-track,
+.settings-content:hover *::-webkit-scrollbar-track,
+.settings-content:focus-within *::-webkit-scrollbar-track {
+  background: rgba(168, 169, 169, 0.05);
 }
 
 button,
@@ -469,10 +536,6 @@ select {
   gap: 8px;
   padding: 0 12px;
   --wails-draggable: no-drag;
-}
-
-.language-select {
-  width: 128px;
 }
 
 .window-icon {
@@ -709,5 +772,26 @@ select {
   .view-switch-leave-to {
     transform: none;
   }
+}
+
+.app-shell.motion-reduced *,
+.app-shell.motion-reduced *::before,
+.app-shell.motion-reduced *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+.app-shell.theme-light {
+  --bg-dark: #f4f8fb;
+  --sidebar-bg: #edf3f7;
+  --surface-bg: rgba(255, 255, 255, 0.88);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --line-soft: rgba(36, 54, 77, 0.14);
+  --line-cyan: color-mix(in srgb, var(--nex-cyan) 28%, transparent);
+  --text-main: #091120;
+  --text-dim: #34445c;
+  --text-muted: #66758a;
+  color: var(--text-main);
 }
 </style>

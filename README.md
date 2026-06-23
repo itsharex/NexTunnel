@@ -300,11 +300,11 @@ Windows PowerShell：
 
 ### 桌面安装包
 
-v0.5.0-alpha 起桌面端提供 Windows NSIS 安装包、Windows zip 便携包和 macOS DMG：
+桌面端发布包提供 Windows NSIS 安装包、Windows zip 便携包和 macOS DMG：
 
 ```bash
-make package-desktop VERSION=v0.5.0-alpha
-make package-macos VERSION=v0.5.0-alpha
+make package-desktop VERSION=v0.5.2-alpha
+make package-macos VERSION=v0.5.2-alpha
 ```
 
 Windows 安装器使用 Wails 官方 NSIS 流程和自定义暗色向导，支持安装位置、桌面快捷方式、完成后立即运行和 Wintun 组件选择。默认发布包会内置经过 SHA256 校验的官方 `wintun.dll`，安装时离线复制到 `NexTunnel.exe` 同目录；联网下载只作为兜底路径，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 放入官方 DLL，缺失时可在桌面端网络页使用“修复 Wintun”入口。

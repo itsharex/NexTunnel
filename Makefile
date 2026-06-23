@@ -1,6 +1,6 @@
 .PHONY: all dev dev-server-web build package-cli package-server package-desktop package-macos lint test verify-edge verify-ebpf-linux verify-tun verify-p2p-tun verify-dashboard verify-dashboard-ssh clean help
 
-VERSION ?= v0.5.0-alpha
+VERSION ?= v0.5.2-alpha
 WINTUN_SHA256 ?= 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 MAC_HOST ?= 10.160.166.44
 MAC_USER ?= lizhigang

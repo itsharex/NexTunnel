@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -38,6 +39,9 @@ const (
 	defaultPortScanConcurrency        = 32
 	maxLocalPortScanSize              = 128
 	defaultLocalPortScanHost          = "127.0.0.1"
+	defaultServerNodeID               = "default"
+	settingActiveServerNodeID         = "active_server_node_id"
+	settingServerNodes                = "server_nodes"
 
 	activityLogLevelInfo  = "info"
 	activityLogLevelWarn  = "warning"
@@ -77,7 +81,7 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.5.0-alpha"
+var AppVersion = "0.5.2-alpha"
 
 // App is the main Wails application struct.
 type App struct {
@@ -156,6 +160,20 @@ func (a *App) Greet(name string) string {
 
 // ServerSettings 保存桌面端连接 Relay、Control Plane 和 STUN 的生产配置。
 type ServerSettings struct {
+	RelayAddr         string               `json:"relay_addr"`
+	RelayToken        string               `json:"relay_token"`
+	ControlPlaneURL   string               `json:"control_plane_url"`
+	ControlPlaneToken string               `json:"control_plane_token"`
+	STUNServer        string               `json:"stun_server"`
+	STUNAltServer     string               `json:"stun_alt_server"`
+	ActiveNodeID      string               `json:"active_node_id"`
+	Nodes             []ServerNodeSettings `json:"nodes"`
+}
+
+// ServerNodeSettings 表示一个可切换的服务端实例，统一保存 Relay、Control Plane 和 STUN 配置。
+type ServerNodeSettings struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
 	RelayAddr         string `json:"relay_addr"`
 	RelayToken        string `json:"relay_token"`
 	ControlPlaneURL   string `json:"control_plane_url"`
@@ -684,13 +702,31 @@ func (a *App) DisconnectServer() {
 
 // GetServerSettings 返回持久化连接设置，缺省值用于首次启动。
 func (a *App) GetServerSettings() ServerSettings {
-	return ServerSettings{
+	legacy := ServerSettings{
 		RelayAddr:         a.settingOrDefault(settingRelayAddr, defaultRelayAddr),
 		RelayToken:        a.settingOrDefault(settingRelayToken, ""),
 		ControlPlaneURL:   a.settingOrDefault(settingControlPlaneURL, ""),
 		ControlPlaneToken: a.settingOrDefault(settingControlPlaneToken, ""),
 		STUNServer:        a.settingOrDefault(settingSTUNServer, defaultSTUNServer),
 		STUNAltServer:     a.settingOrDefault(settingSTUNAltServer, defaultSTUNServer),
+	}
+	if a.store == nil {
+		legacy.ActiveNodeID = defaultServerNodeID
+		legacy.Nodes = []ServerNodeSettings{defaultServerNode()}
+		return legacy
+	}
+	nodes := a.loadServerNodes(legacy)
+	activeNodeID := a.settingOrDefault(settingActiveServerNodeID, "")
+	activeNode := selectActiveServerNode(nodes, activeNodeID)
+	return ServerSettings{
+		RelayAddr:         activeNode.RelayAddr,
+		RelayToken:        activeNode.RelayToken,
+		ControlPlaneURL:   activeNode.ControlPlaneURL,
+		ControlPlaneToken: activeNode.ControlPlaneToken,
+		STUNServer:        activeNode.STUNServer,
+		STUNAltServer:     activeNode.STUNAltServer,
+		ActiveNodeID:      activeNode.ID,
+		Nodes:             nodes,
 	}
 }
 
@@ -701,22 +737,25 @@ func (a *App) SaveServerSettings(settings ServerSettings) error {
 		a.recordError(err)
 		return err
 	}
-	if strings.TrimSpace(settings.RelayAddr) == "" {
-		settings.RelayAddr = defaultRelayAddr
+	normalizedSettings, err := normalizeServerSettings(settings)
+	if err != nil {
+		a.recordError(err)
+		return err
 	}
-	if strings.TrimSpace(settings.STUNServer) == "" {
-		settings.STUNServer = defaultSTUNServer
-	}
-	if strings.TrimSpace(settings.STUNAltServer) == "" {
-		settings.STUNAltServer = settings.STUNServer
+	nodesJSON, err := json.Marshal(normalizedSettings.Nodes)
+	if err != nil {
+		a.recordError(err)
+		return fmt.Errorf("encode server nodes: %w", err)
 	}
 	values := map[string]string{
-		settingRelayAddr:         settings.RelayAddr,
-		settingRelayToken:        settings.RelayToken,
-		settingControlPlaneURL:   strings.TrimRight(settings.ControlPlaneURL, "/"),
-		settingControlPlaneToken: settings.ControlPlaneToken,
-		settingSTUNServer:        settings.STUNServer,
-		settingSTUNAltServer:     settings.STUNAltServer,
+		settingRelayAddr:          normalizedSettings.RelayAddr,
+		settingRelayToken:         normalizedSettings.RelayToken,
+		settingControlPlaneURL:    normalizedSettings.ControlPlaneURL,
+		settingControlPlaneToken:  normalizedSettings.ControlPlaneToken,
+		settingSTUNServer:         normalizedSettings.STUNServer,
+		settingSTUNAltServer:      normalizedSettings.STUNAltServer,
+		settingActiveServerNodeID: normalizedSettings.ActiveNodeID,
+		settingServerNodes:        string(nodesJSON),
 	}
 	for key, value := range values {
 		if err := a.store.SetSetting(key, value); err != nil {
@@ -737,6 +776,7 @@ func (a *App) SaveServerSettings(settings ServerSettings) error {
 			"control_plane_configured": fmt.Sprintf("%t", strings.TrimSpace(values[settingControlPlaneURL]) != ""),
 			"relay_token_configured":   fmt.Sprintf("%t", strings.TrimSpace(values[settingRelayToken]) != ""),
 			"stun_server":              values[settingSTUNServer],
+			"active_node_id":           values[settingActiveServerNodeID],
 		},
 	})
 	return nil
@@ -1150,6 +1190,155 @@ func (a *App) favoritePortsForScan() ([]FavoritePortInfo, error) {
 	return enabledPorts, nil
 }
 
+func (a *App) loadServerNodes(legacy ServerSettings) []ServerNodeSettings {
+	raw, err := a.store.GetSetting(settingServerNodes)
+	if err == nil && strings.TrimSpace(raw) != "" {
+		var nodes []ServerNodeSettings
+		if err := json.Unmarshal([]byte(raw), &nodes); err == nil {
+			normalized, normalizeErr := normalizeServerNodes(nodes, legacy)
+			if normalizeErr == nil && len(normalized) > 0 {
+				return normalized
+			}
+			if normalizeErr != nil && a.logger != nil {
+				a.logger.Warn("ignored invalid server nodes", "error", normalizeErr)
+			}
+		} else if a.logger != nil {
+			a.logger.Warn("decode server nodes failed", "error", err)
+		}
+	}
+	node, err := normalizeServerNode(ServerNodeSettings{
+		ID:                defaultServerNodeID,
+		Name:              "默认节点",
+		RelayAddr:         legacy.RelayAddr,
+		RelayToken:        legacy.RelayToken,
+		ControlPlaneURL:   legacy.ControlPlaneURL,
+		ControlPlaneToken: legacy.ControlPlaneToken,
+		STUNServer:        legacy.STUNServer,
+		STUNAltServer:     legacy.STUNAltServer,
+	})
+	if err != nil {
+		return []ServerNodeSettings{defaultServerNode()}
+	}
+	return []ServerNodeSettings{node}
+}
+
+func normalizeServerSettings(settings ServerSettings) (ServerSettings, error) {
+	nodes, err := normalizeServerNodes(settings.Nodes, settings)
+	if err != nil {
+		return ServerSettings{}, err
+	}
+	activeNode := selectActiveServerNode(nodes, settings.ActiveNodeID)
+	activeNode.RelayAddr = settings.RelayAddr
+	activeNode.RelayToken = settings.RelayToken
+	activeNode.ControlPlaneURL = strings.TrimSpace(settings.ControlPlaneURL)
+	activeNode.ControlPlaneToken = settings.ControlPlaneToken
+	activeNode.STUNServer = settings.STUNServer
+	activeNode.STUNAltServer = settings.STUNAltServer
+	activeNode, err = normalizeServerNode(activeNode)
+	if err != nil {
+		return ServerSettings{}, err
+	}
+	for index, node := range nodes {
+		if node.ID == activeNode.ID {
+			nodes[index] = activeNode
+			break
+		}
+	}
+	return ServerSettings{
+		RelayAddr:         activeNode.RelayAddr,
+		RelayToken:        activeNode.RelayToken,
+		ControlPlaneURL:   activeNode.ControlPlaneURL,
+		ControlPlaneToken: activeNode.ControlPlaneToken,
+		STUNServer:        activeNode.STUNServer,
+		STUNAltServer:     activeNode.STUNAltServer,
+		ActiveNodeID:      activeNode.ID,
+		Nodes:             nodes,
+	}, nil
+}
+
+func normalizeServerNodes(nodes []ServerNodeSettings, fallback ServerSettings) ([]ServerNodeSettings, error) {
+	if len(nodes) == 0 {
+		nodes = []ServerNodeSettings{{
+			ID:                firstNonEmpty(fallback.ActiveNodeID, defaultServerNodeID),
+			Name:              "默认节点",
+			RelayAddr:         fallback.RelayAddr,
+			RelayToken:        fallback.RelayToken,
+			ControlPlaneURL:   fallback.ControlPlaneURL,
+			ControlPlaneToken: fallback.ControlPlaneToken,
+			STUNServer:        fallback.STUNServer,
+			STUNAltServer:     fallback.STUNAltServer,
+		}}
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]ServerNodeSettings, 0, len(nodes))
+	for index, node := range nodes {
+		if strings.TrimSpace(node.ID) == "" {
+			node.ID = fmt.Sprintf("node-%d", index+1)
+		}
+		node.ID = strings.TrimSpace(node.ID)
+		if _, exists := seen[node.ID]; exists {
+			return nil, fmt.Errorf("duplicate server node id: %s", node.ID)
+		}
+		seen[node.ID] = struct{}{}
+		normalizedNode, err := normalizeServerNode(node)
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, normalizedNode)
+	}
+	if len(normalized) == 0 {
+		normalized = append(normalized, defaultServerNode())
+	}
+	return normalized, nil
+}
+
+func normalizeServerNode(node ServerNodeSettings) (ServerNodeSettings, error) {
+	node.ID = firstNonEmpty(node.ID, defaultServerNodeID)
+	node.Name = firstNonEmpty(node.Name, "默认节点")
+	node.RelayAddr = firstNonEmpty(node.RelayAddr, defaultRelayAddr)
+	node.ControlPlaneURL = strings.TrimSpace(node.ControlPlaneURL)
+	if node.ControlPlaneURL != "" {
+		normalizedURL, err := normalizeHTTPBaseURL(node.ControlPlaneURL)
+		if err != nil {
+			return ServerNodeSettings{}, err
+		}
+		node.ControlPlaneURL = normalizedURL
+	}
+	node.STUNServer = firstNonEmpty(node.STUNServer, defaultSTUNServer)
+	node.STUNAltServer = firstNonEmpty(node.STUNAltServer, node.STUNServer)
+	return node, nil
+}
+
+func defaultServerNode() ServerNodeSettings {
+	return ServerNodeSettings{
+		ID:            defaultServerNodeID,
+		Name:          "默认节点",
+		RelayAddr:     defaultRelayAddr,
+		STUNServer:    defaultSTUNServer,
+		STUNAltServer: defaultSTUNServer,
+	}
+}
+
+func selectActiveServerNode(nodes []ServerNodeSettings, activeNodeID string) ServerNodeSettings {
+	for _, node := range nodes {
+		if node.ID == activeNodeID {
+			return node
+		}
+	}
+	if len(nodes) > 0 {
+		return nodes[0]
+	}
+	return defaultServerNode()
+}
+
+func firstNonEmpty(value, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return strings.TrimSpace(fallback)
+	}
+	return trimmed
+}
+
 func (a *App) tunnelConnectionType(status string) string {
 	if status != statusActive && status != statusRunning {
 		return connectionTypeStandby
@@ -1398,7 +1587,11 @@ func isLocalTCPPortOpen(host string, port int, timeout time.Duration) bool {
 }
 
 func fetchVirtualNetworkConfig(baseURL, token, nodeID string) (*virtualnet.Config, error) {
-	requestURL := fmt.Sprintf("%s/api/v1/nodes/%s/routes", strings.TrimRight(baseURL, "/"), nodeID)
+	normalizedBaseURL, err := normalizeHTTPBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	requestURL := fmt.Sprintf("%s/api/v1/nodes/%s/routes", normalizedBaseURL, url.PathEscape(nodeID))
 	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create route config request: %w", err)
@@ -1427,4 +1620,28 @@ func fetchVirtualNetworkConfig(baseURL, token, nodeID string) (*virtualnet.Confi
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
 	return &cfg, nil
+}
+
+func normalizeHTTPBaseURL(rawBaseURL string) (string, error) {
+	trimmed := strings.TrimSpace(rawBaseURL)
+	if trimmed == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("parse url %q: %w", rawBaseURL, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("unsupported url scheme: %s", parsed.Scheme)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("url host is required")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/"), nil
 }

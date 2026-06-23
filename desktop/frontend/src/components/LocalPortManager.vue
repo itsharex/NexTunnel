@@ -10,7 +10,7 @@
           size="small"
           secondary
           :loading="store.isScanningPorts"
-          @click="handleScanEnabledPorts"
+          @click="openScanModal"
         >
           {{ t('ports.scanCommon') }}
         </n-button>
@@ -94,34 +94,6 @@
       </div>
     </div>
 
-    <div
-      v-if="store.portScanResults.length > 0"
-      class="scan-results"
-    >
-      <button
-        v-for="result in store.portScanResults"
-        :key="result.port"
-        class="scan-result"
-        :class="{ open: result.open }"
-        type="button"
-        :disabled="!result.open"
-        @click="emitUsePort(result)"
-      >
-        <span>
-          <strong>{{ result.name || `${result.protocol.toUpperCase()} ${result.port}` }}</strong>
-          <small>{{ result.category ? translateCategory(result.category) : t('ports.custom') }}</small>
-        </span>
-        <n-tag
-          size="small"
-          round
-          :type="result.open ? 'success' : 'default'"
-          :bordered="false"
-        >
-          {{ result.open ? t('ports.open') : t('ports.closed') }}
-        </n-tag>
-      </button>
-    </div>
-
     <n-tabs
       v-model:value="activeCategory"
       type="segment"
@@ -177,6 +149,168 @@
         </div>
       </n-tab-pane>
     </n-tabs>
+
+    <n-modal
+      v-model:show="showScanModal"
+      preset="card"
+      class="port-scan-modal"
+      :title="t('ports.scanModalTitle')"
+      :bordered="false"
+      :segmented="{ content: true, footer: 'soft' }"
+    >
+      <div class="scan-modal-layout">
+        <section
+          v-if="scanModalStage === 'radar'"
+          class="radar-panel radar-only"
+        >
+          <div
+            class="radar-screen"
+            :class="{ active: isRadarVisible }"
+            aria-hidden="true"
+          >
+            <span class="radar-ring ring-a" />
+            <span class="radar-ring ring-b" />
+            <span class="radar-ring ring-c" />
+            <span class="radar-sweep" />
+            <span
+              v-for="dot in radarDots"
+              :key="dot.port"
+              class="radar-dot"
+              :class="{ open: dot.open }"
+              :style="{ left: dot.x, top: dot.y }"
+            />
+          </div>
+          <div class="radar-copy">
+            <strong>{{ t('ports.scanning') }}</strong>
+            <span>{{ t('ports.scanModalSubtitle') }}</span>
+          </div>
+        </section>
+
+        <section
+          v-else
+          class="scan-result-panel"
+        >
+          <div class="scan-result-header">
+            <strong>{{ t('ports.scanResults') }}</strong>
+            <div class="scan-result-meta">
+              <n-tag
+                round
+                size="small"
+                :type="store.openPortCount > 0 ? 'success' : 'default'"
+                :bordered="false"
+              >
+                {{ t('ports.openPortCount', { count: store.openPortCount }) }}
+              </n-tag>
+              <n-checkbox
+                v-if="openScanResults.length > 0"
+                :checked="isAllScanResultsSelected"
+                :indeterminate="isPartialScanResultsSelected"
+                @update:checked="handleToggleAllScanResults"
+              >
+                {{ t('ports.selectAll') }}
+              </n-checkbox>
+            </div>
+          </div>
+
+          <n-list
+            v-if="openScanResults.length > 0"
+            class="scan-result-list"
+            bordered
+          >
+            <n-list-item
+              v-for="draft in editableScanPorts"
+              :key="draft.source_port"
+              class="scan-result-row"
+              :class="{ selected: selectedScanPorts.includes(draft.source_port) }"
+            >
+              <div class="scan-row-layout">
+                <n-checkbox
+                  :checked="selectedScanPorts.includes(draft.source_port)"
+                  @update:checked="(checked) => handleToggleScanResult(draft.source_port, checked)"
+                />
+                <div class="scan-row-fields">
+                  <n-input
+                    v-model:value="draft.name"
+                    size="small"
+                    :placeholder="t('ports.name')"
+                  />
+                  <n-select
+                    v-model:value="draft.category"
+                    size="small"
+                    :options="categoryOptions"
+                  />
+                  <n-input-number
+                    v-model:value="draft.port"
+                    size="small"
+                    :min="1"
+                    :max="65535"
+                  />
+                  <n-select
+                    v-model:value="draft.protocol"
+                    size="small"
+                    :options="protocolOptions"
+                  />
+                  <n-input
+                    v-model:value="draft.description"
+                    class="scan-row-description"
+                    size="small"
+                    :placeholder="t('ports.descriptionPlaceholder')"
+                  />
+                </div>
+              </div>
+            </n-list-item>
+          </n-list>
+          <n-empty
+            v-else
+            class="scan-empty"
+            :description="t('ports.noScanResults')"
+          />
+        </section>
+      </div>
+
+      <template #footer>
+        <div
+          v-if="scanModalStage === 'radar'"
+          class="scan-modal-actions"
+        >
+          <span class="scan-selected-count">{{ t('ports.scanning') }}</span>
+          <n-button
+            secondary
+            disabled
+            :loading="isRadarVisible"
+          >
+            {{ t('ports.rescan') }}
+          </n-button>
+          <n-button
+            type="primary"
+            disabled
+          >
+            {{ t('ports.addSelectedPorts') }}
+          </n-button>
+        </div>
+        <div
+          v-else
+          class="scan-modal-actions"
+        >
+          <span class="scan-selected-count">{{ t('ports.selectedCount', { count: selectedScanPorts.length }) }}</span>
+          <n-button
+            secondary
+            :loading="isRadarVisible"
+            @click="handleScanEnabledPorts"
+          >
+            {{ t('ports.rescan') }}
+          </n-button>
+          <n-button
+            type="primary"
+            :disabled="!canSaveSelectedScanPorts"
+            :loading="store.isSavingFavoritePort"
+            @click="handleSaveSelectedScanPorts"
+          >
+            {{ t('ports.addSelectedPorts') }}
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -185,12 +319,17 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NButton,
+  NCheckbox,
   NCollapseTransition,
+  NEmpty,
   NForm,
   NFormItemGi,
   NGrid,
   NInput,
   NInputNumber,
+  NList,
+  NListItem,
+  NModal,
   NSelect,
   NSpace,
   NSwitch,
@@ -204,10 +343,21 @@ import { useTunnelStore } from '../stores/tunnel'
 import type { FavoritePortInfo, LocalPortScanResult } from '../api/app'
 
 type PortLike = FavoritePortInfo | LocalPortScanResult
+type ScanPortDraft = {
+  source_port: number
+  name: string
+  category: string
+  port: number
+  protocol: string
+  description: string
+  enabled: boolean
+}
+type ScanModalStage = 'radar' | 'results'
 
 const DEFAULT_CATEGORY = 'development'
 const DEFAULT_PROTOCOL = 'tcp'
 const DEFAULT_PORT = 3000
+const SCAN_RADAR_MIN_DURATION_MS = 7000
 
 const emit = defineEmits<{
   usePort: [port: PortLike]
@@ -217,6 +367,8 @@ const store = useTunnelStore()
 const message = useMessage()
 const { t } = useI18n()
 const showEditor = ref(false)
+const showScanModal = ref(false)
+const scanModalStage = ref<ScanModalStage>('radar')
 const activeCategory = ref(DEFAULT_CATEGORY)
 const favoriteForm = reactive({
   name: '',
@@ -226,6 +378,8 @@ const favoriteForm = reactive({
   description: '',
   enabled: true,
 })
+const selectedScanPorts = ref<number[]>([])
+const editableScanPorts = ref<ScanPortDraft[]>([])
 
 const categoryOptions = computed<SelectOption[]>(() => [
   { label: t('ports.categories.development'), value: 'development' },
@@ -254,6 +408,32 @@ const visibleCategories = computed(() => {
 })
 
 const canSaveFavorite = computed(() => favoriteForm.name.trim().length > 0 && favoriteForm.port > 0 && favoriteForm.port <= 65535)
+const canSaveSelectedScanPorts = computed(() => {
+  return selectedScanPorts.value.some((port) => {
+    const draft = editableScanPorts.value.find((item) => item.source_port === port)
+    return Boolean(draft && draft.name.trim().length > 0 && draft.port > 0 && draft.port <= 65535)
+  })
+})
+const openScanResults = computed(() => store.portScanResults.filter((result) => result.open))
+const isRadarVisible = computed(() => scanModalStage.value === 'radar' || store.isScanningPorts)
+const isAllScanResultsSelected = computed(() => {
+  return openScanResults.value.length > 0 && selectedScanPorts.value.length === openScanResults.value.length
+})
+const isPartialScanResultsSelected = computed(() => {
+  return selectedScanPorts.value.length > 0 && selectedScanPorts.value.length < openScanResults.value.length
+})
+const radarDots = computed(() => {
+  return store.portScanResults.slice(0, 18).map((result, index) => {
+    const angle = (index * 137.5 * Math.PI) / 180
+    const radius = 18 + (index % 5) * 13
+    return {
+      port: result.port,
+      open: result.open,
+      x: `${50 + Math.cos(angle) * radius}%`,
+      y: `${50 + Math.sin(angle) * radius}%`,
+    }
+  })
+})
 
 const translateCategory = (category: string): string => {
   const key = `ports.categories.${category}`
@@ -270,13 +450,109 @@ const resetFavoriteForm = (): void => {
   favoriteForm.enabled = true
 }
 
+const wait = (durationMs: number): Promise<void> => new Promise((resolve) => {
+  window.setTimeout(resolve, durationMs)
+})
+
+const createScanPortDraft = (port: LocalPortScanResult): ScanPortDraft => ({
+  source_port: port.port,
+  name: port.name || `local-${port.port}`,
+  category: port.category || DEFAULT_CATEGORY,
+  port: port.port,
+  protocol: port.protocol || DEFAULT_PROTOCOL,
+  description: port.description || '',
+  enabled: true,
+})
+
+// syncEditableScanPorts 保留用户已编辑内容，并补齐新扫描出的开放端口。
+const syncEditableScanPorts = (): void => {
+  const previousDrafts = new Map(editableScanPorts.value.map((draft) => [draft.source_port, draft]))
+  editableScanPorts.value = openScanResults.value.map((result) => previousDrafts.get(result.port) ?? createScanPortDraft(result))
+  const openPorts = new Set(openScanResults.value.map((result) => result.port))
+  selectedScanPorts.value = selectedScanPorts.value.filter((port) => openPorts.has(port))
+}
+
+const openScanModal = (): void => {
+  showScanModal.value = true
+  if (store.portScanResults.length > 0) {
+    scanModalStage.value = 'results'
+    syncEditableScanPorts()
+    selectedScanPorts.value = openScanResults.value.map((result) => result.port)
+    return
+  }
+  void handleScanEnabledPorts()
+}
+
+const handleToggleScanResult = (port: number, checked: boolean): void => {
+  if (checked) {
+    selectedScanPorts.value = Array.from(new Set([...selectedScanPorts.value, port]))
+    return
+  }
+  selectedScanPorts.value = selectedScanPorts.value.filter((item) => item !== port)
+}
+
+const handleToggleAllScanResults = (checked: boolean): void => {
+  selectedScanPorts.value = checked ? openScanResults.value.map((result) => result.port) : []
+}
+
 const handleScanEnabledPorts = async (): Promise<void> => {
+  const scanStartedAt = Date.now()
+  scanModalStage.value = 'radar'
+  selectedScanPorts.value = []
+
   try {
     await store.scanLocalPorts()
+    const remainingRadarDuration = Math.max(0, SCAN_RADAR_MIN_DURATION_MS - (Date.now() - scanStartedAt))
+    await wait(remainingRadarDuration)
+    syncEditableScanPorts()
+    selectedScanPorts.value = openScanResults.value.map((result) => result.port)
+    scanModalStage.value = 'results'
     message.success(t('ports.scanSuccess'))
   } catch {
+    const remainingRadarDuration = Math.max(0, SCAN_RADAR_MIN_DURATION_MS - (Date.now() - scanStartedAt))
+    await wait(remainingRadarDuration)
+    scanModalStage.value = 'results'
     message.error(store.lastError || t('ports.scanFailed'))
   }
+}
+
+const handleSaveSelectedScanPorts = async (): Promise<void> => {
+  if (!canSaveSelectedScanPorts.value) return
+  const selectedDrafts = editableScanPorts.value.filter((draft) => selectedScanPorts.value.includes(draft.source_port))
+  let successCount = 0
+  let failedCount = 0
+
+  for (const draft of selectedDrafts) {
+    if (draft.name.trim().length === 0 || draft.port < 1 || draft.port > 65535) {
+      failedCount += 1
+      continue
+    }
+    try {
+      await store.saveFavoritePort({
+        name: draft.name.trim(),
+        category: draft.category,
+        port: draft.port,
+        protocol: draft.protocol,
+        description: draft.description,
+        enabled: draft.enabled,
+      })
+      successCount += 1
+    } catch {
+      failedCount += 1
+    }
+  }
+
+  if (successCount > 0 && failedCount === 0) {
+    message.success(t('ports.batchSaveSuccess', { count: successCount }))
+    showScanModal.value = false
+    selectedScanPorts.value = []
+    return
+  }
+  if (successCount > 0) {
+    message.warning(t('ports.batchSavePartial', { success: successCount, failed: failedCount }))
+    return
+  }
+  message.error(store.lastError || t('ports.saveFailed'))
 }
 
 const handleSaveFavorite = async (): Promise<void> => {
@@ -324,6 +600,11 @@ watch(visibleCategories, (categories) => {
   if (!categories.includes(activeCategory.value)) {
     activeCategory.value = categories[0] || DEFAULT_CATEGORY
   }
+})
+
+watch(openScanResults, () => {
+  if (!showScanModal.value) return
+  syncEditableScanPorts()
 })
 
 onMounted(async () => {
@@ -396,13 +677,11 @@ onMounted(async () => {
   font-size: 15px;
 }
 
-.scan-results,
 .favorite-list {
   display: grid;
   gap: 10px;
 }
 
-.scan-result,
 .favorite-item {
   width: 100%;
   min-height: 58px;
@@ -416,32 +695,12 @@ onMounted(async () => {
   background: rgba(9, 17, 32, 0.52);
 }
 
-.scan-result {
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.scan-result.open:hover {
-  transform: translateY(-1px);
-  border-color: rgba(0, 255, 255, 0.34);
-  background: rgba(0, 255, 255, 0.08);
-}
-
-.scan-result:disabled {
-  cursor: not-allowed;
-  opacity: 0.66;
-}
-
-.scan-result span,
 .favorite-main {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-.scan-result strong,
 .favorite-main strong {
   overflow: hidden;
   color: var(--text-main);
@@ -450,7 +709,6 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.scan-result small,
 .favorite-main span {
   color: var(--text-dim);
   font-size: 12px;
@@ -465,8 +723,249 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 
+:global(.port-scan-modal) {
+  width: min(1040px, calc(100vw - 48px));
+}
+
+.scan-modal-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.radar-panel,
+.scan-result-panel {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(9, 17, 32, 0.58);
+}
+
+.radar-panel {
+  min-height: 420px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 14px;
+}
+
+.scan-result-panel {
+  min-height: 360px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+}
+
+.radar-screen {
+  position: relative;
+  width: min(58vw, 300px);
+  aspect-ratio: 1;
+  place-self: center;
+  overflow: hidden;
+  border: 1px solid rgba(0, 255, 255, 0.18);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(0, 255, 255, 0.16) 0 4%, transparent 5%),
+    radial-gradient(circle, rgba(0, 255, 255, 0.1), transparent 62%),
+    rgba(4, 10, 20, 0.72);
+  box-shadow:
+    inset 0 0 42px rgba(0, 255, 255, 0.12),
+    0 0 36px rgba(0, 255, 255, 0.1);
+}
+
+.radar-ring,
+.radar-sweep,
+.radar-dot {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.radar-ring {
+  border: 1px solid rgba(0, 255, 255, 0.16);
+  border-radius: 50%;
+  opacity: 0.72;
+  transform: scale(0.7);
+}
+
+.ring-a {
+  inset: 14%;
+}
+
+.ring-b {
+  inset: 27%;
+}
+
+.ring-c {
+  inset: 40%;
+}
+
+.radar-sweep {
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 18deg, rgba(0, 255, 255, 0.34), rgba(0, 255, 255, 0.08) 18%, transparent 38%),
+    radial-gradient(circle, transparent 0 10%, rgba(0, 255, 255, 0.08) 11%, transparent 42%);
+  transform-origin: 50% 50%;
+  opacity: 0.72;
+}
+
+.radar-screen.active .radar-sweep {
+  animation: radarSweep 1800ms linear infinite;
+}
+
+.radar-screen.active .ring-a {
+  animation: findPulse 1800ms var(--ease-standard) infinite;
+}
+
+.radar-screen.active .ring-b {
+  animation: findPulse 1800ms var(--ease-standard) infinite 220ms;
+}
+
+.radar-screen.active .ring-c {
+  animation: findPulse 1800ms var(--ease-standard) infinite 440ms;
+}
+
+.radar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(168, 169, 169, 0.46);
+  opacity: 0.62;
+  transform: translate(-50%, -50%) scale(0.86);
+}
+
+.radar-dot.open {
+  background: var(--nex-cyan);
+  opacity: 1;
+  box-shadow:
+    0 0 0 5px rgba(0, 255, 255, 0.08),
+    0 0 14px rgba(0, 255, 255, 0.76);
+}
+
+.radar-copy {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  text-align: center;
+}
+
+.radar-copy strong,
+.scan-result-header strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.radar-copy span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scan-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.scan-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.scan-result-list {
+  max-height: 420px;
+  overflow: auto;
+  border-color: rgba(168, 169, 169, 0.12);
+  background: rgba(4, 10, 20, 0.2);
+}
+
+.scan-result-row {
+  transition:
+    background var(--duration-small) var(--ease-standard),
+    box-shadow var(--duration-small) var(--ease-standard);
+}
+
+.scan-result-row.selected {
+  background: linear-gradient(90deg, rgba(0, 255, 255, 0.1), rgba(138, 43, 226, 0.06));
+  box-shadow: inset 3px 0 0 var(--nex-cyan);
+}
+
+.scan-row-layout {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.scan-row-fields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(130px, 1.1fr) minmax(120px, 0.8fr) minmax(96px, 0.6fr) minmax(92px, 0.55fr) minmax(160px, 1.2fr);
+  gap: 8px;
+}
+
+.scan-row-description {
+  min-width: 0;
+}
+
+.scan-empty {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+}
+
+.scan-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.scan-selected-count {
+  margin-right: auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+@keyframes radarSweep {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes findPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+
+  28% {
+    opacity: 0.82;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 @media (max-width: 1180px) {
   .scan-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-toolbar,
+  .favorite-item {
     grid-template-columns: 1fr;
   }
 
@@ -479,11 +978,20 @@ onMounted(async () => {
   .favorite-actions {
     justify-content: flex-start;
   }
+
+  .scan-row-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .scan-result {
+  .scan-result-row {
     transition: none;
+  }
+
+  .radar-sweep,
+  .radar-ring {
+    animation: none !important;
   }
 }
 </style>

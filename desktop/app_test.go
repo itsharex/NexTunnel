@@ -67,6 +67,60 @@ func TestServerSettingsDefaults(t *testing.T) {
 	}
 }
 
+func TestServerSettingsMultiNodeSwitch(t *testing.T) {
+	app := newTestApp(t)
+	settings := ServerSettings{
+		ActiveNodeID:      "remote",
+		RelayAddr:         "relay.remote.example:7000",
+		ControlPlaneURL:   "150.158.18.55:9090",
+		ControlPlaneToken: "cp-token",
+		STUNServer:        "stun.remote.example:3478",
+		STUNAltServer:     "stun-alt.remote.example:3478",
+		Nodes: []ServerNodeSettings{
+			{
+				ID:            "local",
+				Name:          "本地",
+				RelayAddr:     "127.0.0.1:7000",
+				STUNServer:    "stun.local.example:3478",
+				STUNAltServer: "stun.local.example:3478",
+			},
+			{
+				ID:                "remote",
+				Name:              "远端",
+				RelayAddr:         "relay.remote.example:7000",
+				ControlPlaneURL:   "150.158.18.55:9090",
+				ControlPlaneToken: "cp-token",
+				STUNServer:        "stun.remote.example:3478",
+				STUNAltServer:     "stun-alt.remote.example:3478",
+			},
+		},
+	}
+
+	if err := app.SaveServerSettings(settings); err != nil {
+		t.Fatalf("SaveServerSettings: %v", err)
+	}
+	got := app.GetServerSettings()
+	if got.ActiveNodeID != "remote" || got.RelayAddr != "relay.remote.example:7000" {
+		t.Fatalf("unexpected active node settings: %+v", got)
+	}
+	if got.ControlPlaneURL != "http://150.158.18.55:9090" {
+		t.Fatalf("ControlPlaneURL = %q", got.ControlPlaneURL)
+	}
+	if len(got.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %+v", got.Nodes)
+	}
+}
+
+func TestNormalizeHTTPBaseURLAddsScheme(t *testing.T) {
+	got, err := normalizeHTTPBaseURL("150.158.18.55:9090/")
+	if err != nil {
+		t.Fatalf("normalizeHTTPBaseURL: %v", err)
+	}
+	if got != "http://150.158.18.55:9090" {
+		t.Fatalf("url = %q", got)
+	}
+}
+
 func TestNormalizeWintunRepairSource(t *testing.T) {
 	tests := []struct {
 		name    string

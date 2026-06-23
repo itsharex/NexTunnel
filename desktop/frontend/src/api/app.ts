@@ -35,12 +35,24 @@ export interface ServerSettings {
   control_plane_token: string
   stun_server: string
   stun_alt_server: string
+  active_node_id: string
+  nodes: ServerNodeSettings[]
+}
+
+export interface ServerNodeSettings {
+  id: string
+  name: string
+  relay_addr: string
+  relay_token: string
+  control_plane_url: string
+  control_plane_token: string
+  stun_server: string
+  stun_alt_server: string
 }
 
 export interface AppearanceSettings {
   theme_mode: string
   motion_level: string
-  language: string
   accent_color: string
 }
 
@@ -50,6 +62,7 @@ export interface GeneralSettings {
   start_minimized: boolean
   export_include_tokens: boolean
   tray_supported: boolean
+  language: string
 }
 
 export interface ExportConfigOptions {
@@ -219,11 +232,23 @@ const PREVIEW_SETTINGS: ServerSettings = {
   control_plane_token: '',
   stun_server: 'stun.l.google.com:19302',
   stun_alt_server: 'stun.l.google.com:19302',
+  active_node_id: 'preview-local',
+  nodes: [
+    {
+      id: 'preview-local',
+      name: '本地开发',
+      relay_addr: '127.0.0.1:7000',
+      relay_token: '',
+      control_plane_url: 'http://127.0.0.1:9090',
+      control_plane_token: '',
+      stun_server: 'stun.l.google.com:19302',
+      stun_alt_server: 'stun.l.google.com:19302',
+    },
+  ],
 }
 const PREVIEW_APPEARANCE_SETTINGS: AppearanceSettings = {
   theme_mode: 'dark',
   motion_level: 'normal',
-  language: 'zh-CN',
   accent_color: '#00ffff',
 }
 const PREVIEW_GENERAL_SETTINGS: GeneralSettings = {
@@ -232,6 +257,7 @@ const PREVIEW_GENERAL_SETTINGS: GeneralSettings = {
   start_minimized: false,
   export_include_tokens: false,
   tray_supported: false,
+  language: 'zh-CN',
 }
 const PREVIEW_VIRTUAL_NETWORK: VirtualNetworkState = {
   applied: false,

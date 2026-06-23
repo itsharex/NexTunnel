@@ -9,12 +9,13 @@ import (
 const (
 	settingThemeMode      = "appearance_theme_mode"
 	settingMotionLevel    = "appearance_motion_level"
-	settingLanguage       = "appearance_language"
+	settingLegacyLanguage = "appearance_language"
 	settingAccentColor    = "appearance_accent_color"
 	settingAutoConnect    = "general_auto_connect"
 	settingMinimizeToTray = "general_minimize_to_tray"
 	settingStartMinimized = "general_start_minimized"
 	settingIncludeTokens  = "general_export_include_tokens"
+	settingLanguage       = "general_language"
 	defaultThemeMode      = "dark"
 	defaultMotionLevel    = "normal"
 	defaultLanguage       = "zh-CN"
@@ -33,17 +34,18 @@ const (
 type AppearanceSettings struct {
 	ThemeMode   string `json:"theme_mode"`
 	MotionLevel string `json:"motion_level"`
-	Language    string `json:"language"`
+	Language    string `json:"language,omitempty"`
 	AccentColor string `json:"accent_color"`
 }
 
 // GeneralSettings 保存桌面端通用行为偏好。
 type GeneralSettings struct {
-	AutoConnect         bool `json:"auto_connect"`
-	MinimizeToTray      bool `json:"minimize_to_tray"`
-	StartMinimized      bool `json:"start_minimized"`
-	ExportIncludeTokens bool `json:"export_include_tokens"`
-	TraySupported       bool `json:"tray_supported"`
+	AutoConnect         bool   `json:"auto_connect"`
+	MinimizeToTray      bool   `json:"minimize_to_tray"`
+	StartMinimized      bool   `json:"start_minimized"`
+	ExportIncludeTokens bool   `json:"export_include_tokens"`
+	TraySupported       bool   `json:"tray_supported"`
+	Language            string `json:"language"`
 }
 
 // ExportConfigOptions 控制导出配置是否包含敏感字段。
@@ -66,7 +68,7 @@ func (a *App) GetAppearanceSettings() AppearanceSettings {
 	return AppearanceSettings{
 		ThemeMode:   normalizeThemeMode(a.settingOrDefault(settingThemeMode, defaultThemeMode)),
 		MotionLevel: normalizeMotionLevel(a.settingOrDefault(settingMotionLevel, defaultMotionLevel)),
-		Language:    normalizeLanguage(a.settingOrDefault(settingLanguage, defaultLanguage)),
+		Language:    a.currentLanguageSetting(),
 		AccentColor: normalizeAccentColor(a.settingOrDefault(settingAccentColor, defaultAccentColor)),
 	}
 }
@@ -76,8 +78,10 @@ func (a *App) SaveAppearanceSettings(settings AppearanceSettings) error {
 	values := map[string]string{
 		settingThemeMode:   normalizeThemeMode(settings.ThemeMode),
 		settingMotionLevel: normalizeMotionLevel(settings.MotionLevel),
-		settingLanguage:    normalizeLanguage(settings.Language),
 		settingAccentColor: normalizeAccentColor(settings.AccentColor),
+	}
+	if strings.TrimSpace(settings.Language) != "" {
+		values[settingLanguage] = normalizeLanguage(settings.Language)
 	}
 	if err := a.saveSettingsMap(values); err != nil {
 		return err
@@ -88,7 +92,7 @@ func (a *App) SaveAppearanceSettings(settings AppearanceSettings) error {
 		Action:     activityActionPrefs,
 		TargetType: activityTargetSettings,
 		Title:      "外观设置已保存",
-		Message:    "主题、语言和动效偏好已持久化。",
+		Message:    "主题、强调色和动效偏好已持久化。",
 		Metadata:   values,
 	})
 	return nil
@@ -102,16 +106,22 @@ func (a *App) GetGeneralSettings() GeneralSettings {
 		StartMinimized:      parseBoolSetting(a.settingOrDefault(settingStartMinimized, "false")),
 		ExportIncludeTokens: parseBoolSetting(a.settingOrDefault(settingIncludeTokens, "false")),
 		TraySupported:       false,
+		Language:            a.currentLanguageSetting(),
 	}
 }
 
 // SaveGeneralSettings 持久化通用桌面行为偏好。
 func (a *App) SaveGeneralSettings(settings GeneralSettings) error {
+	language := normalizeLanguage(settings.Language)
+	if strings.TrimSpace(settings.Language) == "" {
+		language = a.currentLanguageSetting()
+	}
 	values := map[string]string{
 		settingAutoConnect:    fmt.Sprintf("%t", settings.AutoConnect),
 		settingMinimizeToTray: fmt.Sprintf("%t", settings.MinimizeToTray),
 		settingStartMinimized: fmt.Sprintf("%t", settings.StartMinimized),
 		settingIncludeTokens:  fmt.Sprintf("%t", settings.ExportIncludeTokens),
+		settingLanguage:       language,
 	}
 	if err := a.saveSettingsMap(values); err != nil {
 		return err
@@ -122,7 +132,7 @@ func (a *App) SaveGeneralSettings(settings GeneralSettings) error {
 		Action:     activityActionPrefs,
 		TargetType: activityTargetSettings,
 		Title:      "通用设置已保存",
-		Message:    "自动连接、托盘和导出偏好已持久化。",
+		Message:    "语言、自动连接、托盘和导出偏好已持久化。",
 		Metadata:   values,
 	})
 	return nil
@@ -148,10 +158,10 @@ func (a *App) ExportConfig(options ExportConfigOptions) (string, error) {
 
 	serverSettings := a.GetServerSettings()
 	if !options.IncludeSensitive {
-		serverSettings.RelayToken = ""
-		serverSettings.ControlPlaneToken = ""
+		serverSettings = redactServerSettingsSensitive(serverSettings)
 		delete(rawSettings, settingRelayToken)
 		delete(rawSettings, settingControlPlaneToken)
+		delete(rawSettings, settingServerNodes)
 	}
 
 	payload := exportedDesktopConfig{
@@ -205,6 +215,9 @@ func (a *App) ImportConfig(data string) error {
 	}
 	if err := a.SaveServerSettings(payload.Server); err != nil {
 		return err
+	}
+	if strings.TrimSpace(payload.General.Language) == "" {
+		payload.General.Language = firstNonEmpty(payload.Appearance.Language, a.currentLanguageSetting())
 	}
 	if err := a.SaveAppearanceSettings(payload.Appearance); err != nil {
 		return err
@@ -294,6 +307,14 @@ func parseBoolSetting(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
+func (a *App) currentLanguageSetting() string {
+	value := a.settingOrDefault(settingLanguage, "")
+	if strings.TrimSpace(value) == "" {
+		value = a.settingOrDefault(settingLegacyLanguage, defaultLanguage)
+	}
+	return normalizeLanguage(value)
+}
+
 func normalizeThemeMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "system", "light", "dark":
@@ -339,4 +360,14 @@ func maskSensitiveValue(value string) string {
 		return ""
 	}
 	return maskedSensitiveValue
+}
+
+func redactServerSettingsSensitive(settings ServerSettings) ServerSettings {
+	settings.RelayToken = ""
+	settings.ControlPlaneToken = ""
+	for index := range settings.Nodes {
+		settings.Nodes[index].RelayToken = ""
+		settings.Nodes[index].ControlPlaneToken = ""
+	}
+	return settings
 }

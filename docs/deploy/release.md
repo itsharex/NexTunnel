@@ -1,20 +1,20 @@
 # 发布流程
 
-v0.5.0-alpha 使用统一版本号发布桌面端安装器、CLI、服务端和文档。
+v0.5.2-alpha 使用统一版本号发布桌面端安装器、CLI、服务端和文档。
 
 ## 本地打包
 
 ```bash
-make package-desktop VERSION=v0.5.0-alpha
-make package-macos VERSION=v0.5.0-alpha
-make package-cli VERSION=v0.5.0-alpha
-make package-server VERSION=v0.5.0-alpha
+make package-desktop VERSION=v0.5.2-alpha
+make package-macos VERSION=v0.5.2-alpha
+make package-cli VERSION=v0.5.2-alpha
+make package-server VERSION=v0.5.2-alpha
 ```
 
 Windows 推荐发布 NSIS 安装包和 zip 便携包：
 
 ```powershell
-.\scripts\package-desktop.ps1 -Version v0.5.0-alpha -Installer nsis
+.\scripts\package-desktop.ps1 -Version v0.5.2-alpha -Installer nsis
 ```
 
 NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 Wintun ZIP、校验 SHA256、抽取 `bin/amd64/wintun.dll`，再把 DLL 打进安装包。安装时优先离线复制内置 DLL 到 `NexTunnel.exe` 同目录，只有内置 DLL 缺失时才走联网下载兜底。当前官方 Wintun 0.14.1 ZIP SHA256 为：
@@ -27,7 +27,7 @@ NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 W
 
 ```powershell
 .\scripts\package-desktop.ps1 `
-  -Version v0.5.0-alpha `
+  -Version v0.5.2-alpha `
   -Installer nsis `
   -WintunMode bundled `
   -WintunSha256 "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
@@ -37,20 +37,20 @@ NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 W
 
 ```powershell
 $env:NEXTUNNEL_WINTUN_DLL="D:\path\to\wintun.dll"
-make package-desktop VERSION=v0.5.0-alpha
+make package-desktop VERSION=v0.5.2-alpha
 ```
 
 macOS DMG 只能在 macOS 本机或 macOS runner 构建：
 
 ```bash
-bash scripts/package-macos.sh --version v0.5.0-alpha
+bash scripts/package-macos.sh --version v0.5.2-alpha
 ```
 
 alpha 默认生成未签名 DMG。配置 `MACOS_DEVELOPER_ID_APPLICATION` 后可加 `--sign`，配置 `MACOS_NOTARY_APPLE_ID`、`MACOS_NOTARY_TEAM_ID`、`MACOS_NOTARY_PASSWORD` 后可加 `--notarize`。
 
 ## GitHub Release
 
-推送 `v0.5.0-alpha` 标签会触发 `.github/workflows/release.yml`：
+推送 `v0.5.2-alpha` 标签会触发 `.github/workflows/release.yml`：
 
 - Windows NSIS 安装包、Windows zip 便携包、manifest 和 SHA256。
 - macOS universal DMG、manifest 和 SHA256。
@@ -64,21 +64,21 @@ alpha 默认生成未签名 DMG。配置 `MACOS_DEVELOPER_ID_APPLICATION` 后可
 ## Release 资产清单
 
 ```text
-nextunnel-v0.5.0-alpha-windows-amd64-installer.exe
-nextunnel-v0.5.0-alpha-windows-amd64-installer.exe.sha256
-nextunnel-v0.5.0-alpha-windows-amd64-installer.MANIFEST.txt
-nextunnel-v0.5.0-alpha-windows-amd64.zip
-nextunnel-v0.5.0-alpha-windows-amd64.zip.sha256
-nextunnel-v0.5.0-alpha-darwin-universal.dmg
-nextunnel-v0.5.0-alpha-darwin-universal.dmg.sha256
-nextunnel-v0.5.0-alpha-darwin-universal.MANIFEST.txt
-nextunnel-cli-v0.5.0-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.5.0-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.5.0-alpha-windows-amd64.zip
+nextunnel-v0.5.2-alpha-windows-amd64-installer.exe
+nextunnel-v0.5.2-alpha-windows-amd64-installer.exe.sha256
+nextunnel-v0.5.2-alpha-windows-amd64-installer.MANIFEST.txt
+nextunnel-v0.5.2-alpha-windows-amd64.zip
+nextunnel-v0.5.2-alpha-windows-amd64.zip.sha256
+nextunnel-v0.5.2-alpha-darwin-universal.dmg
+nextunnel-v0.5.2-alpha-darwin-universal.dmg.sha256
+nextunnel-v0.5.2-alpha-darwin-universal.MANIFEST.txt
+nextunnel-cli-v0.5.2-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.5.2-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.5.2-alpha-windows-amd64.zip
 nextunnel-server-linux-amd64.tar.gz
 nextunnel-server-linux-arm64.tar.gz
 nextunnel-server-windows-amd64.zip
-nextunnel-docs-v0.5.0-alpha.tar.gz
+nextunnel-docs-v0.5.2-alpha.tar.gz
 install.sh
 install.ps1
 *.sha256
@@ -103,6 +103,6 @@ cd docs && npm run docs:build
 - Windows 安装器可启动并显示自定义欢迎页、安装位置、桌面快捷方式、Wintun 检测、内置安装/下载兜底/手动/跳过路径和完成页立即运行选项。
 - Windows zip 包或旧安装缺少 DLL 时，网络页可显示 Wintun 路径、架构状态和修复入口。
 - macOS DMG 可挂载并包含 `NexTunnel.app`、Applications 链接、README 和 manifest。
-- `install.sh` 可以通过 `releases/download/v0.5.0-alpha/install.sh` 下载。
-- `nextunnel-docs-v0.5.0-alpha.tar.gz` 可下载，且校验文件匹配。
-- 文档站可访问并显示 `v0.5.0-alpha` 更新日志。
+- `install.sh` 可以通过 `releases/download/v0.5.2-alpha/install.sh` 下载。
+- `nextunnel-docs-v0.5.2-alpha.tar.gz` 可下载，且校验文件匹配。
+- 文档站可访问并显示 `v0.5.2-alpha` 更新日志。

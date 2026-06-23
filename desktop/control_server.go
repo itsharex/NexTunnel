@@ -152,10 +152,7 @@ func (a *App) handleControlNetworkReset(w http.ResponseWriter, _ *http.Request) 
 }
 
 func (a *App) handleControlGetSettings(w http.ResponseWriter, _ *http.Request) {
-	settings := a.GetServerSettings()
-	settings.RelayToken = ""
-	settings.ControlPlaneToken = ""
-	writeControlJSON(w, http.StatusOK, settings)
+	writeControlJSON(w, http.StatusOK, redactServerSettingsSensitive(a.GetServerSettings()))
 }
 
 func (a *App) handleControlSaveSettings(w http.ResponseWriter, r *http.Request) {
