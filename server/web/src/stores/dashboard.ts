@@ -5,11 +5,20 @@ import {
   createACLRule,
   deleteACLRule,
   deleteNode,
+  disconnectClient,
   fetchDashboardSnapshot,
   fetchHealth,
 } from '../api'
 import { formatBandwidth, formatBytes, formatNumber } from '../formatters'
-import type { ACLFormState, ACLRuleView, AlertEvent, DashboardSnapshot, NodeStatus, TrafficStats } from '../types'
+import type {
+  ACLFormState,
+  ACLRuleView,
+  AlertEvent,
+  DashboardSnapshot,
+  NodeStatus,
+  RuntimeConfigStatus,
+  TrafficStats,
+} from '../types'
 
 const ALL_REGIONS = '全部区域'
 const DEFAULT_ACL_ACTION = 'allow'
@@ -26,11 +35,28 @@ const REGION_COORDINATES: Record<string, { left: number; top: number }> = {
   'sa-east': { left: 38, top: 72 },
 }
 
+const createEmptyRuntimeConfigStatus = (): RuntimeConfigStatus => ({
+  https_enabled: false,
+  audit_log_enabled: false,
+  audit_log_queryable: false,
+  relay_admin_configured: false,
+  relay_admin_available: false,
+  allowed_origins: [],
+  store_persistent: false,
+})
+
 const createEmptySnapshot = (): DashboardSnapshot => ({
   nodes: [],
   stats: [],
+  clients: [],
+  clientStatus: {
+    configured: false,
+    available: false,
+  },
   aclRules: [],
   alerts: [],
+  auditEvents: [],
+  configStatus: createEmptyRuntimeConfigStatus(),
   users: [],
 })
 
@@ -56,6 +82,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const errorMessage = ref('')
   const successMessage = ref('')
   const deletingNodeIDs = ref<Set<string>>(new Set())
+  const disconnectingClientIDs = ref<Set<string>>(new Set())
   const deletingACLIDs = ref<Set<string>>(new Set())
   const acknowledgingAlertIDs = ref<Set<string>>(new Set())
   const aclForm = reactive<ACLFormState>(createEmptyACLForm())
@@ -85,6 +112,16 @@ export const useDashboardStore = defineStore('dashboard', () => {
     }), initialValue)
   })
 
+  const clientProxyCount = computed(() =>
+    snapshot.value.clients.reduce((total, client) => total + client.proxy_count, 0),
+  )
+  const clientSessionCount = computed(() =>
+    snapshot.value.clients.reduce((total, client) => total + client.sessions, 0),
+  )
+  const clientTrafficBytes = computed(() =>
+    snapshot.value.clients.reduce((total, client) => total + client.bytes_in + client.bytes_out, 0),
+  )
+
   const metrics = computed(() => [
     {
       label: '在线节点',
@@ -92,14 +129,14 @@ export const useDashboardStore = defineStore('dashboard', () => {
       detail: `${offlineNodes.value.length} 个离线节点`,
     },
     {
-      label: '活跃连接',
-      value: formatNumber(aggregateStats.value.connections),
-      detail: '来自统计 API 的连接总数',
+      label: '在线客户端',
+      value: formatNumber(snapshot.value.clients.length),
+      detail: `${clientProxyCount.value} 个代理 · ${clientSessionCount.value} 会话`,
     },
     {
       label: '实时带宽',
       value: formatBandwidth(aggregateStats.value.rx_bandwidth_bps + aggregateStats.value.tx_bandwidth_bps),
-      detail: `${formatBytes(aggregateStats.value.rx_bytes + aggregateStats.value.tx_bytes)} 累计流量`,
+      detail: `${formatBytes(aggregateStats.value.rx_bytes + aggregateStats.value.tx_bytes + clientTrafficBytes.value)} 累计流量`,
     },
     {
       label: '告警',
@@ -125,10 +162,16 @@ export const useDashboardStore = defineStore('dashboard', () => {
   })
 
   const sortedACLRules = computed(() => [...snapshot.value.aclRules].sort((a, b) => a.priority - b.priority))
+  const sortedClients = computed(() =>
+    [...snapshot.value.clients].sort((a, b) => a.client_id.localeCompare(b.client_id)),
+  )
   const recentAlerts = computed(() =>
     [...snapshot.value.alerts]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 8),
+  )
+  const sortedAuditEvents = computed(() =>
+    [...snapshot.value.auditEvents].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
   )
 
   const maxBandwidth = computed(() => {
@@ -147,6 +190,19 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
     }),
   )
+
+  const clientTrafficBars = computed(() => {
+    const maxClientTraffic = Math.max(1, ...snapshot.value.clients.map((client) => client.bytes_in + client.bytes_out))
+    return snapshot.value.clients.map((client) => {
+      const totalBytes = client.bytes_in + client.bytes_out
+      return {
+        label: client.client_id,
+        detail: `${formatBytes(totalBytes)} · ${client.proxy_count} 代理 · ${client.sessions} 会话`,
+        rxPercent: Math.max(4, Math.round((client.bytes_in / maxClientTraffic) * 100)),
+        txPercent: Math.max(4, Math.round((client.bytes_out / maxClientTraffic) * 100)),
+      }
+    })
+  })
 
   const lastRefreshLabel = computed(() => {
     if (!lastRefreshAt.value) return '等待首次刷新'
@@ -176,7 +232,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     }
   }
 
-  const loadSnapshot = async (token: string): Promise<DashboardSnapshot> => {
+  const loadSnapshot = async (token: string, options: { silent?: boolean } = {}): Promise<DashboardSnapshot> => {
     if (!token) return snapshot.value
 
     isLoading.value = true
@@ -184,7 +240,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
       // 所有核心面板共享同一次快照刷新，避免组件拆分后重复打 API。
       snapshot.value = await fetchDashboardSnapshot(token)
       lastRefreshAt.value = new Date().toISOString()
-      setFeedback('success', '数据已刷新')
+      if (!options.silent) {
+        setFeedback('success', '数据已刷新')
+      }
       return snapshot.value
     } catch (error) {
       setFeedback('error', `刷新失败：${describeError(error)}`)
@@ -281,6 +339,20 @@ export const useDashboardStore = defineStore('dashboard', () => {
     }
   }
 
+  const disconnectRelayClient = async (token: string, clientID: string): Promise<void> => {
+    mutateBusySet(disconnectingClientIDs, clientID, true)
+    try {
+      await disconnectClient(token, clientID)
+      setFeedback('success', '客户端已断开')
+      await loadSnapshot(token)
+    } catch (error) {
+      setFeedback('error', `断开客户端失败：${describeError(error)}`)
+      throw error
+    } finally {
+      mutateBusySet(disconnectingClientIDs, clientID, false)
+    }
+  }
+
   const ackAlert = async (token: string, alert: AlertEvent, ackedBy: string): Promise<void> => {
     mutateBusySet(acknowledgingAlertIDs, alert.id, true)
     try {
@@ -306,6 +378,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     errorMessage,
     successMessage,
     deletingNodeIDs,
+    disconnectingClientIDs,
     deletingACLIDs,
     acknowledgingAlertIDs,
     aclForm,
@@ -319,8 +392,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
     regionSelectOptions,
     filteredNodes,
     sortedACLRules,
+    sortedClients,
     recentAlerts,
+    sortedAuditEvents,
     trafficBars,
+    clientTrafficBars,
     lastRefreshLabel,
     setFeedback,
     loadHealth,
@@ -332,6 +408,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     submitACLRule,
     removeACLRule,
     removeNode,
+    disconnectRelayClient,
     ackAlert,
   }
 })

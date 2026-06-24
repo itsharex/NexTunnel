@@ -2,6 +2,7 @@
 package audit
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -35,13 +36,13 @@ const (
 // AuditEvent records a single security-relevant operation.
 type AuditEvent struct {
 	Timestamp  time.Time         `json:"timestamp"`
-	Actor      string            `json:"actor"`                // user ID or node ID
-	Action     Action            `json:"action"`               // create, update, delete, login, etc.
-	Resource   string            `json:"resource"`             // nodes, acl, keys, users, etc.
+	Actor      string            `json:"actor"`    // user ID or node ID
+	Action     Action            `json:"action"`   // create, update, delete, login, etc.
+	Resource   string            `json:"resource"` // nodes, acl, keys, users, etc.
 	ResourceID string            `json:"resource_id,omitempty"`
 	Details    map[string]string `json:"details,omitempty"`
 	SourceIP   string            `json:"source_ip,omitempty"`
-	Result     Result            `json:"result"`               // success, denied, error
+	Result     Result            `json:"result"` // success, denied, error
 }
 
 // AuditFilter specifies criteria for querying audit events.
@@ -49,6 +50,7 @@ type AuditFilter struct {
 	Actor     string
 	Action    Action
 	Resource  string
+	Result    Result
 	StartTime time.Time
 	EndTime   time.Time
 	Limit     int
@@ -80,6 +82,7 @@ func NewEvent(actor string, action Action, resource, resourceID string, result R
 
 // JSONFileAuditLogger writes audit events as JSON Lines to a file.
 type JSONFileAuditLogger struct {
+	path string
 	mu   sync.Mutex
 	file *os.File
 	enc  *json.Encoder
@@ -92,6 +95,7 @@ func NewJSONFileAuditLogger(path string) (*JSONFileAuditLogger, error) {
 		return nil, fmt.Errorf("open audit log %q: %w", path, err)
 	}
 	return &JSONFileAuditLogger{
+		path: path,
 		file: f,
 		enc:  json.NewEncoder(f),
 	}, nil
@@ -101,19 +105,75 @@ func NewJSONFileAuditLogger(path string) (*JSONFileAuditLogger, error) {
 func (l *JSONFileAuditLogger) Log(event AuditEvent) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.file == nil || l.enc == nil {
+		return
+	}
 	_ = l.enc.Encode(event)
 }
 
-// Query is not supported for JSON file logger; returns nil.
-func (l *JSONFileAuditLogger) Query(_ AuditFilter) ([]AuditEvent, error) {
-	return nil, fmt.Errorf("query not supported for JSON file audit logger")
+// Query reads the JSON Lines file and returns newest matching events first.
+func (l *JSONFileAuditLogger) Query(filter AuditFilter) ([]AuditEvent, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file == nil {
+		return nil, fmt.Errorf("audit log is closed")
+	}
+
+	// 先同步当前追加句柄，避免 Dashboard 查询时漏掉刚写入的审计事件。
+	if err := l.file.Sync(); err != nil {
+		return nil, fmt.Errorf("sync audit log: %w", err)
+	}
+	readFile, err := os.Open(l.path)
+	if err != nil {
+		return nil, fmt.Errorf("open audit log for query %q: %w", l.path, err)
+	}
+	defer readFile.Close()
+
+	events := make([]AuditEvent, 0)
+	scanner := bufio.NewScanner(readFile)
+	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var event AuditEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			return nil, fmt.Errorf("decode audit log line %d: %w", lineNumber, err)
+		}
+		events = append(events, event)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan audit log: %w", err)
+	}
+
+	matchedEvents := make([]AuditEvent, 0, len(events))
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		if !matchesAuditFilter(event, filter) {
+			continue
+		}
+		matchedEvents = append(matchedEvents, event)
+		if filter.Limit > 0 && len(matchedEvents) >= filter.Limit {
+			break
+		}
+	}
+	return matchedEvents, nil
 }
 
 // Close flushes and closes the file.
 func (l *JSONFileAuditLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.file.Close()
+	if l.file == nil {
+		return nil
+	}
+	err := l.file.Close()
+	l.file = nil
+	l.enc = nil
+	return err
 }
 
 // --- SQLite Audit Logger ---
@@ -198,6 +258,10 @@ func (l *SQLiteAuditLogger) Query(filter AuditFilter) ([]AuditEvent, error) {
 		query += ` AND resource = ?`
 		args = append(args, filter.Resource)
 	}
+	if filter.Result != "" {
+		query += ` AND result = ?`
+		args = append(args, string(filter.Result))
+	}
 	if !filter.StartTime.IsZero() {
 		query += ` AND timestamp >= ?`
 		args = append(args, filter.StartTime.Format(time.RFC3339Nano))
@@ -249,3 +313,25 @@ type NopAuditLogger struct{}
 func (NopAuditLogger) Log(AuditEvent)                          {}
 func (NopAuditLogger) Query(AuditFilter) ([]AuditEvent, error) { return nil, nil }
 func (NopAuditLogger) Close() error                            { return nil }
+
+func matchesAuditFilter(event AuditEvent, filter AuditFilter) bool {
+	if filter.Actor != "" && event.Actor != filter.Actor {
+		return false
+	}
+	if filter.Action != "" && event.Action != filter.Action {
+		return false
+	}
+	if filter.Resource != "" && event.Resource != filter.Resource {
+		return false
+	}
+	if filter.Result != "" && event.Result != filter.Result {
+		return false
+	}
+	if !filter.StartTime.IsZero() && event.Timestamp.Before(filter.StartTime) {
+		return false
+	}
+	if !filter.EndTime.IsZero() && event.Timestamp.After(filter.EndTime) {
+		return false
+	}
+	return true
+}

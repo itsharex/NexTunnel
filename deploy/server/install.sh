@@ -47,6 +47,8 @@ RELAY_QUIC_PORT="${RELAY_QUIC_PORT:-7443}"
 RELAY_AUTH_TOKEN="${RELAY_AUTH_TOKEN:-}"
 RELAY_REQUIRE_AUTH="${RELAY_REQUIRE_AUTH:-true}"
 RELAY_STATS_INTERVAL="${RELAY_STATS_INTERVAL:-30s}"
+RELAY_ADMIN_LISTEN="${RELAY_ADMIN_LISTEN:-127.0.0.1:7001}"
+RELAY_ADMIN_TOKEN="${RELAY_ADMIN_TOKEN:-}"
 CONTROL_PLANE_PORT="${CONTROL_PLANE_PORT:-9090}"
 CONTROL_PLANE_API_TOKEN="${CONTROL_PLANE_API_TOKEN:-}"
 DASHBOARD_ENABLED="${DASHBOARD_ENABLED:-true}"
@@ -55,6 +57,8 @@ DASHBOARD_SECRET_KEY="${DASHBOARD_SECRET_KEY:-}"
 DASHBOARD_ADMIN_USER="${DASHBOARD_ADMIN_USER:-admin}"
 DASHBOARD_ADMIN_PASSWORD="${DASHBOARD_ADMIN_PASSWORD:-}"
 DASHBOARD_ALLOWED_ORIGINS="${DASHBOARD_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}"
+DASHBOARD_RELAY_ADMIN_URL="${DASHBOARD_RELAY_ADMIN_URL:-http://127.0.0.1:7001}"
+DASHBOARD_RELAY_ADMIN_TOKEN="${DASHBOARD_RELAY_ADMIN_TOKEN:-${RELAY_ADMIN_TOKEN:-}}"
 NAT_PRIMARY_ADDR="${NAT_PRIMARY_ADDR:-0.0.0.0}"
 NAT_ALT_ADDR="${NAT_ALT_ADDR:-127.0.0.1}"
 NAT_PORT="${NAT_PORT:-3478}"
@@ -104,7 +108,7 @@ usage() {
 常用选项：
   --package-url URL        指定服务端 Release 包地址，支持 https://、file:// 或本地文件路径
   --sha256 HASH            可选，校验服务端 Release 包 SHA256
-  --version VERSION        指定 GitHub Release 版本，例如 v0.4.1-alpha；默认 latest
+  --version VERSION        指定 GitHub Release 版本，例如 v0.6.0-beta；默认 latest
   --release-base-url URL   指定 Release 下载基址；默认使用 GitHub Releases
   --github-proxy URL       可选，仅代理脚本自动生成的 GitHub 下载地址；生产环境建议使用可信自建代理
   --arch ARCH              指定架构 amd64/arm64；默认自动识别
@@ -406,6 +410,34 @@ write_env_line() {
   printf '%s=%s\n' "${name}" "${value}"
 }
 
+ensure_env_line() {
+  local name="$1"
+  local value="$2"
+  if grep -q "^${name}=" "${ENV_FILE}"; then
+    return
+  fi
+  write_env_line "${name}" "${value}" >>"${ENV_FILE}"
+}
+
+read_env_value() {
+  local name="$1"
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    return
+  fi
+  awk -F= -v key="${name}" '$1 == key { value = substr($0, length($1) + 2) } END { print value }' "${ENV_FILE}"
+}
+
+ensure_existing_env_defaults() {
+  local existing_relay_admin_token="${RELAY_ADMIN_TOKEN:-$(read_env_value RELAY_ADMIN_TOKEN)}"
+  local existing_dashboard_relay_admin_token="${DASHBOARD_RELAY_ADMIN_TOKEN:-$(read_env_value DASHBOARD_RELAY_ADMIN_TOKEN)}"
+  local relay_admin_token="${existing_relay_admin_token:-$(random_secret)}"
+  ensure_env_line RELAY_ADMIN_LISTEN "${RELAY_ADMIN_LISTEN}"
+  ensure_env_line RELAY_ADMIN_TOKEN "${relay_admin_token}"
+  ensure_env_line DASHBOARD_RELAY_ADMIN_URL "${DASHBOARD_RELAY_ADMIN_URL}"
+  ensure_env_line DASHBOARD_RELAY_ADMIN_TOKEN "${existing_dashboard_relay_admin_token:-${relay_admin_token}}"
+  chmod 600 "${ENV_FILE}"
+}
+
 write_script_local_env() {
   mkdir -p "${DEPLOY_DIR}"
   {
@@ -617,6 +649,7 @@ create_system_user() {
 generate_env() {
   if [[ -f "${ENV_FILE}" && "${FORCE}" != "true" ]]; then
     warn "配置文件已存在，保留当前配置：${ENV_FILE}。使用 --force 可重新生成。"
+    ensure_existing_env_defaults
     return
   fi
 
@@ -627,6 +660,8 @@ generate_env() {
   local dashboard_port="${DASHBOARD_PORT}"
   local nat_port="${NAT_PORT}"
   local relay_token="${RELAY_AUTH_TOKEN:-$(random_secret)}"
+  local relay_admin_token="${RELAY_ADMIN_TOKEN:-$(random_secret)}"
+  local dashboard_relay_admin_token="${DASHBOARD_RELAY_ADMIN_TOKEN:-${relay_admin_token}}"
   local control_token="${CONTROL_PLANE_API_TOKEN:-$(random_secret)}"
   local dashboard_secret="${DASHBOARD_SECRET_KEY:-$(random_secret)}"
   local dashboard_password="${DASHBOARD_ADMIN_PASSWORD:-$(random_secret)}"
@@ -648,8 +683,8 @@ generate_env() {
     fi
   fi
 
-  if [[ -z "${relay_token}" || -z "${control_token}" ]]; then
-    printf 'RelayToken 和 ControlToken 不能为空。\n' >&2
+  if [[ -z "${relay_token}" || -z "${relay_admin_token}" || -z "${dashboard_relay_admin_token}" || -z "${control_token}" ]]; then
+    printf 'RelayToken、RelayAdminToken、DashboardRelayAdminToken 和 ControlToken 不能为空。\n' >&2
     exit 1
   fi
   if [[ "${DASHBOARD_ENABLED}" == "true" && ( -z "${dashboard_secret}" || -z "${dashboard_password}" ) ]]; then
@@ -673,6 +708,8 @@ generate_env() {
     write_env_line RELAY_AUTH_TOKEN "${relay_token}"
     write_env_line RELAY_REQUIRE_AUTH "${RELAY_REQUIRE_AUTH}"
     write_env_line RELAY_STATS_INTERVAL "${RELAY_STATS_INTERVAL}"
+    write_env_line RELAY_ADMIN_LISTEN "${RELAY_ADMIN_LISTEN}"
+    write_env_line RELAY_ADMIN_TOKEN "${relay_admin_token}"
     write_env_line CONTROL_PLANE_LISTEN "0.0.0.0:${control_port}"
     write_env_line CONTROL_PLANE_PORT "${control_port}"
     write_env_line CONTROL_PLANE_API_TOKEN "${control_token}"
@@ -686,6 +723,8 @@ generate_env() {
     write_env_line DASHBOARD_ALLOWED_ORIGINS "${DASHBOARD_ALLOWED_ORIGINS},http://${public_host}:${dashboard_port}"
     write_env_line DASHBOARD_STORE_PATH "${DATA_DIR%/}/dashboard.db"
     write_env_line DASHBOARD_STATIC_DIR "${WEB_DIR}"
+    write_env_line DASHBOARD_RELAY_ADMIN_URL "${DASHBOARD_RELAY_ADMIN_URL}"
+    write_env_line DASHBOARD_RELAY_ADMIN_TOKEN "${dashboard_relay_admin_token}"
     write_env_line NAT_PRIMARY_ADDR "${NAT_PRIMARY_ADDR}"
     write_env_line NAT_ALT_ADDR "${NAT_ALT_ADDR}"
     write_env_line NAT_PORT "${nat_port}"
@@ -846,7 +885,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${BIN_DIR}/relay-server --bind \${RELAY_BIND} --control-port \${RELAY_CONTROL_PORT} --quic-port \${RELAY_QUIC_PORT} --auth-token \${RELAY_AUTH_TOKEN} --require-auth --stats-interval \${RELAY_STATS_INTERVAL}
+ExecStart=${BIN_DIR}/relay-server --bind \${RELAY_BIND} --control-port \${RELAY_CONTROL_PORT} --quic-port \${RELAY_QUIC_PORT} --auth-token \${RELAY_AUTH_TOKEN} --require-auth --admin-listen \${RELAY_ADMIN_LISTEN} --admin-token \${RELAY_ADMIN_TOKEN} --stats-interval \${RELAY_STATS_INTERVAL}
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -909,7 +948,7 @@ EOF
     cat >"$(service_unit_path "${DASHBOARD_SERVICE_NAME}")" <<EOF
 [Unit]
 Description=NexTunnel Dashboard
-After=network-online.target ${CONTROL_PLANE_SERVICE_NAME}
+After=network-online.target ${CONTROL_PLANE_SERVICE_NAME} ${RELAY_SERVICE_NAME}
 Wants=network-online.target
 
 [Service]
@@ -917,7 +956,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${BIN_DIR}/dashboard --listen \${DASHBOARD_LISTEN} --secret-key \${DASHBOARD_SECRET_KEY} --admin-user \${DASHBOARD_ADMIN_USER} --admin-password \${DASHBOARD_ADMIN_PASSWORD} --allowed-origins \${DASHBOARD_ALLOWED_ORIGINS} --store-path \${DASHBOARD_STORE_PATH} --static-dir \${DASHBOARD_STATIC_DIR}
+ExecStart=${BIN_DIR}/dashboard --listen \${DASHBOARD_LISTEN} --secret-key \${DASHBOARD_SECRET_KEY} --admin-user \${DASHBOARD_ADMIN_USER} --admin-password \${DASHBOARD_ADMIN_PASSWORD} --allowed-origins \${DASHBOARD_ALLOWED_ORIGINS} --store-path \${DASHBOARD_STORE_PATH} --static-dir \${DASHBOARD_STATIC_DIR} --relay-admin-url \${DASHBOARD_RELAY_ADMIN_URL} --relay-admin-token \${DASHBOARD_RELAY_ADMIN_TOKEN}
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -1111,6 +1150,22 @@ wait_http_health() {
   exit 1
 }
 
+wait_authorized_http_health() {
+  local name="$1"
+  local url="$2"
+  local token="$3"
+  local deadline=$((SECONDS + SERVICE_START_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if curl -fsS -H "Authorization: Bearer ${token}" "${url}" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  print_health_diagnostics "${RUNTIME_SERVICE_NAMES[@]}"
+  printf '%s 健康检查失败：%s\n' "${name}" "${url}" >&2
+  exit 1
+}
+
 wait_tcp_port() {
   local name="$1"
   local host="$2"
@@ -1158,6 +1213,10 @@ health_check() {
   wait_http_health "Control Plane" "http://127.0.0.1:${CONTROL_PLANE_PORT}/healthz"
   log "检查 Relay TCP 端口"
   wait_tcp_port "Relay TCP" "127.0.0.1" "${RELAY_CONTROL_PORT}"
+  if [[ -n "${DASHBOARD_RELAY_ADMIN_URL:-}" && -n "${DASHBOARD_RELAY_ADMIN_TOKEN:-}" ]]; then
+    log "检查 Relay 管理 API"
+    wait_authorized_http_health "Relay Admin" "${DASHBOARD_RELAY_ADMIN_URL%/}/api/v1/admin/health" "${DASHBOARD_RELAY_ADMIN_TOKEN}"
+  fi
   if [[ "${DASHBOARD_ENABLED:-false}" == "true" && -x "${BIN_DIR}/dashboard" ]]; then
     log "检查 Dashboard 健康状态"
     wait_http_health "Dashboard" "http://127.0.0.1:${DASHBOARD_PORT}/api/v1/health"
@@ -1187,7 +1246,11 @@ update_stack() {
   require_command systemctl
   assert_systemd_paths_compatible
   prepare_permissions
-  [[ -f "${ENV_FILE}" ]] || generate_env
+  if [[ -f "${ENV_FILE}" ]]; then
+    ensure_existing_env_defaults
+  else
+    generate_env
+  fi
   install_release_package
   install_cli_link
   write_systemd_units

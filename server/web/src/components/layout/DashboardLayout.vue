@@ -116,18 +116,22 @@ const REFRESH_INTERVAL_MS = 30_000
 const navItems = [
   { to: '/', label: '总览', index: '01', name: 'overview' },
   { to: '/nodes', label: '节点', index: '02', name: 'nodes' },
-  { to: '/traffic', label: '流量', index: '03', name: 'traffic' },
-  { to: '/acl', label: 'ACL', index: '04', name: 'acl' },
-  { to: '/alerts', label: '告警', index: '05', name: 'alerts' },
-  { to: '/settings', label: '设置', index: '06', name: 'settings' },
+  { to: '/clients', label: '客户端', index: '03', name: 'clients' },
+  { to: '/traffic', label: '流量', index: '04', name: 'traffic' },
+  { to: '/acl', label: 'ACL', index: '05', name: 'acl' },
+  { to: '/alerts', label: '告警', index: '06', name: 'alerts' },
+  { to: '/audit', label: '审计', index: '07', name: 'audit' },
+  { to: '/settings', label: '设置', index: '08', name: 'settings' },
 ] as const
 
 const titleMap: Record<string, string> = {
   overview: '全球加速运行面板',
   nodes: 'Relay 节点管理',
+  clients: '客户端连接监控',
   traffic: '流量监控',
   acl: '访问控制',
   alerts: '告警系统',
+  audit: '审计日志',
   settings: '系统设置',
 }
 

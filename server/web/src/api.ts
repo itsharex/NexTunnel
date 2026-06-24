@@ -1,12 +1,15 @@
 import type {
   ACLRuleView,
   APIResponse,
+  ClientListResponse,
   DashboardSnapshot,
   LoginResponse,
   NodeStatus,
   TrafficStats,
   User,
   AlertEvent,
+  AuditEvent,
+  RuntimeConfigStatus,
 } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_DASHBOARD_API_BASE ?? ''
@@ -72,16 +75,39 @@ export const fetchHealth = async (): Promise<string> => {
   return data.status
 }
 
+export const fetchAuditEvents = async (token: string): Promise<AuditEvent[]> =>
+  request<AuditEvent[]>('/api/v1/audit?limit=200', { token })
+
+export const fetchRuntimeConfigStatus = async (token: string): Promise<RuntimeConfigStatus> =>
+  request<RuntimeConfigStatus>('/api/v1/config/status', { token })
+
 export const fetchDashboardSnapshot = async (token: string): Promise<DashboardSnapshot> => {
-  const [nodes, stats, aclRules, alerts, users] = await Promise.all([
+  const [nodes, stats, clientList, aclRules, alerts, auditEvents, configStatus, users] = await Promise.all([
     request<NodeStatus[]>('/api/v1/nodes', { token }),
     request<TrafficStats[]>('/api/v1/stats', { token }),
+    request<ClientListResponse>('/api/v1/clients', { token }),
     request<ACLRuleView[]>('/api/v1/acl', { token }),
     request<AlertEvent[]>('/api/v1/alerts', { token }),
+    fetchAuditEvents(token),
+    fetchRuntimeConfigStatus(token),
     request<User[]>('/api/v1/users', { token }),
   ])
 
-  return { nodes, stats, aclRules, alerts, users }
+  return {
+    nodes,
+    stats,
+    clients: clientList.clients ?? [],
+    clientStatus: {
+      configured: clientList.configured,
+      available: clientList.available,
+      error: clientList.error,
+    },
+    aclRules,
+    alerts,
+    auditEvents: auditEvents ?? [],
+    configStatus,
+    users,
+  }
 }
 
 export const createACLRule = async (token: string, rule: ACLRuleView): Promise<ACLRuleView> =>
@@ -100,6 +126,13 @@ export const deleteACLRule = async (token: string, ruleID: string): Promise<void
 
 export const deleteNode = async (token: string, nodeID: string): Promise<void> => {
   await request<{ deleted: string }>(`/api/v1/nodes/${encodeURIComponent(nodeID)}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
+export const disconnectClient = async (token: string, clientID: string): Promise<void> => {
+  await request<{ disconnected: string }>(`/api/v1/clients/${encodeURIComponent(clientID)}`, {
     method: 'DELETE',
     token,
   })

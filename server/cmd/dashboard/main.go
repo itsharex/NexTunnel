@@ -20,6 +20,8 @@ const (
 	defaultDashboardAdmin       = "admin"
 )
 
+var dashboardVersion = "0.6.0-beta"
+
 func main() {
 	fs := flag.NewFlagSet("dashboard", flag.ExitOnError)
 	cfg := dashboard.DefaultServerConfig()
@@ -41,6 +43,8 @@ func main() {
 	fs.StringVar(&cfg.TLSCertFile, "tls-cert", "", "TLS certificate file for HTTPS (enables HTTPS when set)")
 	fs.StringVar(&cfg.TLSKeyFile, "tls-key", "", "TLS private key file for HTTPS")
 	fs.StringVar(&cfg.AuditLogPath, "audit-log", "", "JSON Lines audit log path (empty = disabled)")
+	fs.StringVar(&cfg.RelayAdminURL, "relay-admin-url", "", "optional Relay admin API base URL for client monitoring")
+	fs.StringVar(&cfg.RelayAdminToken, "relay-admin-token", "", "Bearer token for Relay admin API")
 	fs.Parse(os.Args[1:])
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -61,6 +65,8 @@ func main() {
 		defer createdStore.Close()
 	}
 	cfg.Store = store
+	cfg.StorePath = storePath
+	cfg.Version = dashboardVersion
 
 	server := dashboard.NewServer(cfg)
 	errCh := make(chan error, 1)

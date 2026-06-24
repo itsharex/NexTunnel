@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DefaultVersion = "v0.5.2-alpha"
+$DefaultVersion = "v0.6.0-beta"
 $DefaultWintunSha256 = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 $DefaultMacHost = "10.160.166.44"
 $DefaultMacUser = "lizhigang"
@@ -188,6 +188,57 @@ function Invoke-GoBuild {
     }
 }
 
+function Invoke-GoTest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModulePath,
+
+        [string[]]$ExcludedPackageRegex = @()
+    )
+
+    Invoke-InDirectory $ModulePath {
+        if (-not (Get-Command "go" -ErrorAction SilentlyContinue)) {
+            throw "未找到命令 'go'。请先安装并确认它已加入 PATH。"
+        }
+
+        $previousGoCache = $env:GOCACHE
+        $usingWorkspaceGoCache = [string]::IsNullOrWhiteSpace($previousGoCache)
+        if ($usingWorkspaceGoCache) {
+            # 受限桌面环境可能无法写入系统 Go 缓存，默认落到仓库内临时缓存。
+            $env:GOCACHE = Join-Path $RepoRoot ".gocache-test"
+            New-Item -ItemType Directory -Path $env:GOCACHE -Force | Out-Null
+        }
+
+        try {
+            $packages = @(& go list ./...)
+            if ($LASTEXITCODE -ne 0) {
+                throw "go list ./... failed in $ModulePath"
+            }
+
+            foreach ($regex in $ExcludedPackageRegex) {
+                $packages = @($packages | Where-Object { $_ -notmatch $regex })
+            }
+
+            if ($packages.Count -eq 0) {
+                throw "未找到可测试 Go 包：$ModulePath"
+            }
+
+            & go test @packages
+            if ($LASTEXITCODE -ne 0) {
+                throw "go test failed in $ModulePath"
+            }
+        }
+        finally {
+            if ($usingWorkspaceGoCache) {
+                Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:GOCACHE = $previousGoCache
+            }
+        }
+    }
+}
+
 function Remove-RepoPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -292,18 +343,10 @@ function Invoke-Target {
             Invoke-Target "test-frontend"
         }
         "test-go" {
-            Invoke-InDirectory "desktop" {
-                Invoke-RequiredCommand -Command "go" -Arguments @("test", "./...")
-            }
-            Invoke-InDirectory "server" {
-                Invoke-RequiredCommand -Command "go" -Arguments @("test", "./...")
-            }
-            Invoke-InDirectory "cli" {
-                Invoke-RequiredCommand -Command "go" -Arguments @("test", "./...")
-            }
-            Invoke-InDirectory "pkg" {
-                Invoke-RequiredCommand -Command "go" -Arguments @("test", "./...")
-            }
+            Invoke-GoTest -ModulePath "desktop" -ExcludedPackageRegex @("/frontend/node_modules/")
+            Invoke-GoTest -ModulePath "server" -ExcludedPackageRegex @("/web/node_modules/")
+            Invoke-GoTest -ModulePath "cli"
+            Invoke-GoTest -ModulePath "pkg"
         }
         "test-frontend" {
             Invoke-InDirectory "desktop\frontend" {

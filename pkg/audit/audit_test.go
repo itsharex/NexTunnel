@@ -92,7 +92,7 @@ func TestJSONFileAuditLogger(t *testing.T) {
 	}
 }
 
-func TestJSONFileAuditLogger_QueryUnsupported(t *testing.T) {
+func TestJSONFileAuditLogger_Query(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
@@ -102,9 +102,57 @@ func TestJSONFileAuditLogger_QueryUnsupported(t *testing.T) {
 	}
 	defer logger.Close()
 
-	_, err = logger.Query(AuditFilter{})
-	if err == nil {
-		t.Error("expected error for unsupported query")
+	baseTime := time.Date(2026, 6, 23, 10, 0, 0, 0, time.UTC)
+	events := []AuditEvent{
+		{
+			Timestamp: baseTime.Add(-2 * time.Hour),
+			Actor:     "viewer",
+			Action:    ActionAccess,
+			Resource:  "nodes",
+			Result:    ResultSuccess,
+		},
+		{
+			Timestamp:  baseTime.Add(-1 * time.Hour),
+			Actor:      "admin",
+			Action:     ActionDelete,
+			Resource:   "clients",
+			ResourceID: "client-1",
+			Result:     ResultSuccess,
+		},
+		{
+			Timestamp:  baseTime,
+			Actor:      "admin",
+			Action:     ActionDelete,
+			Resource:   "clients",
+			ResourceID: "client-2",
+			Result:     ResultDenied,
+		},
+	}
+	for _, event := range events {
+		logger.Log(event)
+	}
+
+	got, err := logger.Query(AuditFilter{
+		Actor:     "admin",
+		Action:    ActionDelete,
+		Resource:  "clients",
+		StartTime: baseTime.Add(-90 * time.Minute),
+		EndTime:   baseTime.Add(time.Minute),
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got) != 1 || got[0].ResourceID != "client-2" {
+		t.Fatalf("unexpected filtered events: %+v", got)
+	}
+
+	got, err = logger.Query(AuditFilter{Result: ResultSuccess, Limit: 10})
+	if err != nil {
+		t.Fatalf("Query by result: %v", err)
+	}
+	if len(got) != 2 || got[0].ResourceID != "client-1" {
+		t.Fatalf("expected newest successful events first, got %+v", got)
 	}
 }
 

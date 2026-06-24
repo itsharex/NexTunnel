@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,9 @@ const (
 	statusStopped    = "stopped"
 	statusActive     = "active"
 	statusRunning    = "running"
+	statusSuccess    = "success"
+	statusWarning    = "warning"
+	statusError      = "error"
 
 	connectionTypeP2P     = "p2p_direct"
 	connectionTypeRelay   = "relay"
@@ -40,6 +44,7 @@ const (
 	maxLocalPortScanSize              = 128
 	defaultLocalPortScanHost          = "127.0.0.1"
 	defaultServerNodeID               = "default"
+	defaultServerNodeCheckTimeout     = 3 * time.Second
 	settingActiveServerNodeID         = "active_server_node_id"
 	settingServerNodes                = "server_nodes"
 
@@ -62,6 +67,7 @@ const (
 	activityActionApplyNetwork       = "apply_virtual_network"
 	activityActionResetNetwork       = "reset_virtual_network"
 	activityActionDetectNAT          = "detect_nat"
+	activityActionCheckServerNode    = "check_server_node"
 	activityActionScanLocalPorts     = "scan_local_ports"
 	activityActionSaveFavoritePort   = "save_favorite_port"
 	activityActionDeleteFavoritePort = "delete_favorite_port"
@@ -69,6 +75,7 @@ const (
 	activityActionRuntimeError       = "runtime_error"
 	activityActionClearActivityLogs  = "clear_activity_logs"
 	activityTargetServer             = "server"
+	activityTargetServerNode         = "server_node"
 	activityTargetTunnel             = "tunnel"
 	activityTargetSettings           = "settings"
 	activityTargetVirtualNetwork     = "virtual_network"
@@ -81,7 +88,7 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.5.2-alpha"
+var AppVersion = "0.6.0-beta"
 
 // App is the main Wails application struct.
 type App struct {
@@ -180,6 +187,39 @@ type ServerNodeSettings struct {
 	ControlPlaneToken string `json:"control_plane_token"`
 	STUNServer        string `json:"stun_server"`
 	STUNAltServer     string `json:"stun_alt_server"`
+}
+
+// ServerNodeCheckInput 是前端发起单个服务端实例检测的输入，不持久化敏感字段。
+type ServerNodeCheckInput struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	RelayAddr         string `json:"relay_addr"`
+	RelayToken        string `json:"relay_token"`
+	ControlPlaneURL   string `json:"control_plane_url"`
+	ControlPlaneToken string `json:"control_plane_token"`
+	STUNServer        string `json:"stun_server"`
+	STUNAltServer     string `json:"stun_alt_server"`
+}
+
+// ServerNodeCheckItem 表示 Relay、Control Plane 或 STUN 的单项检测结论。
+type ServerNodeCheckItem struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+	Action    string `json:"action"`
+	LatencyMS int64  `json:"latency_ms"`
+}
+
+// ServerNodeCheckResult 汇总一个服务端实例的生产可用性检测结果。
+type ServerNodeCheckResult struct {
+	NodeID        string              `json:"node_id"`
+	NodeName      string              `json:"node_name"`
+	OverallStatus string              `json:"overall_status"`
+	CheckedAt     time.Time           `json:"checked_at"`
+	Relay         ServerNodeCheckItem `json:"relay"`
+	ControlPlane  ServerNodeCheckItem `json:"control_plane"`
+	STUN          ServerNodeCheckItem `json:"stun"`
+	Actions       []string            `json:"actions"`
 }
 
 // RuntimeStatus 汇总桌面端运行态，供总览和网络页展示。
@@ -757,11 +797,9 @@ func (a *App) SaveServerSettings(settings ServerSettings) error {
 		settingActiveServerNodeID: normalizedSettings.ActiveNodeID,
 		settingServerNodes:        string(nodesJSON),
 	}
-	for key, value := range values {
-		if err := a.store.SetSetting(key, value); err != nil {
-			a.recordError(err)
-			return fmt.Errorf("save setting %s: %w", key, err)
-		}
+	if err := a.store.SetSettings(values); err != nil {
+		a.recordError(err)
+		return err
 	}
 	a.clearError()
 	a.appendActivityLog(activityLog{
@@ -780,6 +818,48 @@ func (a *App) SaveServerSettings(settings ServerSettings) error {
 		},
 	})
 	return nil
+}
+
+// CheckServerNode 对单个服务端实例执行 Relay、Control Plane 和 STUN 预检。
+func (a *App) CheckServerNode(input ServerNodeCheckInput) (*ServerNodeCheckResult, error) {
+	node := normalizeServerNodeCheckInput(input)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultServerNodeCheckTimeout*3)
+	defer cancel()
+
+	result := &ServerNodeCheckResult{
+		NodeID:    node.ID,
+		NodeName:  node.Name,
+		CheckedAt: time.Now().UTC(),
+	}
+	result.Relay = checkRelayEndpoint(ctx, node)
+	result.ControlPlane = checkControlPlaneEndpoint(ctx, node)
+	result.STUN = checkSTUNEndpoint(ctx, node, a.logger)
+	result.OverallStatus = summarizeServerNodeCheckStatus(result.Relay.Status, result.ControlPlane.Status, result.STUN.Status)
+	result.Actions = collectServerNodeCheckActions(result.Relay, result.ControlPlane, result.STUN)
+
+	a.appendActivityLog(activityLog{
+		Level:      activityLogLevelInfo,
+		Category:   activityLogCategorySecurity,
+		Action:     activityActionCheckServerNode,
+		TargetType: activityTargetServerNode,
+		TargetID:   node.ID,
+		Title:      "服务端实例检测完成",
+		Message:    fmt.Sprintf("检测服务端实例 %s，整体状态为 %s。", node.Name, result.OverallStatus),
+		Metadata: map[string]string{
+			"node_id":              node.ID,
+			"node_name":            node.Name,
+			"relay_addr":           node.RelayAddr,
+			"has_relay_token":      fmt.Sprintf("%t", strings.TrimSpace(node.RelayToken) != ""),
+			"control_plane_url":    node.ControlPlaneURL,
+			"has_control_token":    fmt.Sprintf("%t", strings.TrimSpace(node.ControlPlaneToken) != ""),
+			"stun_server":          node.STUNServer,
+			"overall_status":       result.OverallStatus,
+			"relay_status":         result.Relay.Status,
+			"control_plane_status": result.ControlPlane.Status,
+			"stun_status":          result.STUN.Status,
+		},
+	})
+	return result, nil
 }
 
 // GetRuntimeStatus 聚合连接、P2P、NAT、TUN 和虚拟网络运行状态。
@@ -804,7 +884,7 @@ func (a *App) ApplyVirtualNetwork() (virtualnet.State, error) {
 		return a.virtualNetworkState(), err
 	}
 	clientID := a.getOrCreateClientID()
-	cfg, err := fetchVirtualNetworkConfig(settings.ControlPlaneURL, settings.ControlPlaneToken, clientID)
+	cfg, err := fetchVirtualNetworkConfigWithRegistration(settings.ControlPlaneURL, settings.ControlPlaneToken, clientID)
 	if err != nil {
 		a.recordError(err)
 		return a.virtualNetworkState(), err
@@ -1319,6 +1399,140 @@ func defaultServerNode() ServerNodeSettings {
 	}
 }
 
+func normalizeServerNodeCheckInput(input ServerNodeCheckInput) ServerNodeSettings {
+	return ServerNodeSettings{
+		ID:                firstNonEmpty(input.ID, defaultServerNodeID),
+		Name:              firstNonEmpty(input.Name, "默认节点"),
+		RelayAddr:         strings.TrimSpace(input.RelayAddr),
+		RelayToken:        strings.TrimSpace(input.RelayToken),
+		ControlPlaneURL:   strings.TrimSpace(input.ControlPlaneURL),
+		ControlPlaneToken: strings.TrimSpace(input.ControlPlaneToken),
+		STUNServer:        strings.TrimSpace(input.STUNServer),
+		STUNAltServer:     strings.TrimSpace(input.STUNAltServer),
+	}
+}
+
+func checkRelayEndpoint(ctx context.Context, node ServerNodeSettings) ServerNodeCheckItem {
+	if strings.TrimSpace(node.RelayAddr) == "" {
+		return serverNodeCheckItem("relay", statusWarning, "Relay 地址未配置。", "填写服务端 Relay 地址后再连接。", 0)
+	}
+	startedAt := time.Now()
+	dialer := net.Dialer{Timeout: defaultServerNodeCheckTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", node.RelayAddr)
+	latencyMS := latencyMilliseconds(startedAt)
+	if err != nil {
+		return serverNodeCheckItem("relay", statusError, fmt.Sprintf("Relay TCP 不可达：%v", err), "检查 Relay 地址、端口、防火墙和云安全组。", latencyMS)
+	}
+	_ = conn.Close()
+	if strings.TrimSpace(node.RelayToken) == "" {
+		return serverNodeCheckItem("relay", statusWarning, "Relay TCP 可达，但访问令牌未配置。", "公开 Relay 必须配置强随机访问令牌。", latencyMS)
+	}
+	return serverNodeCheckItem("relay", statusSuccess, "Relay TCP 可达，访问令牌已配置。", "", latencyMS)
+}
+
+func checkControlPlaneEndpoint(ctx context.Context, node ServerNodeSettings) ServerNodeCheckItem {
+	if strings.TrimSpace(node.ControlPlaneURL) == "" {
+		return serverNodeCheckItem("control_plane", statusWarning, "Control Plane 未配置。", "需要虚拟网络或集中路由下发时配置 Control Plane 地址。", 0)
+	}
+	baseURL, err := normalizeHTTPBaseURL(node.ControlPlaneURL)
+	if err != nil {
+		return serverNodeCheckItem("control_plane", statusError, err.Error(), "修正 Control Plane URL，需使用 http 或 https。", 0)
+	}
+	requestURL := strings.TrimRight(baseURL, "/") + "/healthz"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return serverNodeCheckItem("control_plane", statusError, fmt.Sprintf("创建健康检查请求失败：%v", err), "检查 Control Plane URL 是否有效。", 0)
+	}
+	if strings.TrimSpace(node.ControlPlaneToken) != "" {
+		req.Header.Set("Authorization", "Bearer "+node.ControlPlaneToken)
+	}
+	startedAt := time.Now()
+	resp, err := (&http.Client{Timeout: defaultServerNodeCheckTimeout}).Do(req)
+	latencyMS := latencyMilliseconds(startedAt)
+	if err != nil {
+		return serverNodeCheckItem("control_plane", statusError, fmt.Sprintf("Control Plane 不可达：%v", err), "检查 Control Plane 地址、端口、反向代理和证书。", latencyMS)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return serverNodeCheckItem("control_plane", statusError, fmt.Sprintf("Control Plane 健康检查返回 HTTP %d。", resp.StatusCode), "确认 Control Plane 服务已启动，且反向代理没有拦截 /healthz。", latencyMS)
+	}
+	return serverNodeCheckItem("control_plane", statusSuccess, "Control Plane 健康检查通过。", "", latencyMS)
+}
+
+func checkSTUNEndpoint(ctx context.Context, node ServerNodeSettings, logger *slog.Logger) ServerNodeCheckItem {
+	if strings.TrimSpace(node.STUNServer) == "" {
+		return serverNodeCheckItem("stun", statusWarning, "STUN 服务器未配置。", "配置 STUN 服务器以启用 NAT 探测和 P2P 可行性判断。", 0)
+	}
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return serverNodeCheckItem("stun", statusError, fmt.Sprintf("创建本地 UDP socket 失败：%v", err), "检查本机网络权限和安全软件策略。", 0)
+	}
+	defer conn.Close()
+
+	if logger == nil {
+		logger = slog.Default()
+	}
+	startedAt := time.Now()
+	client := nat.NewClient(
+		nat.WithTimeout(defaultServerNodeCheckTimeout),
+		nat.WithRetries(0),
+		nat.WithLogger(logger),
+	)
+	binding, err := client.BindingRequest(ctx, node.STUNServer, conn)
+	latencyMS := latencyMilliseconds(startedAt)
+	if err != nil {
+		return serverNodeCheckItem("stun", statusError, fmt.Sprintf("STUN 探测失败：%v", err), "检查 STUN 地址、UDP 出站策略和本地网络限制。", latencyMS)
+	}
+	return serverNodeCheckItem("stun", statusSuccess, fmt.Sprintf("STUN 可达，公网映射为 %s。", binding.MappedAddr.String()), "", latencyMS)
+}
+
+func serverNodeCheckItem(name, status, message, action string, latencyMS int64) ServerNodeCheckItem {
+	return ServerNodeCheckItem{
+		Name:      name,
+		Status:    status,
+		Message:   message,
+		Action:    action,
+		LatencyMS: latencyMS,
+	}
+}
+
+func latencyMilliseconds(startedAt time.Time) int64 {
+	return time.Since(startedAt).Milliseconds()
+}
+
+func summarizeServerNodeCheckStatus(statuses ...string) string {
+	hasWarning := false
+	for _, status := range statuses {
+		if status == statusError {
+			return statusError
+		}
+		if status == statusWarning {
+			hasWarning = true
+		}
+	}
+	if hasWarning {
+		return statusWarning
+	}
+	return statusSuccess
+}
+
+func collectServerNodeCheckActions(items ...ServerNodeCheckItem) []string {
+	seen := map[string]struct{}{}
+	actions := make([]string, 0, len(items))
+	for _, item := range items {
+		action := strings.TrimSpace(item.Action)
+		if action == "" {
+			continue
+		}
+		if _, exists := seen[action]; exists {
+			continue
+		}
+		seen[action] = struct{}{}
+		actions = append(actions, action)
+	}
+	return actions
+}
+
 func selectActiveServerNode(nodes []ServerNodeSettings, activeNodeID string) ServerNodeSettings {
 	for _, node := range nodes {
 		if node.ID == activeNodeID {
@@ -1620,6 +1834,74 @@ func fetchVirtualNetworkConfig(baseURL, token, nodeID string) (*virtualnet.Confi
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
 	return &cfg, nil
+}
+
+func fetchVirtualNetworkConfigWithRegistration(baseURL, token, nodeID string) (*virtualnet.Config, error) {
+	if err := registerControlPlaneNode(baseURL, token, nodeID); err != nil {
+		return nil, err
+	}
+	cfg, err := fetchVirtualNetworkConfig(baseURL, token, nodeID)
+	if err == nil {
+		return cfg, nil
+	}
+	if !isMissingVirtualIPAllocationError(err) {
+		return nil, err
+	}
+	// 历史节点可能存在 nodes 记录但缺少 ip_allocations，重新注册后只重试一次。
+	if registerErr := registerControlPlaneNode(baseURL, token, nodeID); registerErr != nil {
+		return nil, registerErr
+	}
+	return fetchVirtualNetworkConfig(baseURL, token, nodeID)
+}
+
+func registerControlPlaneNode(baseURL, token, nodeID string) error {
+	normalizedBaseURL, err := normalizeHTTPBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	requestURL := fmt.Sprintf("%s/api/v1/nodes", normalizedBaseURL)
+	payload := map[string]any{
+		"node_id":  nodeID,
+		"nat_type": "unknown",
+		"region":   "desktop",
+		"metadata": map[string]string{
+			"source": "desktop",
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode node registration: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create node registration request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("register control plane node: %w", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("read node registration response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("register control plane node failed: HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return nil
+}
+
+func isMissingVirtualIPAllocationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "IP allocation not found") || strings.Contains(message, "get virtual IP")
 }
 
 func normalizeHTTPBaseURL(rawBaseURL string) (string, error) {

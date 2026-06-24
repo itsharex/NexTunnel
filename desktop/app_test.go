@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/nextunnel/desktop/internal/config"
@@ -111,6 +116,97 @@ func TestServerSettingsMultiNodeSwitch(t *testing.T) {
 	}
 }
 
+func TestCheckServerNodeReportsReachableRelayAndControlPlane(t *testing.T) {
+	app := newTestApp(t)
+	relayListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen relay: %v", err)
+	}
+	defer relayListener.Close()
+	go func() {
+		conn, acceptErr := relayListener.Accept()
+		if acceptErr == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer controlPlane.Close()
+
+	result, err := app.CheckServerNode(ServerNodeCheckInput{
+		ID:              "local",
+		Name:            "本地测试",
+		RelayAddr:       relayListener.Addr().String(),
+		RelayToken:      "relay-token",
+		ControlPlaneURL: controlPlane.URL,
+	})
+	if err != nil {
+		t.Fatalf("CheckServerNode: %v", err)
+	}
+	if result.Relay.Status != statusSuccess || result.ControlPlane.Status != statusSuccess {
+		t.Fatalf("expected reachable relay and control plane, got %+v", result)
+	}
+	if result.STUN.Status != statusWarning || result.OverallStatus != statusWarning {
+		t.Fatalf("expected missing STUN warning, got %+v", result)
+	}
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategorySecurity, Limit: 10})
+	if !containsActivityAction(logs, activityActionCheckServerNode) {
+		t.Fatalf("expected server node check activity log, got %+v", logs)
+	}
+}
+
+func TestCheckServerNodeReportsRelayError(t *testing.T) {
+	app := newTestApp(t)
+	result, err := app.CheckServerNode(ServerNodeCheckInput{
+		ID:        "bad-relay",
+		Name:      "不可达 Relay",
+		RelayAddr: "127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("CheckServerNode: %v", err)
+	}
+	if result.Relay.Status != statusError || result.OverallStatus != statusError || len(result.Actions) == 0 {
+		t.Fatalf("expected relay error with actions, got %+v", result)
+	}
+}
+
+func TestServerSettingsConcurrentSaveDoesNotLockDatabase(t *testing.T) {
+	app := newTestApp(t)
+	const saveCount = 24
+	var wg sync.WaitGroup
+	errCh := make(chan error, saveCount)
+	for index := 0; index < saveCount; index++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			errCh <- app.SaveServerSettings(ServerSettings{
+				ActiveNodeID: fmt.Sprintf("node-%d", index),
+				RelayAddr:    fmt.Sprintf("relay-%d.example.com:7000", index),
+				STUNServer:   "stun.l.google.com:19302",
+				Nodes: []ServerNodeSettings{{
+					ID:         fmt.Sprintf("node-%d", index),
+					Name:       fmt.Sprintf("节点 %d", index),
+					RelayAddr:  fmt.Sprintf("relay-%d.example.com:7000", index),
+					STUNServer: "stun.l.google.com:19302",
+				}},
+			})
+		}(index)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("SaveServerSettings concurrent error: %v", err)
+		}
+	}
+}
+
 func TestNormalizeHTTPBaseURLAddsScheme(t *testing.T) {
 	got, err := normalizeHTTPBaseURL("150.158.18.55:9090/")
 	if err != nil {
@@ -118,6 +214,65 @@ func TestNormalizeHTTPBaseURLAddsScheme(t *testing.T) {
 	}
 	if got != "http://150.158.18.55:9090" {
 		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestFetchVirtualNetworkConfigWithRegistrationRetriesMissingAllocation(t *testing.T) {
+	registerCount := 0
+	routeCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer cp-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/nodes":
+			registerCount++
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode node registration: %v", err)
+			}
+			if payload["node_id"] != "desktop-node-1" {
+				t.Fatalf("unexpected node registration payload: %+v", payload)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(payload)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/nodes/desktop-node-1/routes":
+			routeCount++
+			if routeCount == 1 {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"get virtual IP for desktop-node-1: IP allocation not found: desktop-node-1"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":    "desktop-node-1",
+				"virtual_ip": "10.7.0.2",
+				"subnet":     "10.7.0.0/24",
+				"gateway":    "10.7.0.1",
+				"interface":  "nextunnel0",
+				"mtu":        1420,
+				"routes": []map[string]any{{
+					"destination": "10.7.0.0/24",
+					"gateway":     "10.7.0.1",
+					"interface":   "nextunnel0",
+					"metric":      100,
+				}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	cfg, err := fetchVirtualNetworkConfigWithRegistration(server.URL, "cp-token", "desktop-node-1")
+	if err != nil {
+		t.Fatalf("fetchVirtualNetworkConfigWithRegistration: %v", err)
+	}
+	if cfg.VirtualIP != "10.7.0.2" || len(cfg.Routes) != 1 {
+		t.Fatalf("unexpected route config: %+v", cfg)
+	}
+	if registerCount != 2 || routeCount != 2 {
+		t.Fatalf("registerCount=%d routeCount=%d, want 2/2", registerCount, routeCount)
 	}
 }
 

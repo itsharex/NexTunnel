@@ -13,6 +13,9 @@ param(
     [string]$DataDir = '',
     [string]$PublicHost = '',
     [string]$RelayToken = '',
+    [string]$RelayAdminToken = '',
+    [string]$DashboardRelayAdminToken = '',
+    [string]$RelayAdminListen = '',
     [string]$ControlToken = '',
     [int]$RelayPort = 7000,
     [int]$RelayQuicPort = 7443,
@@ -135,6 +138,42 @@ function Convert-ToEnvLine {
         throw "$Name cannot contain newline characters."
     }
     return $Name + '=' + $Value
+}
+
+function Ensure-EnvLine {
+    param(
+        [hashtable]$Values,
+        [string]$Name,
+        [string]$Value
+    )
+    if ($Values.ContainsKey($Name)) {
+        return
+    }
+    Add-Content -LiteralPath $script:EnvPath -Value (Convert-ToEnvLine $Name $Value) -Encoding UTF8
+}
+
+function Ensure-ExistingEnvDefaults {
+    $values = Read-DotEnvFile $script:EnvPath
+    $resolvedRelayAdminListen = if ($RelayAdminListen) { $RelayAdminListen } else { Get-ConfigValue $script:LocalEnv 'RELAY_ADMIN_LISTEN' '127.0.0.1:7001' }
+    $resolvedRelayAdminToken = if ($RelayAdminToken) {
+        $RelayAdminToken
+    } elseif ($values.ContainsKey('RELAY_ADMIN_TOKEN') -and -not [string]::IsNullOrWhiteSpace($values['RELAY_ADMIN_TOKEN'])) {
+        $values['RELAY_ADMIN_TOKEN']
+    } else {
+        Get-ConfigValue $script:LocalEnv 'RELAY_ADMIN_TOKEN' (New-RandomSecret)
+    }
+    $resolvedDashboardRelayAdminUrl = Get-ConfigValue $script:LocalEnv 'DASHBOARD_RELAY_ADMIN_URL' 'http://127.0.0.1:7001'
+    $resolvedDashboardRelayAdminToken = if ($DashboardRelayAdminToken) {
+        $DashboardRelayAdminToken
+    } elseif ($values.ContainsKey('DASHBOARD_RELAY_ADMIN_TOKEN') -and -not [string]::IsNullOrWhiteSpace($values['DASHBOARD_RELAY_ADMIN_TOKEN'])) {
+        $values['DASHBOARD_RELAY_ADMIN_TOKEN']
+    } else {
+        Get-ConfigValue $script:LocalEnv 'DASHBOARD_RELAY_ADMIN_TOKEN' $resolvedRelayAdminToken
+    }
+    Ensure-EnvLine -Values $values -Name 'RELAY_ADMIN_LISTEN' -Value $resolvedRelayAdminListen
+    Ensure-EnvLine -Values $values -Name 'RELAY_ADMIN_TOKEN' -Value $resolvedRelayAdminToken
+    Ensure-EnvLine -Values $values -Name 'DASHBOARD_RELAY_ADMIN_URL' -Value $resolvedDashboardRelayAdminUrl
+    Ensure-EnvLine -Values $values -Name 'DASHBOARD_RELAY_ADMIN_TOKEN' -Value $resolvedDashboardRelayAdminToken
 }
 
 function Resolve-Architecture {
@@ -337,11 +376,15 @@ function Install-ReleasePackage {
 function Write-EnvFile {
     if ((Test-Path -LiteralPath $script:EnvPath) -and -not $Force) {
         Write-Warn "Config already exists. Keep current config: $script:EnvPath. Use -Force to regenerate."
+        Ensure-ExistingEnvDefaults
         return
     }
 
     $resolvedPublicHost = if ($PublicHost) { $PublicHost } else { Get-ConfigValue $script:LocalEnv 'NEXTUNNEL_PUBLIC_HOST' '127.0.0.1' }
     $resolvedRelayToken = if ($RelayToken) { $RelayToken } else { Get-ConfigValue $script:LocalEnv 'RELAY_AUTH_TOKEN' (New-RandomSecret) }
+    $resolvedRelayAdminListen = if ($RelayAdminListen) { $RelayAdminListen } else { Get-ConfigValue $script:LocalEnv 'RELAY_ADMIN_LISTEN' '127.0.0.1:7001' }
+    $resolvedRelayAdminToken = if ($RelayAdminToken) { $RelayAdminToken } else { Get-ConfigValue $script:LocalEnv 'RELAY_ADMIN_TOKEN' (New-RandomSecret) }
+    $resolvedDashboardRelayAdminToken = if ($DashboardRelayAdminToken) { $DashboardRelayAdminToken } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_RELAY_ADMIN_TOKEN' $resolvedRelayAdminToken }
     $resolvedControlToken = if ($ControlToken) { $ControlToken } else { Get-ConfigValue $script:LocalEnv 'CONTROL_PLANE_API_TOKEN' (New-RandomSecret) }
     $resolvedRelayPort = [int](Get-ConfigValue $script:LocalEnv 'RELAY_CONTROL_PORT' "$RelayPort")
     $resolvedRelayQuicPort = [int](Get-ConfigValue $script:LocalEnv 'RELAY_QUIC_PORT' "$RelayQuicPort")
@@ -352,6 +395,7 @@ function Write-EnvFile {
     $resolvedDashboardAdmin = if ($DashboardAdmin) { $DashboardAdmin } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ADMIN_USER' 'admin' }
     $resolvedDashboardPassword = if ($DashboardPassword) { $DashboardPassword } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ADMIN_PASSWORD' (New-RandomSecret) }
     $resolvedDashboardOrigins = if ($DashboardOrigins) { $DashboardOrigins } else { Get-ConfigValue $script:LocalEnv 'DASHBOARD_ALLOWED_ORIGINS' 'http://127.0.0.1:8080,http://localhost:8080' }
+    $resolvedDashboardRelayAdminUrl = Get-ConfigValue $script:LocalEnv 'DASHBOARD_RELAY_ADMIN_URL' 'http://127.0.0.1:7001'
     $resolvedNatPort = [int](Get-ConfigValue $script:LocalEnv 'NAT_PORT' "$NatPort")
 
     $resolvedPublicHost = Read-Setting -Prompt 'Public IP or domain' -DefaultValue $resolvedPublicHost
@@ -368,8 +412,8 @@ function Write-EnvFile {
         $resolvedDashboardPassword = Read-Setting -Prompt 'Dashboard admin password' -DefaultValue $resolvedDashboardPassword -Secret
     }
 
-    if ([string]::IsNullOrWhiteSpace($resolvedRelayToken) -or [string]::IsNullOrWhiteSpace($resolvedControlToken)) {
-        throw 'RelayToken and ControlToken cannot be empty.'
+    if ([string]::IsNullOrWhiteSpace($resolvedRelayToken) -or [string]::IsNullOrWhiteSpace($resolvedRelayAdminToken) -or [string]::IsNullOrWhiteSpace($resolvedDashboardRelayAdminToken) -or [string]::IsNullOrWhiteSpace($resolvedControlToken)) {
+        throw 'RelayToken, RelayAdminToken, DashboardRelayAdminToken and ControlToken cannot be empty.'
     }
     if ((Test-Truthy $resolvedDashboardEnabled) -and ([string]::IsNullOrWhiteSpace($resolvedDashboardSecret) -or [string]::IsNullOrWhiteSpace($resolvedDashboardPassword))) {
         throw 'DashboardSecret and DashboardAdminPassword cannot be empty.'
@@ -390,6 +434,8 @@ function Write-EnvFile {
         (Convert-ToEnvLine 'RELAY_AUTH_TOKEN' $resolvedRelayToken),
         (Convert-ToEnvLine 'RELAY_REQUIRE_AUTH' (Get-ConfigValue $script:LocalEnv 'RELAY_REQUIRE_AUTH' 'true')),
         (Convert-ToEnvLine 'RELAY_STATS_INTERVAL' (Get-ConfigValue $script:LocalEnv 'RELAY_STATS_INTERVAL' '30s')),
+        (Convert-ToEnvLine 'RELAY_ADMIN_LISTEN' $resolvedRelayAdminListen),
+        (Convert-ToEnvLine 'RELAY_ADMIN_TOKEN' $resolvedRelayAdminToken),
         (Convert-ToEnvLine 'CONTROL_PLANE_LISTEN' "0.0.0.0:$resolvedControlPlanePort"),
         (Convert-ToEnvLine 'CONTROL_PLANE_PORT' "$resolvedControlPlanePort"),
         (Convert-ToEnvLine 'CONTROL_PLANE_API_TOKEN' $resolvedControlToken),
@@ -403,6 +449,8 @@ function Write-EnvFile {
         (Convert-ToEnvLine 'DASHBOARD_ALLOWED_ORIGINS' "$resolvedDashboardOrigins,http://${resolvedPublicHost}:$resolvedDashboardPort"),
         (Convert-ToEnvLine 'DASHBOARD_STORE_PATH' (Join-Path $script:DataDir 'dashboard.db')),
         (Convert-ToEnvLine 'DASHBOARD_STATIC_DIR' $script:WebDir),
+        (Convert-ToEnvLine 'DASHBOARD_RELAY_ADMIN_URL' $resolvedDashboardRelayAdminUrl),
+        (Convert-ToEnvLine 'DASHBOARD_RELAY_ADMIN_TOKEN' $resolvedDashboardRelayAdminToken),
         (Convert-ToEnvLine 'NAT_PRIMARY_ADDR' (Get-ConfigValue $script:LocalEnv 'NAT_PRIMARY_ADDR' '0.0.0.0')),
         (Convert-ToEnvLine 'NAT_ALT_ADDR' (Get-ConfigValue $script:LocalEnv 'NAT_ALT_ADDR' '127.0.0.1')),
         (Convert-ToEnvLine 'NAT_PORT' "$resolvedNatPort"),
@@ -418,6 +466,9 @@ function Read-EnvFile {
 }
 
 function Set-ProcessEnvironment {
+    if (Test-Path -LiteralPath $script:EnvPath) {
+        Ensure-ExistingEnvDefaults
+    }
     $envMap = Read-EnvFile
     if ($envMap.Count -eq 0) {
         throw 'server.env not found. Run install or config first.'
@@ -494,6 +545,8 @@ function Start-Stack {
         '--quic-port', $envMap['RELAY_QUIC_PORT'],
         '--auth-token', $envMap['RELAY_AUTH_TOKEN'],
         '--require-auth',
+        '--admin-listen', $envMap['RELAY_ADMIN_LISTEN'],
+        '--admin-token', $envMap['RELAY_ADMIN_TOKEN'],
         '--stats-interval', $envMap['RELAY_STATS_INTERVAL']
     )
     Start-ManagedProcess -Name 'nat-detector' -FilePath (Get-BinaryPath 'nat-detector') -Arguments @(
@@ -510,7 +563,9 @@ function Start-Stack {
             '--admin-password', $envMap['DASHBOARD_ADMIN_PASSWORD'],
             '--allowed-origins', $envMap['DASHBOARD_ALLOWED_ORIGINS'],
             '--store-path', $envMap['DASHBOARD_STORE_PATH'],
-            '--static-dir', $envMap['DASHBOARD_STATIC_DIR']
+            '--static-dir', $envMap['DASHBOARD_STATIC_DIR'],
+            '--relay-admin-url', $envMap['DASHBOARD_RELAY_ADMIN_URL'],
+            '--relay-admin-token', $envMap['DASHBOARD_RELAY_ADMIN_TOKEN']
         )
     } elseif (Test-Truthy $envMap['DASHBOARD_ENABLED']) {
         Write-Warn 'Dashboard is enabled, but dashboard binary is not installed. Core services are running only.'
@@ -575,6 +630,9 @@ function Show-ConnectionInfo {
 }
 
 function Test-Health {
+    if (Test-Path -LiteralPath $script:EnvPath) {
+        Ensure-ExistingEnvDefaults
+    }
     $envMap = Read-EnvFile
     if ($envMap.Count -eq 0) {
         throw 'server.env not found. Run install first.'
@@ -589,6 +647,10 @@ function Test-Health {
         $tcpClient.Close()
     }
     Write-Host "Relay TCP $($envMap['RELAY_CONTROL_PORT']) is reachable" -ForegroundColor Green
+    if (-not [string]::IsNullOrWhiteSpace($envMap['DASHBOARD_RELAY_ADMIN_URL']) -and -not [string]::IsNullOrWhiteSpace($envMap['DASHBOARD_RELAY_ADMIN_TOKEN'])) {
+        Write-Step 'Checking Relay admin API'
+        Invoke-WebRequest -Uri "$($envMap['DASHBOARD_RELAY_ADMIN_URL'].TrimEnd('/'))/api/v1/admin/health" -Headers @{ Authorization = "Bearer $($envMap['DASHBOARD_RELAY_ADMIN_TOKEN'])" } -UseBasicParsing | Select-Object StatusCode, StatusDescription
+    }
     if ((Test-Truthy $envMap['DASHBOARD_ENABLED']) -and (Test-Path -LiteralPath (Get-BinaryPath 'dashboard'))) {
         Write-Step 'Checking Dashboard health'
         Invoke-WebRequest -Uri "http://127.0.0.1:$($envMap['DASHBOARD_PORT'])/api/v1/health" -UseBasicParsing | Select-Object StatusCode, StatusDescription

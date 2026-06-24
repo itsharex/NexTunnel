@@ -50,6 +50,27 @@ export interface ServerNodeSettings {
   stun_alt_server: string
 }
 
+export type ServerNodeCheckInput = ServerNodeSettings
+
+export interface ServerNodeCheckItem {
+  name: string
+  status: string
+  message: string
+  action: string
+  latency_ms: number
+}
+
+export interface ServerNodeCheckResult {
+  node_id: string
+  node_name: string
+  overall_status: string
+  checked_at: string
+  relay: ServerNodeCheckItem
+  control_plane: ServerNodeCheckItem
+  stun: ServerNodeCheckItem
+  actions: string[]
+}
+
 export interface AppearanceSettings {
   theme_mode: string
   motion_level: string
@@ -395,6 +416,26 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
   GetNATType: () => '',
   GetServerSettings: () => PREVIEW_SETTINGS,
   SaveServerSettings: () => undefined,
+  CheckServerNode: (input: unknown) => {
+    const node = input as ServerNodeCheckInput
+    const createItem = (name: string, message: string): ServerNodeCheckItem => ({
+      name,
+      status: 'warning',
+      message,
+      action: '在桌面应用运行态执行真实检测。',
+      latency_ms: 0,
+    })
+    return {
+      node_id: node.id,
+      node_name: node.name,
+      overall_status: 'warning',
+      checked_at: new Date().toISOString(),
+      relay: createItem('relay', '预览模式不连接 Relay。'),
+      control_plane: createItem('control_plane', '预览模式不请求 Control Plane。'),
+      stun: createItem('stun', '预览模式不发送 STUN UDP 探测。'),
+      actions: ['在桌面应用运行态执行真实检测。'],
+    }
+  },
   GetAppearanceSettings: () => PREVIEW_APPEARANCE_SETTINGS,
   SaveAppearanceSettings: () => undefined,
   GetGeneralSettings: () => PREVIEW_GENERAL_SETTINGS,
@@ -576,6 +617,10 @@ export const GetServerSettings = (): Promise<ServerSettings> => {
 
 export const SaveServerSettings = (settings: ServerSettings): Promise<void> => {
   return call<void>('SaveServerSettings', settings)
+}
+
+export const CheckServerNode = (input: ServerNodeCheckInput): Promise<ServerNodeCheckResult> => {
+  return call<ServerNodeCheckResult>('CheckServerNode', input)
 }
 
 export const GetAppearanceSettings = (): Promise<AppearanceSettings> => {

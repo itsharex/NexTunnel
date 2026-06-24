@@ -39,6 +39,7 @@ type ProxyInfo struct {
 	Status     ProxyStatus `json:"status"`
 	BytesIn    int64       `json:"bytes_in"`
 	BytesOut   int64       `json:"bytes_out"`
+	Sessions   int64       `json:"sessions"`
 }
 
 // ClientInfo holds metadata about a connected tunnel client.

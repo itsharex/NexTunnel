@@ -2,7 +2,7 @@
 
 本文档覆盖 Beta 发布前剩余的生产验收项。所有命令都会生成 JSON 报告到 `dist/verification/`，失败时返回非零退出码。
 
-## v0.4.1-alpha 验证进度
+## v0.6.0-beta 验证进度
 
 截至 2026-06-18，工程侧已完成生产验证入口、报告结构和故障前置检查，并在两台公网服务器上推进了 Dashboard、eBPF 和 Edge 演练。剩余实机验收以域名证书、系统驱动和授权环境准备为主：
 
@@ -15,7 +15,7 @@
 | Linux eBPF XDP | 功能验收已通过 | 服务器二 Linux 6.8、`eth0`、`skb` 模式完成 BPF 对象编译、XDP 挂载、DROP 规则同步、统计读取和卸载；吞吐/延迟压力基准仍需隔离窗口补充。 |
 | 多地域 Edge/Anycast | 远端 Control Plane 演练已通过 | 本地 3 区域演练和服务器二真实 Control Plane 注册/心跳/清理均通过；商用生产仍需真实多地域节点与观测指标压测。 |
 
-发布边界：v0.4.1-alpha 可以声明生产验证工具链和故障诊断能力已齐备，P2P 直连链路、Dashboard API、eBPF XDP 功能挂载和 Edge/Anycast 远端注册链路已验证；真实系统 TUN、Dashboard 公网 HTTPS、eBPF 压力基准和真实多地域拓扑仍需在具备权限和依赖的生产或隔离环境完成最终验收。
+发布边界：v0.6.0-beta 可以声明生产验证工具链、Relay Admin API、Dashboard 客户端监控和故障诊断能力已齐备，P2P 直连链路、Dashboard API、eBPF XDP 功能挂载和 Edge/Anycast 远端注册链路已验证；真实系统 TUN、Dashboard 公网 HTTPS、eBPF 压力基准和真实多地域拓扑仍需在具备权限和依赖的生产或隔离环境完成最终验收。
 
 阻塞项最佳处理方案：
 

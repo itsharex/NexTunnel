@@ -421,6 +421,39 @@ func TestControlPlane_PersistentStateRestore(t *testing.T) {
 	}
 }
 
+func TestVirtualNetwork_BuildConfigRepairsMissingAllocation(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := DefaultControlPlaneConfig()
+	srv := NewServer(cfg, store)
+
+	if err := store.SaveNode(&NodeInfo{
+		NodeID:    "repair-node-1",
+		PublicKey: "repair-key",
+		NATType:   "restricted",
+		Region:    "ap-east",
+	}); err != nil {
+		t.Fatalf("SaveNode: %v", err)
+	}
+
+	routeConfig, err := srv.virtualNet.BuildConfig("repair-node-1")
+	if err != nil {
+		t.Fatalf("BuildConfig should repair missing allocation: %v", err)
+	}
+	if routeConfig.VirtualIP == "" {
+		t.Fatal("expected repaired virtual IP")
+	}
+	if _, err := store.GetIPAllocation("repair-node-1"); err != nil {
+		t.Fatalf("expected repaired allocation persisted: %v", err)
+	}
+	node, err := store.GetNode("repair-node-1")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.VirtualIP != routeConfig.VirtualIP {
+		t.Fatalf("node virtual IP = %q, route config = %q", node.VirtualIP, routeConfig.VirtualIP)
+	}
+}
+
 func TestMemoryStore_CRUD(t *testing.T) {
 	store := NewMemoryStore()
 

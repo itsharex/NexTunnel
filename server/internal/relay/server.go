@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/nextunnel/pkg/protocol"
@@ -20,6 +21,8 @@ type Server struct {
 
 	controlListener net.Listener
 	quicTransport   *QUICTransport
+	adminListener   net.Listener
+	adminServer     *http.Server
 
 	clientsMu sync.RWMutex
 	clients   map[string]*ClientConn
@@ -71,10 +74,17 @@ func (s *Server) Run() error {
 	s.logger.Info("relay server started", "addr", addr, "tls", s.config.TLSEnabled)
 
 	go s.acceptLoop()
+	if err := s.startAdminAPI(); err != nil {
+		ln.Close()
+		return err
+	}
 	if s.config.QUICPort > 0 {
 		s.quicTransport = NewQUICTransport(s.config, s, s.logger)
 		if err := s.quicTransport.Start(s.ctx); err != nil {
 			ln.Close()
+			if s.adminServer != nil {
+				_ = s.adminServer.Shutdown(context.Background())
+			}
 			return err
 		}
 	}
@@ -85,6 +95,14 @@ func (s *Server) Run() error {
 func (s *Server) Addr() net.Addr {
 	if s.controlListener != nil {
 		return s.controlListener.Addr()
+	}
+	return nil
+}
+
+// AdminAddr returns the admin API listener address when the API is enabled.
+func (s *Server) AdminAddr() net.Addr {
+	if s.adminListener != nil {
+		return s.adminListener.Addr()
 	}
 	return nil
 }
@@ -338,6 +356,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.quicTransport != nil {
 		s.quicTransport.Stop()
 	}
+	if s.adminServer != nil {
+		_ = s.adminServer.Shutdown(ctx)
+	}
 
 	// Close all client connections
 	s.clientsMu.Lock()
@@ -348,7 +369,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.clientsMu.Unlock()
 
 	for _, cc := range clients {
-		cc.conn.Close()
+		cc.close()
 	}
 
 	// Stop all proxies

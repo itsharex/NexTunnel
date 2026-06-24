@@ -1,6 +1,10 @@
 package dashboard
 
-import "time"
+import (
+	"time"
+
+	"github.com/nextunnel/pkg/types"
+)
 
 // NodeStatus represents the dashboard view of a node.
 type NodeStatus struct {
@@ -23,6 +27,45 @@ type TrafficStats struct {
 	TxBandwidth float64   `json:"tx_bandwidth_bps"`
 	Connections int       `json:"connections"`
 	Timestamp   time.Time `json:"timestamp"`
+}
+
+// ClientSnapshot 表示 Relay 管理 API 返回的在线客户端连接状态。
+type ClientSnapshot struct {
+	ClientID    string            `json:"client_id"`
+	RemoteAddr  string            `json:"remote_addr"`
+	ConnectedAt time.Time         `json:"connected_at"`
+	LastSeen    time.Time         `json:"last_seen"`
+	ProxyCount  int               `json:"proxy_count"`
+	Proxies     []types.ProxyInfo `json:"proxies"`
+	BytesIn     int64             `json:"bytes_in"`
+	BytesOut    int64             `json:"bytes_out"`
+	Sessions    int64             `json:"sessions"`
+}
+
+// ClientListResponse 在 Relay 管理 API 未配置或不可用时仍返回可解释状态。
+type ClientListResponse struct {
+	Configured bool             `json:"configured"`
+	Available  bool             `json:"available"`
+	Error      string           `json:"error,omitempty"`
+	Clients    []ClientSnapshot `json:"clients"`
+}
+
+// RuntimeConfigStatus 汇总 Dashboard 生产运行配置，只暴露状态，不返回敏感令牌。
+type RuntimeConfigStatus struct {
+	HTTPSEnabled         bool     `json:"https_enabled"`
+	StaticDir            string   `json:"static_dir,omitempty"`
+	AuditLogEnabled      bool     `json:"audit_log_enabled"`
+	AuditLogPath         string   `json:"audit_log_path,omitempty"`
+	AuditLogQueryable    bool     `json:"audit_log_queryable"`
+	AuditLogError        string   `json:"audit_log_error,omitempty"`
+	RelayAdminConfigured bool     `json:"relay_admin_configured"`
+	RelayAdminAvailable  bool     `json:"relay_admin_available"`
+	RelayAdminURL        string   `json:"relay_admin_url,omitempty"`
+	RelayAdminError      string   `json:"relay_admin_error,omitempty"`
+	AllowedOrigins       []string `json:"allowed_origins"`
+	StorePersistent      bool     `json:"store_persistent"`
+	StorePath            string   `json:"store_path,omitempty"`
+	Version              string   `json:"version,omitempty"`
 }
 
 // ACLRuleView represents an ACL rule for the dashboard.

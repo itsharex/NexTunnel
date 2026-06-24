@@ -206,6 +206,33 @@ func (s *Store) SetSetting(key, value string) error {
 	return err
 }
 
+// SetSettings 在单个事务中批量写入应用设置，减少自动保存重入时的 SQLite 写锁竞争。
+func (s *Store) SetSettings(values map[string]string) error {
+	tx, err := s.db.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin settings transaction: %w", err)
+	}
+	stmt, err := tx.Prepare(`
+		INSERT INTO app_settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare settings upsert: %w", err)
+	}
+	defer stmt.Close()
+
+	for key, value := range values {
+		if _, err := stmt.Exec(key, value); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("save setting %s: %w", key, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit settings transaction: %w", err)
+	}
+	return nil
+}
+
 // ListSettings 返回全部应用设置，供配置导出使用。
 func (s *Store) ListSettings() (map[string]string, error) {
 	rows, err := s.db.db.Query("SELECT key, value FROM app_settings ORDER BY key")

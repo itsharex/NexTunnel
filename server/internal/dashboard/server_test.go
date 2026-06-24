@@ -230,6 +230,181 @@ func TestDashboard_Stats(t *testing.T) {
 	}
 }
 
+func TestDashboard_ClientsUnconfiguredReturnsExplainableStatus(t *testing.T) {
+	s := newTestServer()
+	token := doLogin(t, s)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodGet, "/api/v1/clients", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list clients: %d %s", w.Code, w.Body.String())
+	}
+
+	var resp APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var clientList ClientListResponse
+	if err := json.Unmarshal(data, &clientList); err != nil {
+		t.Fatalf("decode client list: %v", err)
+	}
+	if clientList.Configured || clientList.Available || len(clientList.Clients) != 0 || clientList.Error == "" {
+		t.Fatalf("unexpected client list status: %+v", clientList)
+	}
+}
+
+func TestDashboard_ClientsProxyRelayAdmin(t *testing.T) {
+	deletedClient := ""
+	relayAdmin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer relay-admin-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/clients":
+			writeJSON(w, http.StatusOK, []ClientSnapshot{{
+				ClientID:   "client-1",
+				RemoteAddr: "127.0.0.1:50000",
+				ProxyCount: 1,
+				BytesIn:    1024,
+				BytesOut:   2048,
+				Sessions:   3,
+			}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/admin/clients/client-1":
+			deletedClient = "client-1"
+			writeJSON(w, http.StatusOK, map[string]string{"disconnected": deletedClient})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer relayAdmin.Close()
+
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.RelayAdminURL = relayAdmin.URL
+	cfg.RelayAdminToken = "relay-admin-token"
+	s := NewServer(cfg)
+	token := doLogin(t, s)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodGet, "/api/v1/clients", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list clients: %d %s", w.Code, w.Body.String())
+	}
+	var resp APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var clientList ClientListResponse
+	if err := json.Unmarshal(data, &clientList); err != nil {
+		t.Fatalf("decode client list: %v", err)
+	}
+	if !clientList.Configured || !clientList.Available || len(clientList.Clients) != 1 || clientList.Clients[0].ClientID != "client-1" {
+		t.Fatalf("unexpected client list: %+v", clientList)
+	}
+
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodDelete, "/api/v1/clients/client-1", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("disconnect client: %d %s", w.Code, w.Body.String())
+	}
+	if deletedClient != "client-1" {
+		t.Fatalf("relay admin delete not called, got %q", deletedClient)
+	}
+}
+
+func TestDashboard_ConfigStatus(t *testing.T) {
+	relayHealthChecked := false
+	relayAdmin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer relay-admin-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/health" {
+			relayHealthChecked = true
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer relayAdmin.Close()
+
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.RelayAdminURL = relayAdmin.URL
+	cfg.RelayAdminToken = "relay-admin-token"
+	cfg.AuditLogPath = filepath.Join(t.TempDir(), "dashboard-audit.jsonl")
+	cfg.StorePath = filepath.Join(t.TempDir(), "dashboard.db")
+	cfg.Store = newTestDashStore(t)
+	cfg.Version = "test-version"
+	s := NewServer(cfg)
+	t.Cleanup(func() { _ = s.Stop() })
+	token := doLogin(t, s)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodGet, "/api/v1/config/status", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("config status: %d %s", w.Code, w.Body.String())
+	}
+	var resp APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var status RuntimeConfigStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatalf("decode config status: %v", err)
+	}
+	if !status.RelayAdminConfigured || !status.RelayAdminAvailable || !relayHealthChecked {
+		t.Fatalf("unexpected relay admin status: %+v", status)
+	}
+	if !status.AuditLogEnabled || !status.AuditLogQueryable || !status.StorePersistent || status.Version != "test-version" {
+		t.Fatalf("unexpected runtime config status: %+v", status)
+	}
+}
+
+func TestDashboard_AuditQueryUsesJSONFileLogger(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.Auth.SecretKey = "dashboard-test-secret"
+	cfg.Auth.DefaultPass = "admin-test-password"
+	cfg.AuditLogPath = filepath.Join(t.TempDir(), "dashboard-audit.jsonl")
+	s := NewServer(cfg)
+	t.Cleanup(func() { _ = s.Stop() })
+	token := doLogin(t, s)
+
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodPost, "/api/v1/users", token, map[string]string{
+		"username": "audited-user",
+		"password": "audited-password",
+		"role":     "viewer",
+	}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, authReq(http.MethodGet, "/api/v1/audit?resource=users&action=create&result=success", token, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("query audit: %d %s", w.Code, w.Body.String())
+	}
+	var resp APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var events []map[string]any
+	if err := json.Unmarshal(data, &events); err != nil {
+		t.Fatalf("decode events: %v", err)
+	}
+	if len(events) != 1 || events[0]["resource_id"] != "audited-user" {
+		t.Fatalf("unexpected audit events: %+v", events)
+	}
+}
+
 func TestDashboard_Health(t *testing.T) {
 	s := newTestServer()
 	req := httptest.NewRequest("GET", "/api/v1/health", nil)

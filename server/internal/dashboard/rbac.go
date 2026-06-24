@@ -16,7 +16,7 @@ const (
 
 // Permission defines a resource action permission.
 type Permission struct {
-	Resource string // nodes, acl, alerts, users, audit, alert-rules, metrics
+	Resource string // nodes, clients, acl, alerts, users, audit, alert-rules, metrics, config
 	Action   string // read, write, delete
 }
 
@@ -25,27 +25,33 @@ var rolePermissions = map[Role][]Permission{
 	RoleAdmin: {
 		// Full access to everything
 		{"nodes", "read"}, {"nodes", "write"}, {"nodes", "delete"},
+		{"clients", "read"}, {"clients", "delete"},
 		{"acl", "read"}, {"acl", "write"}, {"acl", "delete"},
 		{"alerts", "read"}, {"alerts", "write"}, {"alerts", "delete"},
 		{"alert-rules", "read"}, {"alert-rules", "write"}, {"alert-rules", "delete"},
 		{"users", "read"}, {"users", "write"}, {"users", "delete"},
 		{"audit", "read"},
+		{"config", "read"},
 		{"metrics", "write"},
 		{"stats", "read"},
 	},
 	RoleOperator: {
 		{"nodes", "read"}, {"nodes", "write"}, {"nodes", "delete"},
+		{"clients", "read"}, {"clients", "delete"},
 		{"acl", "read"}, {"acl", "write"}, {"acl", "delete"},
 		{"alerts", "read"}, {"alerts", "write"},
 		{"alert-rules", "read"},
+		{"config", "read"},
 		{"stats", "read"},
 		{"metrics", "write"},
 	},
 	RoleViewer: {
 		{"nodes", "read"},
+		{"clients", "read"},
 		{"acl", "read"},
 		{"alerts", "read"},
 		{"alert-rules", "read"},
+		{"config", "read"},
 		{"stats", "read"},
 	},
 }
@@ -85,6 +91,8 @@ func routePermission(method, path string) (resource, action string) {
 	switch {
 	case strings.HasPrefix(p, "nodes"):
 		resource = "nodes"
+	case strings.HasPrefix(p, "clients"):
+		resource = "clients"
 	case strings.HasPrefix(p, "acl"):
 		resource = "acl"
 	case strings.HasPrefix(p, "alerts/"):
@@ -96,6 +104,8 @@ func routePermission(method, path string) (resource, action string) {
 		resource = "users"
 	case strings.HasPrefix(p, "audit"):
 		resource = "audit"
+	case strings.HasPrefix(p, "config"):
+		resource = "config"
 	case strings.HasPrefix(p, "metrics"):
 		resource = "metrics"
 	case strings.HasPrefix(p, "stats"):

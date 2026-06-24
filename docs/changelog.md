@@ -1,12 +1,28 @@
 # 更新日志
 
-## v0.5.2-alpha
+## v0.6.0-beta
+
+- 版本入口统一升级到 `v0.6.0-beta` / `0.6.0-beta`，桌面端、Dashboard、CLI、服务端脚本和文档站发布口径同步更新。
+- 延续 v0.5.3-beta 的生产收口成果：Relay Admin API、Dashboard 客户端监控、审计日志、运行配置状态和桌面服务端实例检测作为 Beta 发布基线。
+- 进度文档补齐真实生产外部验收清单，明确 Dashboard HTTPS、Windows/macOS 真实 TUN、eBPF 性能基准、真实多地域 Edge/Anycast 和发布包实物验收所需条件。
+- 发布说明和部署示例切换到 `v0.6.0-beta`，便于通过 GitHub tag 触发统一 Release 产物生成。
+
+## v0.5.3-beta
+
+- Relay Admin API 与 Dashboard 客户端监控进入 Beta 收口：客户端列表、断开、配置状态、审计查询和运行态错误提示形成闭环。
+- Dashboard 新增审计日志页和运行配置状态展示，覆盖 HTTPS、Relay Admin API、CORS、审计日志、存储路径和版本信息。
+- 桌面端新增服务端实例检测，按 Relay、Control Plane、STUN 返回可执行修复建议，并写入本地活动日志。
+- 部署脚本补齐 `DASHBOARD_RELAY_ADMIN_TOKEN`，默认兼容复用 `RELAY_ADMIN_TOKEN`，同时更新 Compose、安装脚本和文档说明。
+- `make.ps1 test-go` 与 CI 一致过滤前端 `node_modules` 内的 Go 包，避免本地 Go 测试误扫前端依赖。
+- 版本入口统一升级到 `v0.5.3-beta` / `0.5.3-beta`，发布文档同步更新 Release 资产名与打包命令。
+
+## v0.5.3-alpha
 
 - 连接设置页改为服务端实例列表管理，移除顶部内联配置表单，新增与编辑统一通过弹窗完成。
 - 服务端实例列表支持卡片/表格视图、搜索、选择当前连接目标、单项编辑和删除，保存后继续实时同步到本地配置。
 - 端口扫描弹窗采用分步流程，首次扫描和重新扫描先展示居中雷达动画，并在扫描完成后进入开放端口列表。
 - 桌面端新增符合主题的内容区滚动条样式，默认弱化显示，鼠标悬浮或键盘聚焦内容区域时显示青紫渐变滑块。
-- 版本入口统一升级到 `v0.5.2-alpha` / `0.5.2`，发布文档同步更新 Release 资产名与打包命令。
+- 版本入口统一升级到 `v0.5.3-alpha` / `0.5.3`，发布文档同步更新 Release 资产名与打包命令。
 
 ## v0.5.0-alpha
 

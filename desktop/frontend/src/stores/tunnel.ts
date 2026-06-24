@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   ApplyVirtualNetwork,
   ClearActivityLogs,
+  CheckServerNode,
   CheckForUpdate,
   CollectDiagnostics,
   ExportConfig,
@@ -47,6 +48,8 @@ import {
   type NATDetectionInfo,
   type RuntimeStatus,
   type ServerConfigInput,
+  type ServerNodeCheckResult,
+  type ServerNodeSettings,
   type ServerSettings,
   type AppearanceSettings,
   type GeneralSettings,
@@ -90,6 +93,7 @@ export interface TrafficSample {
 const MAX_TRAFFIC_HISTORY_LENGTH = 40
 const DEFAULT_ACTIVITY_LOG_LIMIT = 100
 const MIN_CONNECTION_ANIMATION_MS = 1800
+let serverSettingsSaveChain: Promise<void> = Promise.resolve()
 
 const wait = (durationMs: number): Promise<void> =>
   new Promise((resolve) => {
@@ -162,6 +166,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
   const wintunStatus = ref<WintunStatus | null>(null)
   const isRepairingWintun = ref<boolean>(false)
   const lastNATDetection = ref<NATDetectionInfo | null>(null)
+  const serverNodeCheckResults = ref<Record<string, ServerNodeCheckResult>>({})
+  const checkingServerNodeIDs = ref<Set<string>>(new Set())
 
   const tunnelCount = computed(() => tunnels.value.length)
   const isConnected = computed(() => connectionStatus.value === 'connected')
@@ -188,10 +194,25 @@ export const useTunnelStore = defineStore('tunnels', () => {
     busyTunnelIds.value = next
   }
 
+  const setServerNodeChecking = (id: string, checking: boolean): void => {
+    const next = new Set(checkingServerNodeIDs.value)
+    if (checking) {
+      next.add(id)
+    } else {
+      next.delete(id)
+    }
+    checkingServerNodeIDs.value = next
+  }
+
   const syncSettingsToRelayForm = (settings: ServerSettings): void => {
     serverAddr.value = settings.relay_addr
     authToken.value = settings.relay_token
   }
+
+  const cloneServerSettingsSnapshot = (settings: ServerSettings): ServerSettings => ({
+    ...settings,
+    nodes: (settings.nodes ?? []).map((node) => ({ ...node })),
+  })
 
   // pushTrafficSample 保留固定长度历史，避免实时图表长期运行造成内存增长。
   const pushTrafficSample = (stats: { bytes_in: number; bytes_out: number }): void => {
@@ -218,14 +239,43 @@ export const useTunnelStore = defineStore('tunnels', () => {
   }
 
   const saveServerSettings = async (settings: ServerSettings): Promise<void> => {
+    const settingsSnapshot = cloneServerSettingsSnapshot(settings)
+
+    // 串行化设置保存，避免自动保存高频触发时并发写 SQLite。
+    const queuedSave = serverSettingsSaveChain
+      .catch(() => undefined)
+      .then(async () => {
+        lastError.value = ''
+        try {
+          await SaveServerSettings(settingsSnapshot)
+          serverSettings.value = cloneServerSettingsSnapshot(settingsSnapshot)
+          syncSettingsToRelayForm(settingsSnapshot)
+        } catch (e) {
+          lastError.value = extractErrorMessage(e)
+          throw e
+        }
+      })
+    serverSettingsSaveChain = queuedSave.catch(() => undefined)
+    return queuedSave
+  }
+
+  const checkServerNode = async (node: ServerNodeSettings): Promise<ServerNodeCheckResult> => {
+    const nodeID = node.id || 'default'
+    setServerNodeChecking(nodeID, true)
     lastError.value = ''
     try {
-      await SaveServerSettings(settings)
-      serverSettings.value = { ...settings }
-      syncSettingsToRelayForm(settings)
+      const result = await CheckServerNode(node)
+      serverNodeCheckResults.value = {
+        ...serverNodeCheckResults.value,
+        [nodeID]: result,
+      }
+      await loadActivityLogs({ limit: DEFAULT_ACTIVITY_LOG_LIMIT })
+      return result
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
+    } finally {
+      setServerNodeChecking(nodeID, false)
     }
   }
 
@@ -689,6 +739,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     wintunStatus,
     isRepairingWintun,
     lastNATDetection,
+    serverNodeCheckResults,
+    checkingServerNodeIDs,
     tunnelCount,
     isConnected,
     activeTunnelCount,
@@ -699,6 +751,7 @@ export const useTunnelStore = defineStore('tunnels', () => {
     loadGeneralSettings,
     saveGeneralSettings,
     saveServerSettings,
+    checkServerNode,
     setAutoStartEnabled,
     exportConfig,
     importConfig,

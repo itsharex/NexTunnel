@@ -16,6 +16,10 @@ services:
       - --auth-token
       - ${RELAY_AUTH_TOKEN:?RELAY_AUTH_TOKEN is required}
       - --require-auth
+      - --admin-listen
+      - 0.0.0.0:${RELAY_ADMIN_PORT:-7001}
+      - --admin-token
+      - ${RELAY_ADMIN_TOKEN:?RELAY_ADMIN_TOKEN is required}
       - --stats-interval
       - ${RELAY_STATS_INTERVAL:-30s}
     ports:
@@ -75,6 +79,10 @@ services:
       - ${DASHBOARD_STORE_PATH:-/data/dashboard.db}
       - --static-dir
       - ${DASHBOARD_STATIC_DIR:-/app/web/dashboard}
+      - --relay-admin-url
+      - http://relay-server:${RELAY_ADMIN_PORT:-7001}
+      - --relay-admin-token
+      - ${DASHBOARD_RELAY_ADMIN_TOKEN:-${RELAY_ADMIN_TOKEN:?RELAY_ADMIN_TOKEN is required}}
     ports:
       - "${DASHBOARD_PORT:-8080}:8080/tcp"
     volumes:

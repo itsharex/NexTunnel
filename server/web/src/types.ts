@@ -38,6 +38,39 @@ export interface TrafficStats {
   timestamp: string
 }
 
+export interface ProxyInfo {
+  proxy_name: string
+  proxy_type: string
+  local_addr: string
+  remote_port: number
+  status: string
+  bytes_in: number
+  bytes_out: number
+  sessions: number
+}
+
+export interface ClientSnapshot {
+  client_id: string
+  remote_addr: string
+  connected_at: string
+  last_seen: string
+  proxy_count: number
+  proxies: ProxyInfo[]
+  bytes_in: number
+  bytes_out: number
+  sessions: number
+}
+
+export interface ClientSourceStatus {
+  configured: boolean
+  available: boolean
+  error?: string
+}
+
+export interface ClientListResponse extends ClientSourceStatus {
+  clients: ClientSnapshot[]
+}
+
 export interface ACLRuleView {
   id: string
   source: string
@@ -64,11 +97,43 @@ export interface AlertEvent {
   acked_at?: string
 }
 
+export interface AuditEvent {
+  timestamp: string
+  actor: string
+  action: string
+  resource: string
+  resource_id?: string
+  details?: Record<string, string>
+  source_ip?: string
+  result: string
+}
+
+export interface RuntimeConfigStatus {
+  https_enabled: boolean
+  static_dir?: string
+  audit_log_enabled: boolean
+  audit_log_path?: string
+  audit_log_queryable: boolean
+  audit_log_error?: string
+  relay_admin_configured: boolean
+  relay_admin_available: boolean
+  relay_admin_url?: string
+  relay_admin_error?: string
+  allowed_origins: string[]
+  store_persistent: boolean
+  store_path?: string
+  version?: string
+}
+
 export interface DashboardSnapshot {
   nodes: NodeStatus[]
   stats: TrafficStats[]
+  clients: ClientSnapshot[]
+  clientStatus: ClientSourceStatus
   aclRules: ACLRuleView[]
   alerts: AlertEvent[]
+  auditEvents: AuditEvent[]
+  configStatus: RuntimeConfigStatus
   users: User[]
 }
 

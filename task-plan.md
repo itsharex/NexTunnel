@@ -1,8 +1,8 @@
 # NexTunnel 项目规划文档
 
-## 0. v0.4.1-alpha 发布收口状态（2026-06-18）
+## 0. v0.6.0-beta 发布收口状态（2026-06-23）
 
-当前代码开发已按 v0.4.1-alpha 口径收口。剩余事项不再是继续堆功能，而是把真实生产依赖拆成可验证、可回收、可后续迭代的外部条件：域名/证书、Windows 驱动 DLL、macOS 授权 helper、eBPF 压测窗口和真实多地域资源。
+当前代码开发按 v0.6.0-beta 口径收口：Relay Admin API、Dashboard 客户端监控、运行配置状态、审计查询、桌面服务端实例检测和部署脚本变量已进入 Beta 验收路径。剩余事项不再是继续堆功能，而是把真实生产依赖拆成可验证、可回收、可后续迭代的外部条件：域名/证书、Windows 驱动 DLL、macOS 授权 helper、eBPF 压测窗口和真实多地域资源。
 
 ### 0.1 当前结论
 
@@ -21,12 +21,12 @@
 | 阻塞项 | 已执行方案 | 后续边界 |
 |:---|:---|:---|
 | 无可用公网 HTTPS 域名 | `scripts/verify-dashboard.ps1` 默认拒绝向非本机 HTTP 发送管理员密码；新增 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 本地端口转发读取远端配置并完成 API 验证。 | HTTPS 最终验收仍必须在备案/可用域名和有效证书下复验。 |
-| Windows 缺少 `wintun.dll` | `scripts/package-desktop.ps1` 支持 `NEXTUNNEL_WINTUN_DLL`/`-WintunDllPath` 自动复制官方 DLL，并校验 PE 架构。 | 当前 v0.4.1-alpha 桌面包未随包携带 DLL 时不声明真实 TUN 生产可用。 |
+| Windows 缺少 `wintun.dll` | `scripts/package-desktop.ps1` 支持 `NEXTUNNEL_WINTUN_DLL`/`-WintunDllPath` 自动复制官方 DLL，并校验 PE 架构。 | 当前 v0.6.0-beta 桌面包未随包携带 DLL 时不声明真实 TUN 生产可用。 |
 | macOS 无免密提权 | `scripts/verify-p2p-tun.ps1` 增加 `-MacUseSudo` 与 `mac_sudo_not_requested` 提示，失败时给出 helper/LaunchDaemon/sudo -n 方案。 | 应用端如需免交互生产使用，后续迭代实现 macOS 授权 helper。 |
 | 真实 TUN 前置条件不清晰 | `desktop/internal/p2p` 预检新增 `EnvironmentHints`，向前端输出 Windows/macOS/Linux 的生产修复建议。 | 后续应用端可把这些提示接入更细的安装向导。 |
 | 发布包遗漏验证入口 | 服务端打包清单加入 `scripts/verify-dashboard-ssh.ps1`，Release 文档同步 SSH 隧道验证流程。 | 发布前必须确认新增脚本已纳入 Git 跟踪。 |
 
-### 0.3 v0.4.1-alpha 发布验收口径
+### 0.3 v0.6.0-beta 发布验收口径
 
 | 优先级 | 任务 | 验收状态 |
 |:---:|:---|:---|

@@ -90,11 +90,22 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
-	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("set WAL mode: %w", err)
+	pragmas := []struct {
+		name  string
+		query string
+	}{
+		{name: "busy timeout", query: "PRAGMA busy_timeout=5000"},
+		{name: "WAL mode", query: "PRAGMA journal_mode=WAL"},
+		{name: "synchronous mode", query: "PRAGMA synchronous=NORMAL"},
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma.query); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("set %s: %w", pragma.name, err)
+		}
 	}
 
 	d := &DB{db: db, path: path}

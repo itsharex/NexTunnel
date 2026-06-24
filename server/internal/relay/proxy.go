@@ -177,3 +177,12 @@ func (p *Proxy) onSessionComplete(bytesIn, bytesOut int64) {
 func (p *Proxy) Stats() (bytesIn, bytesOut, sessions int64) {
 	return p.bytesIn.Load(), p.bytesOut.Load(), p.sessionCnt.Load()
 }
+
+func (p *Proxy) Snapshot() types.ProxyInfo {
+	bytesIn, bytesOut, sessions := p.Stats()
+	info := p.info
+	info.BytesIn = bytesIn
+	info.BytesOut = bytesOut
+	info.Sessions = sessions
+	return info
+}

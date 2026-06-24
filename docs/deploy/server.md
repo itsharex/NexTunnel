@@ -11,6 +11,7 @@ docker-compose up -d
 生产环境建议：
 
 - Relay 配置强随机 `auth-token`。
+- Relay 管理 API 配置强随机 `admin-token`，并保持本机或容器内网监听。
 - Dashboard 配置强 `secret-key` 和管理员密码。
 - Control Plane API 配置 Bearer Token。
 - 公开入口使用 HTTPS 或 mTLS。
@@ -21,6 +22,7 @@ docker-compose up -d
 | --- | --- |
 | Relay 控制端口 | 7000/TCP |
 | Relay QUIC | 7443/UDP |
+| Relay 管理 API | 7001/TCP，仅本机/内网 |
 | Control Plane | 9090/TCP |
 | Dashboard | 8080/TCP |
 | NAT Detector | 3478/UDP |
@@ -30,14 +32,14 @@ docker-compose up -d
 腾讯云等国内服务器访问 GitHub Release 慢时，推荐把 Release 资产同步到腾讯云 COS/CDN，再使用自定义 Release 下载基址：
 
 ```bash
-sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.4.1-alpha \
-  ./install.sh install --version v0.4.1-alpha --sha256 <sha256>
+sudo NEXTUNNEL_RELEASE_BASE_URL=https://cos.example.com/nextunnel/v0.6.0-beta \
+  ./install.sh install --version v0.6.0-beta --sha256 <sha256>
 ```
 
 临时方案可以使用可信自建 GitHub 代理：
 
 ```bash
-sudo ./install.sh install --version v0.4.1-alpha \
+sudo ./install.sh install --version v0.6.0-beta \
   --github-proxy https://your-proxy.example.com/
 ```
 
@@ -76,7 +78,7 @@ sudo /opt/nextunnel/deploy/server/install.sh restart
 
 `up` 和 `restart` 会等待 systemd 服务进入 active 状态，并自动执行 Control Plane、Relay 和 Dashboard 健康检查。
 
-腾讯云安全组和服务器防火墙至少需要放行 `7000/tcp`；启用 QUIC/NAT 检测时还需要 `7443/udp`、`3478/udp`，Dashboard 需要 `8080/tcp`。
+腾讯云安全组和服务器防火墙至少需要放行 `7000/tcp`；启用 QUIC/NAT 检测时还需要 `7443/udp`、`3478/udp`，Dashboard 需要 `8080/tcp`。Relay 管理 API 默认用于 Dashboard 客户端监控，不应对公网开放。
 
 ## 生产验收
 

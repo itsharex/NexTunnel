@@ -16,7 +16,7 @@ NexTunnel 按客户端、控制面、Relay 和公共协议分层。
 - NAT Detector 提供 STUN 探测。
 - Dashboard 提供 Web 管理界面。
 
-## v0.4.1-alpha 桌面链路
+## v0.6.0-beta 桌面链路
 
 桌面端会记录流量快照，通过 `uPlot` Canvas 时序图展示上传和下载增量。隧道列表会展示连接类型：P2P 引擎明确 connected 时显示 P2P 直连；运行中但未进入直连态时显示中继；未运行时显示待机。
 

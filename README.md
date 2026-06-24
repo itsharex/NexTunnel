@@ -207,7 +207,7 @@ nextunnel doctor
 | **Relay Server** | `cmd/relay/` | 7000/TCP、7443/QUIC | TCP/QUIC 中继转发，客户端注册与认证，流量统计 |
 | **Control Plane** | `cmd/control-plane/` | 9090/HTTP | 节点管理、ACL 规则、密钥交换、Peer 查询 |
 | **NAT Detector** | `cmd/nat-detector/` | 3478/UDP | NAT 类型检测服务，支持高并发请求 |
-| **Dashboard** | `cmd/dashboard/` + `server/web/` | 8080/HTTP | Web 管理台、节点/流量/ACL/告警查看与操作，SQLite 持久化 |
+| **Dashboard** | `cmd/dashboard/` + `server/web/` | 8080/HTTP | Web 管理台、节点/客户端/流量/ACL/告警/审计查看与操作，SQLite 持久化 |
 
 ### 公共包（`pkg/`）
 
@@ -303,13 +303,13 @@ Windows PowerShell：
 桌面端发布包提供 Windows NSIS 安装包、Windows zip 便携包和 macOS DMG：
 
 ```bash
-make package-desktop VERSION=v0.5.2-alpha
-make package-macos VERSION=v0.5.2-alpha
+make package-desktop VERSION=v0.6.0-beta
+make package-macos VERSION=v0.6.0-beta
 ```
 
 Windows 安装器使用 Wails 官方 NSIS 流程和自定义暗色向导，支持安装位置、桌面快捷方式、完成后立即运行和 Wintun 组件选择。默认发布包会内置经过 SHA256 校验的官方 `wintun.dll`，安装时离线复制到 `NexTunnel.exe` 同目录；联网下载只作为兜底路径，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 放入官方 DLL，缺失时可在桌面端网络页使用“修复 Wintun”入口。
 
-macOS 使用 `.app + .dmg` 分发，DMG 内含 Applications 拖拽入口和权限说明。alpha 默认未签名；发布脚本预留 Developer ID 签名与 notarization 环境变量，真实系统路由仍需要运行时管理员授权、授权 helper 或 LaunchDaemon 支持。
+macOS 使用 `.app + .dmg` 分发，DMG 内含 Applications 拖拽入口和权限说明。Beta 预发布默认未签名；发布脚本预留 Developer ID 签名与 notarization 环境变量，真实系统路由仍需要运行时管理员授权、授权 helper 或 LaunchDaemon 支持。
 
 ### 构建服务端
 
@@ -332,15 +332,18 @@ Windows PowerShell：
 ### 本地运行服务端
 
 ```bash
-# Relay：非本地环境必须配置强随机 auth token
+# Relay：非本地环境必须配置强随机 auth token；管理 API 仅供 Dashboard 内部访问
 cd server
-go run ./cmd/relay -bind 127.0.0.1 -control-port 7000 -quic-port 7443 -auth-token <strong-token>
+go run ./cmd/relay -bind 127.0.0.1 -control-port 7000 -quic-port 7443 \
+  -auth-token <strong-token> -admin-listen 127.0.0.1:7001 -admin-token <strong-admin-token>
 
 # Control Plane：生产环境应配置 Bearer Token，可启用 mTLS
 go run ./cmd/control-plane -listen 127.0.0.1:9090 -api-token <strong-token>
 
 # Dashboard：生产环境必须配置强 secret 和管理员密码，可启用 HTTPS
-go run ./cmd/dashboard -listen 127.0.0.1:8080 -secret-key <strong-secret> -admin-password <strong-password> -store-path ./data/dashboard.db -static-dir ./web/dist
+go run ./cmd/dashboard -listen 127.0.0.1:8080 -secret-key <strong-secret> \
+  -admin-password <strong-password> -store-path ./data/dashboard.db -static-dir ./web/dist \
+  -relay-admin-url http://127.0.0.1:7001 -relay-admin-token <strong-admin-token>
 ```
 
 ### mTLS 双向认证（可选）
@@ -372,11 +375,13 @@ go run ./cmd/dashboard -listen 0.0.0.0:8080 \
 | 资源 | admin | operator | viewer |
 |------|:-----:|:--------:|:------:|
 | 节点管理 | 读写删 | 读写删 | 只读 |
+| 客户端监控 | 查看/断开 | 查看/断开 | 只读 |
 | ACL 规则 | 读写删 | 读写删 | 只读 |
 | 告警 | 读写删 | 读写 | 只读 |
 | 告警规则 | 读写删 | 只读 | 只读 |
 | 用户管理 | 读写删 | — | — |
 | 审计日志 | 只读 | — | — |
+| 运行配置状态 | 只读 | 只读 | 只读 |
 
 ---
 

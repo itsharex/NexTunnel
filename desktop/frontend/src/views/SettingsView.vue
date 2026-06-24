@@ -64,11 +64,18 @@
                 size="small"
                 type="error"
                 secondary
-                :disabled="connectionForm.nodes.length <= 1"
-                @click="handleDeleteServerNode(connectionForm.active_node_id)"
+                :disabled="!canDeleteSelectedServerNodes"
+                @click="handleDeleteSelectedServerNodes"
               >
                 {{ t('settings.deleteServerNode') }}
               </n-button>
+              <n-tag
+                size="small"
+                round
+                :bordered="false"
+              >
+                {{ t('connection.nodes.selectedCount', { count: selectedExistingServerNodeIDs.length }) }}
+              </n-tag>
               <n-button-group size="small">
                 <n-button
                   :type="nodeViewMode === 'card' ? 'primary' : 'default'"
@@ -108,14 +115,21 @@
               v-for="node in filteredServerNodes"
               :key="node.id"
               class="server-node-card"
-              :class="{ selected: isActiveServerNode(node), default: isActiveServerNode(node) }"
+              :class="{ selected: isServerNodeSelected(node), default: isActiveServerNode(node) }"
               role="button"
               tabindex="0"
-              @click="handleActiveServerNodeChange(node.id)"
-              @keydown.enter.prevent="handleActiveServerNodeChange(node.id)"
+              @click="toggleServerNodeSelection(node.id)"
+              @keydown.enter.prevent="toggleServerNodeSelection(node.id)"
             >
               <div class="node-card-head">
-                <div>
+                <n-checkbox
+                  class="node-card-checkbox"
+                  :checked="isServerNodeSelected(node)"
+                  :aria-label="t('connection.nodes.selectNode')"
+                  @click.stop
+                  @update:checked="(checked) => handleServerNodeSelectionChange(node.id, checked)"
+                />
+                <div class="node-card-title">
                   <strong>{{ getServerNodeName(node) }}</strong>
                   <span>{{ node.relay_addr || t('connection.nodes.missingRelay') }}</span>
                 </div>
@@ -138,10 +152,62 @@
                 <span>{{ t('connection.nodes.stun') }}</span>
                 <strong>{{ node.stun_server || t('connection.nodes.notConfigured') }}</strong>
               </div>
+              <div
+                v-if="getServerNodeCheckResult(node)"
+                class="node-check-summary"
+              >
+                <div class="node-check-head">
+                  <n-tag
+                    round
+                    size="small"
+                    :type="serverNodeCheckTagType(getServerNodeCheckResult(node)?.overall_status)"
+                    :bordered="false"
+                  >
+                    {{ serverNodeCheckStatusLabel(getServerNodeCheckResult(node)?.overall_status) }}
+                  </n-tag>
+                  <span>{{ formatServerNodeCheckTime(getServerNodeCheckResult(node)?.checked_at) }}</span>
+                </div>
+                <div class="node-check-items">
+                  <div
+                    v-for="item in getServerNodeCheckItems(node)"
+                    :key="item.name"
+                    class="node-check-item"
+                    :class="item.status"
+                  >
+                    <strong>{{ serverNodeCheckItemLabel(item.name) }}</strong>
+                    <span>{{ serverNodeCheckMessage(item) }}</span>
+                  </div>
+                </div>
+                <div
+                  v-if="getServerNodeCheckResult(node)?.actions.length"
+                  class="node-check-action"
+                >
+                  {{ getServerNodeCheckResult(node)?.actions[0] }}
+                </div>
+              </div>
               <span class="node-select-hint">
-                {{ isActiveServerNode(node) ? t('connection.nodes.selected') : t('connection.nodes.clickToSelect') }}
+                {{ isServerNodeSelected(node) ? t('connection.nodes.selected') : t('connection.nodes.clickToSelect') }}
               </span>
               <div class="node-card-actions">
+                <n-button
+                  size="tiny"
+                  secondary
+                  :loading="store.checkingServerNodeIDs.has(node.id)"
+                  @click.stop="handleCheckServerNode(node)"
+                >
+                  <template #icon>
+                    <Activity :size="13" />
+                  </template>
+                  {{ t('connection.nodes.checkNode') }}
+                </n-button>
+                <n-button
+                  size="tiny"
+                  secondary
+                  :disabled="isActiveServerNode(node)"
+                  @click.stop="handleSetDefaultServerNode(node.id)"
+                >
+                  {{ t('connection.nodes.setDefault') }}
+                </n-button>
                 <n-button
                   size="tiny"
                   secondary
@@ -267,25 +333,6 @@
             </n-tag>
           </PanelTitle>
         </template>
-
-        <n-form
-          label-placement="top"
-          :show-feedback="false"
-        >
-          <n-grid
-            :cols="2"
-            :x-gap="14"
-            :y-gap="14"
-            responsive="screen"
-          >
-            <n-form-item-gi :label="t('settings.stunServer')">
-              <n-input v-model:value="connectionForm.stun_server" />
-            </n-form-item-gi>
-            <n-form-item-gi :label="t('settings.stunAltServer')">
-              <n-input v-model:value="connectionForm.stun_alt_server" />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
 
         <div class="diagnostic-grid">
           <div
@@ -587,11 +634,12 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { CheckCircle2, LayoutGrid, Plus, Search, Table2 } from 'lucide-vue-next'
+import { Activity, CheckCircle2, LayoutGrid, Plus, Search, Table2 } from 'lucide-vue-next'
 import {
   NButton,
   NButtonGroup,
   NCard,
+  NCheckbox,
   NDataTable,
   NEmpty,
   NForm,
@@ -599,7 +647,6 @@ import {
   NGrid,
   NInput,
   NModal,
-  NRadio,
   NSelect,
   NSwitch,
   NTag,
@@ -610,11 +657,19 @@ import {
 } from 'naive-ui'
 import LocalPortManager from '../components/LocalPortManager.vue'
 import { useTunnelStore } from '../stores/tunnel'
-import type { AppearanceSettings, GeneralSettings, ServerNodeSettings, ServerSettings } from '../api/app'
+import type {
+  AppearanceSettings,
+  GeneralSettings,
+  ServerNodeCheckItem,
+  ServerNodeCheckResult,
+  ServerNodeSettings,
+  ServerSettings,
+} from '../api/app'
 
 type SettingsSection = 'connection' | 'network' | 'ports' | 'security' | 'appearance' | 'general' | 'about'
 type NodeViewMode = 'card' | 'table'
 type NodeModalMode = 'create' | 'edit'
+type ServerNodeCheckTagType = 'default' | 'error' | 'success' | 'warning' | 'info'
 
 interface SettingsNavItem {
   key: SettingsSection
@@ -706,6 +761,7 @@ const nodeViewMode = ref<NodeViewMode>('card')
 const showNodeModal = ref(false)
 const nodeModalMode = ref<NodeModalMode>('create')
 const editingNodeID = ref('')
+const selectedServerNodeIDs = ref<string[]>([])
 const connectionForm = reactive<ServerSettings>(createServerSettingsForm())
 const nodeDraft = reactive<ServerNodeSettings>(createEmptyServerNode())
 const appearanceForm = reactive<AppearanceSettings>(createAppearanceForm())
@@ -753,14 +809,34 @@ const isActiveServerNode = (node: ServerNodeSettings): boolean => {
   return node.id === connectionForm.active_node_id
 }
 
+const selectedServerNodeIDSet = computed(() => new Set(selectedServerNodeIDs.value))
+
+const selectedExistingServerNodeIDs = computed(() => {
+  const serverNodeIDSet = new Set(connectionForm.nodes.map((node) => node.id))
+  return selectedServerNodeIDs.value.filter((nodeID) => serverNodeIDSet.has(nodeID))
+})
+
+const canDeleteSelectedServerNodes = computed(() => (
+  selectedExistingServerNodeIDs.value.length > 0 &&
+  selectedExistingServerNodeIDs.value.length < connectionForm.nodes.length
+))
+
+const isServerNodeSelected = (node: ServerNodeSettings): boolean => {
+  return selectedServerNodeIDSet.value.has(node.id)
+}
+
 const getServerNodeRowKey = (node: ServerNodeSettings): DataTableRowKey => node.id
 
 const getServerNodeRowClassName = (node: ServerNodeSettings): string => {
-  return isActiveServerNode(node) ? 'server-node-row selected' : 'server-node-row'
+  return [
+    'server-node-row',
+    isServerNodeSelected(node) ? 'selected' : '',
+    isActiveServerNode(node) ? 'default' : '',
+  ].filter(Boolean).join(' ')
 }
 
 const getServerNodeRowProps = (node: ServerNodeSettings): Record<string, unknown> => ({
-  onClick: () => handleActiveServerNodeChange(node.id),
+  onClick: () => toggleServerNodeSelection(node.id),
 })
 
 const canSaveNodeDraft = computed(() => nodeDraft.name.trim().length > 0 && nodeDraft.relay_addr.trim().length > 0)
@@ -794,9 +870,10 @@ const serverNodeColumns = computed<DataTableColumns<ServerNodeSettings>>(() => [
     title: '',
     width: 58,
     render: (node) =>
-      h(NRadio, {
-        checked: isActiveServerNode(node),
-        onUpdateChecked: () => handleActiveServerNodeChange(node.id),
+      h(NCheckbox, {
+        checked: isServerNodeSelected(node),
+        onClick: (event: MouseEvent) => event.stopPropagation(),
+        onUpdateChecked: (checked: boolean) => handleServerNodeSelectionChange(node.id, checked),
         'aria-label': t('connection.nodes.selectNode'),
       }),
   },
@@ -843,9 +920,31 @@ const serverNodeColumns = computed<DataTableColumns<ServerNodeSettings>>(() => [
   {
     key: 'actions',
     title: t('connection.nodes.actions'),
-    width: 158,
+    width: 310,
     render: (node) =>
       h('div', { class: 'node-table-actions', onClick: (event: MouseEvent) => event.stopPropagation() }, [
+        h(
+          NButton,
+          {
+            size: 'tiny',
+            secondary: true,
+            loading: store.checkingServerNodeIDs.has(node.id),
+            onClick: () => {
+              void handleCheckServerNode(node)
+            },
+          },
+          { default: () => t('connection.nodes.checkNode') },
+        ),
+        h(
+          NButton,
+          {
+            size: 'tiny',
+            secondary: true,
+            disabled: isActiveServerNode(node),
+            onClick: () => handleSetDefaultServerNode(node.id),
+          },
+          { default: () => t('connection.nodes.setDefault') },
+        ),
         h(
           NButton,
           {
@@ -875,6 +974,50 @@ const networkFacts = computed(() => [
   { label: t('network.platformName'), value: store.runtimeStatus?.tun.PlatformName || '--' },
   { label: t('network.adminRequired'), value: store.runtimeStatus?.tun.NeedsAdminPrivilege ? t('network.required') : t('network.notRequired') },
 ])
+
+const getServerNodeCheckResult = (node: ServerNodeSettings): ServerNodeCheckResult | undefined =>
+  store.serverNodeCheckResults[node.id]
+
+const getServerNodeCheckItems = (node: ServerNodeSettings): ServerNodeCheckItem[] => {
+  const result = getServerNodeCheckResult(node)
+  if (!result) return []
+  return [result.relay, result.control_plane, result.stun]
+}
+
+const serverNodeCheckTagType = (status?: string): ServerNodeCheckTagType => {
+  if (status === 'success') return 'success'
+  if (status === 'warning') return 'warning'
+  if (status === 'error') return 'error'
+  return 'default'
+}
+
+const serverNodeCheckStatusLabel = (status?: string): string => {
+  if (status === 'success') return t('connection.nodes.checkSuccess')
+  if (status === 'warning') return t('connection.nodes.checkWarning')
+  if (status === 'error') return t('connection.nodes.checkError')
+  return t('connection.nodes.checkUnknown')
+}
+
+const serverNodeCheckItemLabel = (name: string): string => {
+  if (name === 'relay') return 'Relay'
+  if (name === 'control_plane') return t('connection.nodes.controlPlane')
+  if (name === 'stun') return t('connection.nodes.stun')
+  return name
+}
+
+const serverNodeCheckMessage = (item: ServerNodeCheckItem): string => {
+  const latency = item.latency_ms > 0 ? ` · ${item.latency_ms} ms` : ''
+  return `${item.message}${latency}`
+}
+
+const formatServerNodeCheckTime = (value?: string): string => {
+  if (!value) return t('connection.nodes.checkNever')
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return t('connection.nodes.checkNever')
+  return t('connection.nodes.checkedAt', {
+    time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  })
+}
 
 const securityItems = computed(() => [
   {
@@ -948,19 +1091,9 @@ const syncConnectionFieldsFromActiveServerNode = (): void => {
   connectionForm.stun_alt_server = node.stun_alt_server
 }
 
-const syncActiveNodeNetworkFieldsFromConnectionFields = (): void => {
-  const node = activeServerNode.value
-  if (!node) return
-  node.stun_server = connectionForm.stun_server
-  node.stun_alt_server = connectionForm.stun_alt_server
-}
-
 const saveConnectionNow = async (): Promise<void> => {
   isSavingConnection.value = true
   try {
-    if (activeSection.value === 'network') {
-      syncActiveNodeNetworkFieldsFromConnectionFields()
-    }
     syncConnectionFieldsFromActiveServerNode()
     await store.saveServerSettings({ ...connectionForm })
   } catch {
@@ -1016,10 +1149,33 @@ const queueGeneralSave = (): void => {
   }, AUTO_SAVE_DELAY_MS)
 }
 
-const handleActiveServerNodeChange = (nodeID: string): void => {
+const cleanupSelectedServerNodeIDs = (): void => {
+  const serverNodeIDSet = new Set(connectionForm.nodes.map((node) => node.id))
+  selectedServerNodeIDs.value = selectedServerNodeIDs.value.filter((nodeID) => serverNodeIDSet.has(nodeID))
+}
+
+const handleServerNodeSelectionChange = (nodeID: string, checked: boolean): void => {
+  if (!nodeID) return
+  const nextSelectedNodeIDs = new Set(selectedServerNodeIDs.value)
+  if (checked) {
+    nextSelectedNodeIDs.add(nodeID)
+  } else {
+    nextSelectedNodeIDs.delete(nodeID)
+  }
+  selectedServerNodeIDs.value = Array.from(nextSelectedNodeIDs)
+}
+
+const toggleServerNodeSelection = (nodeID: string): void => {
+  handleServerNodeSelectionChange(nodeID, !selectedServerNodeIDSet.value.has(nodeID))
+}
+
+const handleSetDefaultServerNode = (nodeID: string): void => {
+  if (!connectionForm.nodes.some((node) => node.id === nodeID)) return
+  if (connectionForm.active_node_id === nodeID) return
   connectionForm.active_node_id = nodeID
   syncConnectionFieldsFromActiveServerNode()
   queueConnectionSave()
+  message.success(t('connection.nodes.defaultSaved'))
 }
 
 const fillNodeDraft = (node: ServerNodeSettings): void => {
@@ -1081,18 +1237,40 @@ const handleSaveNodeDraft = (): void => {
 
   syncConnectionFieldsFromActiveServerNode()
   showNodeModal.value = false
+  cleanupSelectedServerNodeIDs()
+  queueConnectionSave()
+}
+
+// deleteServerNodes 统一处理单删和批量删除，确保至少保留一个可连接节点。
+const deleteServerNodes = (nodeIDs: string[]): void => {
+  const targetNodeIDs = new Set(nodeIDs)
+  if (targetNodeIDs.size === 0 || targetNodeIDs.size >= connectionForm.nodes.length) return
+  const nextNodes = connectionForm.nodes.filter((node) => !targetNodeIDs.has(node.id))
+  if (nextNodes.length === 0) return
+  connectionForm.nodes.splice(0, connectionForm.nodes.length, ...nextNodes)
+  if (!connectionForm.nodes.some((node) => node.id === connectionForm.active_node_id)) {
+    connectionForm.active_node_id = connectionForm.nodes[0]?.id ?? 'default'
+  }
+  selectedServerNodeIDs.value = selectedServerNodeIDs.value.filter((nodeID) => !targetNodeIDs.has(nodeID))
+  syncConnectionFieldsFromActiveServerNode()
   queueConnectionSave()
 }
 
 const handleDeleteServerNode = (nodeID: string): void => {
-  if (connectionForm.nodes.length <= 1) return
-  const nextNodes = connectionForm.nodes.filter((node) => node.id !== nodeID)
-  connectionForm.nodes.splice(0, connectionForm.nodes.length, ...nextNodes)
-  if (connectionForm.active_node_id === nodeID) {
-    connectionForm.active_node_id = connectionForm.nodes[0]?.id ?? 'default'
+  deleteServerNodes([nodeID])
+}
+
+const handleDeleteSelectedServerNodes = (): void => {
+  deleteServerNodes(selectedExistingServerNodeIDs.value)
+}
+
+const handleCheckServerNode = async (node: ServerNodeSettings): Promise<void> => {
+  try {
+    const result = await store.checkServerNode(cloneServerNode(node))
+    message.info(serverNodeCheckStatusLabel(result.overall_status))
+  } catch {
+    message.error(store.lastError || t('connection.nodes.checkFailed'))
   }
-  syncConnectionFieldsFromActiveServerNode()
-  queueConnectionSave()
 }
 
 const handleSetAutoStart = async (enabled: boolean): Promise<void> => {
@@ -1173,6 +1351,11 @@ watch(
 )
 
 watch(
+  () => connectionForm.nodes.map((node) => node.id),
+  () => cleanupSelectedServerNodeIDs(),
+)
+
+watch(
   () => appearanceForm,
   () => queueAppearanceSave(),
   { deep: true },
@@ -1205,6 +1388,7 @@ onMounted(async () => {
   fillConnectionForm(store.serverSettings)
   fillAppearanceForm(store.appearanceSettings)
   fillGeneralForm(store.generalSettings)
+  cleanupSelectedServerNodeIDs()
   isHydratingForms.value = false
 })
 </script>
@@ -1392,6 +1576,12 @@ onMounted(async () => {
     0 14px 34px rgba(0, 255, 255, 0.08);
 }
 
+.server-node-card.default {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 255, 136, 0.2),
+    0 12px 28px rgba(0, 255, 136, 0.06);
+}
+
 .node-card-head {
   min-width: 0;
   display: flex;
@@ -1400,10 +1590,16 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.node-card-head > div {
+.node-card-checkbox {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.node-card-title {
   min-width: 0;
   display: grid;
   gap: 5px;
+  flex: 1 1 auto;
 }
 
 .node-card-head strong,
@@ -1443,6 +1639,59 @@ onMounted(async () => {
   font-family: Consolas, 'SFMono-Regular', monospace;
   font-size: 12px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-check-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.node-check-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-check-head span,
+.node-check-item span,
+.node-check-action {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.node-check-items {
+  display: grid;
+  gap: 6px;
+}
+
+.node-check-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.node-check-item strong {
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.node-check-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-check-action {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1501,6 +1750,10 @@ onMounted(async () => {
 
 :deep(.server-node-row.selected) {
   background: rgba(0, 255, 255, 0.075);
+}
+
+:deep(.server-node-row.default td:first-child) {
+  box-shadow: inset 3px 0 0 rgba(0, 255, 136, 0.72);
 }
 
 .diagnostic-grid,

@@ -104,7 +104,21 @@ func (m *VirtualNetworkManager) ReleaseNode(nodeID string) error {
 func (m *VirtualNetworkManager) BuildConfig(nodeID string) (*VirtualNetworkConfig, error) {
 	allocatedIP, err := m.store.GetIPAllocation(nodeID)
 	if err != nil {
-		return nil, fmt.Errorf("get virtual IP for %s: %w", nodeID, err)
+		node, nodeErr := m.store.GetNode(nodeID)
+		if nodeErr != nil {
+			return nil, fmt.Errorf("get virtual IP for %s: %w", nodeID, err)
+		}
+		// 兼容历史数据：节点已注册但 ip_allocations 缺失时，在路由读取路径补齐分配。
+		if assignErr := m.AssignNode(node); assignErr != nil {
+			return nil, fmt.Errorf("repair virtual IP for %s: %w", nodeID, assignErr)
+		}
+		if saveErr := m.store.SaveNode(node); saveErr != nil {
+			return nil, fmt.Errorf("persist repaired virtual IP for %s: %w", nodeID, saveErr)
+		}
+		allocatedIP, err = m.store.GetIPAllocation(nodeID)
+		if err != nil {
+			return nil, fmt.Errorf("get repaired virtual IP for %s: %w", nodeID, err)
+		}
 	}
 
 	return &VirtualNetworkConfig{

@@ -9,6 +9,7 @@ import (
 	urlpath "path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,15 +19,19 @@ import (
 
 // ServerConfig configures the dashboard HTTP server.
 type ServerConfig struct {
-	ListenAddr     string
-	AllowedOrigins []string
-	Auth           AuthConfig
-	Logger         *slog.Logger
-	Store          DashboardStore
-	StaticDir      string
-	TLSCertFile    string // TLS certificate file path (enables HTTPS when set)
-	TLSKeyFile     string // TLS private key file path
-	AuditLogPath   string // JSON Lines audit log path (empty = disabled)
+	ListenAddr      string
+	AllowedOrigins  []string
+	Auth            AuthConfig
+	Logger          *slog.Logger
+	Store           DashboardStore
+	StaticDir       string
+	StorePath       string // persistent store path for status display
+	TLSCertFile     string // TLS certificate file path (enables HTTPS when set)
+	TLSKeyFile      string // TLS private key file path
+	AuditLogPath    string // JSON Lines audit log path (empty = disabled)
+	RelayAdminURL   string // optional Relay admin API base URL
+	RelayAdminToken string // Bearer token for Relay admin API
+	Version         string // optional build/version label for operators
 }
 
 // DefaultServerConfig returns sensible defaults.
@@ -47,6 +52,7 @@ type Server struct {
 	store       *DataStore
 	dbStore     DashboardStore
 	alertEngine *AlertEngine
+	relayAdmin  *RelayAdminClient
 	audit       audit.AuditLogger
 	server      *http.Server
 	initErr     error
@@ -87,6 +93,15 @@ func NewServer(cfg ServerConfig) *Server {
 		}
 	}
 
+	var relayAdminClient *RelayAdminClient
+	var relayAdminErr error
+	if strings.TrimSpace(cfg.RelayAdminURL) != "" {
+		relayAdminClient, relayAdminErr = NewRelayAdminClient(cfg.RelayAdminURL, cfg.RelayAdminToken)
+		if relayAdminErr != nil {
+			cfg.Logger.Error("failed to create relay admin client", "error", relayAdminErr)
+		}
+	}
+
 	s := &Server{
 		config:      cfg,
 		auth:        NewAuthManager(cfg.Auth),
@@ -94,11 +109,17 @@ func NewServer(cfg ServerConfig) *Server {
 		store:       NewDataStore(),
 		dbStore:     cfg.Store,
 		alertEngine: NewAlertEngine(cfg.Logger),
+		relayAdmin:  relayAdminClient,
 		audit:       auditLogger,
+	}
+	if relayAdminErr != nil {
+		s.initErr = relayAdminErr
 	}
 	if cfg.Store != nil {
 		// 生产模式下优先从持久化 Store 恢复用户，避免重启后账号状态丢失。
-		s.initErr = s.syncAuthUsers()
+		if err := s.syncAuthUsers(); err != nil && s.initErr == nil {
+			s.initErr = err
+		}
 	}
 	s.registerRoutes()
 	return s
@@ -132,10 +153,17 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop() error {
+	var stopErr error
 	if s.server != nil {
-		return s.server.Close()
+		stopErr = s.server.Close()
+		s.server = nil
 	}
-	return nil
+	if s.audit != nil {
+		if err := s.audit.Close(); err != nil && stopErr == nil {
+			stopErr = err
+		}
+	}
+	return stopErr
 }
 
 // Handler returns the HTTP handler for testing.
@@ -181,6 +209,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/stats", s.handleGetStats)
 	s.mux.HandleFunc("GET /api/v1/stats/{node_id}", s.handleGetNodeStats)
 
+	// Connected clients
+	s.mux.HandleFunc("GET /api/v1/clients", s.handleListClients)
+	s.mux.HandleFunc("DELETE /api/v1/clients/{id}", s.handleDisconnectClient)
+
 	// ACL
 	s.mux.HandleFunc("GET /api/v1/acl", s.handleListACL)
 	s.mux.HandleFunc("POST /api/v1/acl", s.handleCreateACL)
@@ -208,6 +240,9 @@ func (s *Server) registerRoutes() {
 
 	// Audit
 	s.mux.HandleFunc("GET /api/v1/audit", s.handleQueryAudit)
+
+	// Runtime config status
+	s.mux.HandleFunc("GET /api/v1/config/status", s.handleConfigStatus)
 
 	// Health
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
@@ -421,6 +456,51 @@ func (s *Server) handleGetNodeStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSuccess(w, st)
+}
+
+// --- Client handlers ---
+
+func (s *Server) handleListClients(w http.ResponseWriter, _ *http.Request) {
+	if s.relayAdmin == nil {
+		writeSuccess(w, ClientListResponse{
+			Configured: false,
+			Available:  false,
+			Error:      "relay admin API is not configured",
+			Clients:    []ClientSnapshot{},
+		})
+		return
+	}
+	clients, err := s.relayAdmin.ListClients()
+	if err != nil {
+		s.config.Logger.Warn("relay admin list clients failed", "error", err)
+		writeSuccess(w, ClientListResponse{
+			Configured: true,
+			Available:  false,
+			Error:      err.Error(),
+			Clients:    []ClientSnapshot{},
+		})
+		return
+	}
+	writeSuccess(w, ClientListResponse{
+		Configured: true,
+		Available:  true,
+		Clients:    clients,
+	})
+}
+
+func (s *Server) handleDisconnectClient(w http.ResponseWriter, r *http.Request) {
+	clientID := r.PathValue("id")
+	if s.relayAdmin == nil {
+		writeError(w, http.StatusServiceUnavailable, "relay admin API is not configured")
+		return
+	}
+	if err := s.relayAdmin.DisconnectClient(clientID); err != nil {
+		s.config.Logger.Warn("relay admin disconnect client failed", "client", clientID, "error", err)
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.audit.Log(audit.NewEvent(r.Header.Get("X-User-ID"), audit.ActionDelete, "clients", clientID, audit.ResultSuccess))
+	writeSuccess(w, map[string]string{"disconnected": clientID})
 }
 
 // --- ACL handlers ---
@@ -710,11 +790,41 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil || parsedLimit < 1 {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Error: "invalid audit limit"})
+			return
+		}
+		if parsedLimit <= 500 {
+			limit = parsedLimit
+		} else {
+			limit = 500
+		}
+	}
 	filter := audit.AuditFilter{
 		Actor:    r.URL.Query().Get("actor"),
 		Action:   audit.Action(r.URL.Query().Get("action")),
 		Resource: r.URL.Query().Get("resource"),
-		Limit:    100,
+		Result:   audit.Result(r.URL.Query().Get("result")),
+		Limit:    limit,
+	}
+	if rawStartTime := r.URL.Query().Get("start"); rawStartTime != "" {
+		startTime, err := time.Parse(time.RFC3339Nano, rawStartTime)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Error: "invalid audit start time"})
+			return
+		}
+		filter.StartTime = startTime
+	}
+	if rawEndTime := r.URL.Query().Get("end"); rawEndTime != "" {
+		endTime, err := time.Parse(time.RFC3339Nano, rawEndTime)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Error: "invalid audit end time"})
+			return
+		}
+		filter.EndTime = endTime
 	}
 	events, err := s.audit.Query(filter)
 	if err != nil {
@@ -725,6 +835,39 @@ func (s *Server) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		events = []audit.AuditEvent{}
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: events})
+}
+
+func (s *Server) handleConfigStatus(w http.ResponseWriter, _ *http.Request) {
+	status := RuntimeConfigStatus{
+		HTTPSEnabled:         s.config.TLSCertFile != "" && s.config.TLSKeyFile != "",
+		StaticDir:            s.config.StaticDir,
+		AuditLogEnabled:      strings.TrimSpace(s.config.AuditLogPath) != "",
+		AuditLogPath:         s.config.AuditLogPath,
+		AuditLogQueryable:    true,
+		RelayAdminConfigured: strings.TrimSpace(s.config.RelayAdminURL) != "" && s.relayAdmin != nil,
+		RelayAdminURL:        strings.TrimSpace(s.config.RelayAdminURL),
+		AllowedOrigins:       append([]string(nil), s.config.AllowedOrigins...),
+		StorePersistent:      s.dbStore != nil,
+		StorePath:            s.config.StorePath,
+		Version:              s.config.Version,
+	}
+	if status.AuditLogEnabled {
+		if _, err := s.audit.Query(audit.AuditFilter{Limit: 1}); err != nil {
+			status.AuditLogQueryable = false
+			status.AuditLogError = err.Error()
+		}
+	}
+	if status.RelayAdminConfigured {
+		if err := s.relayAdmin.Health(); err != nil {
+			status.RelayAdminAvailable = false
+			status.RelayAdminError = err.Error()
+		} else {
+			status.RelayAdminAvailable = true
+		}
+	} else if strings.TrimSpace(s.config.RelayAdminURL) != "" {
+		status.RelayAdminError = "relay admin client is not initialized"
+	}
+	writeSuccess(w, status)
 }
 
 // --- Health handler ---

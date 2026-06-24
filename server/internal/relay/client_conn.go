@@ -13,15 +13,19 @@ import (
 
 // ClientConn manages one connected tunnel client's control connection.
 type ClientConn struct {
-	clientID string
-	conn     *protocol.Conn
-	server   *Server
-	logger   *slog.Logger
+	clientID    string
+	conn        *protocol.Conn
+	server      *Server
+	logger      *slog.Logger
+	remoteAddr  string
+	connectedAt time.Time
 
-	proxiesMu sync.Mutex
+	proxiesMu sync.RWMutex
 	proxies   map[string]*Proxy
 
 	heartbeatTimer *time.Timer
+	lastSeenMu     sync.RWMutex
+	lastSeen       time.Time
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -31,13 +35,16 @@ type ClientConn struct {
 func NewClientConn(clientID string, conn *protocol.Conn, server *Server, logger *slog.Logger) *ClientConn {
 	ctx, cancel := context.WithCancel(server.ctx)
 	cc := &ClientConn{
-		clientID: clientID,
-		conn:     conn,
-		server:   server,
-		logger:   logger.With("client", clientID),
-		proxies:  make(map[string]*Proxy),
-		ctx:      ctx,
-		cancel:   cancel,
+		clientID:    clientID,
+		conn:        conn,
+		server:      server,
+		logger:      logger.With("client", clientID),
+		remoteAddr:  conn.RemoteAddr().String(),
+		connectedAt: time.Now(),
+		lastSeen:    time.Now(),
+		proxies:     make(map[string]*Proxy),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 	return cc
 }
@@ -61,6 +68,7 @@ func (cc *ClientConn) readLoop() {
 			}
 		}
 
+		cc.markSeen()
 		cc.resetHeartbeat()
 
 		switch msg.Type {
@@ -190,9 +198,52 @@ func (cc *ClientConn) resetHeartbeat() {
 
 // getProxy returns the proxy for the given name, or nil.
 func (cc *ClientConn) getProxy(name string) *Proxy {
-	cc.proxiesMu.Lock()
-	defer cc.proxiesMu.Unlock()
+	cc.proxiesMu.RLock()
+	defer cc.proxiesMu.RUnlock()
 	return cc.proxies[name]
+}
+
+func (cc *ClientConn) markSeen() {
+	cc.lastSeenMu.Lock()
+	cc.lastSeen = time.Now()
+	cc.lastSeenMu.Unlock()
+}
+
+func (cc *ClientConn) snapshot() ClientSnapshot {
+	cc.lastSeenMu.RLock()
+	lastSeen := cc.lastSeen
+	cc.lastSeenMu.RUnlock()
+
+	cc.proxiesMu.RLock()
+	proxies := make([]types.ProxyInfo, 0, len(cc.proxies))
+	var bytesIn int64
+	var bytesOut int64
+	var sessions int64
+	for _, proxy := range cc.proxies {
+		info := proxy.Snapshot()
+		bytesIn += info.BytesIn
+		bytesOut += info.BytesOut
+		sessions += info.Sessions
+		proxies = append(proxies, info)
+	}
+	cc.proxiesMu.RUnlock()
+
+	return ClientSnapshot{
+		ClientID:    cc.clientID,
+		RemoteAddr:  cc.remoteAddr,
+		ConnectedAt: cc.connectedAt,
+		LastSeen:    lastSeen,
+		ProxyCount:  len(proxies),
+		Proxies:     proxies,
+		BytesIn:     bytesIn,
+		BytesOut:    bytesOut,
+		Sessions:    sessions,
+	}
+}
+
+func (cc *ClientConn) close() {
+	cc.cancel()
+	_ = cc.conn.Close()
 }
 
 // forwardP2PMessage forwards a P2P signaling message to the target peer.

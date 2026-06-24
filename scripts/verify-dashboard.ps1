@@ -157,6 +157,13 @@ try {
   $stats = Invoke-JsonRequest -Method "GET" -Path "/api/v1/stats" -Token $token
   $results.Add((New-Result "dashboard_stats_api" ($stats.StatusCode -eq 200) "HTTP $($stats.StatusCode)"))
 
+  $clients = Invoke-JsonRequest -Method "GET" -Path "/api/v1/clients" -Token $token
+  $clientsData = Convert-ApiData $clients
+  $clientProperties = if ($null -ne $clientsData) { @($clientsData.PSObject.Properties.Name) } else { @() }
+  $hasClientsArray = $clientProperties -contains "clients"
+  $clientCount = if ($hasClientsArray) { @($clientsData.clients).Count } else { 0 }
+  $results.Add((New-Result "dashboard_clients_api" ($clients.StatusCode -eq 200 -and $hasClientsArray) "configured=$($clientsData.configured) available=$($clientsData.available) clients=$clientCount error=$($clientsData.error)"))
+
   $aclBody = @{
     id = $VERIFY_ACL_ID
     source = "*"

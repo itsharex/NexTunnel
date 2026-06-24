@@ -96,6 +96,31 @@ func TestRBAC_ViewerReadOnly(t *testing.T) {
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("viewer DELETE /nodes: %d, want 403", rr.Code)
 	}
+
+	// Viewer can inspect clients but cannot disconnect them
+	req = httptest.NewRequest("GET", "/api/v1/clients", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("viewer GET /clients: %d, want 200", rr.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/config/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("viewer GET /config/status: %d, want 200", rr.Code)
+	}
+
+	req = httptest.NewRequest("DELETE", "/api/v1/clients/client-1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("viewer DELETE /clients: %d, want 403", rr.Code)
+	}
 }
 
 func TestRBAC_OperatorAccess(t *testing.T) {
