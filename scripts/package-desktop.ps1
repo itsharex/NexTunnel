@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v0.6.0-beta",
+  [string]$Version = "v0.6.2-alpha",
   [string]$Platform = "windows/amd64",
   [ValidateSet("none", "nsis")]
   [string]$Installer = "nsis",

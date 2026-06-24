@@ -10,10 +10,10 @@ import (
 
 func TestBuildServerInstallerArgsForLinux(t *testing.T) {
 	options := serverInstallerOptions{
-		version:           "v0.6.0-beta",
+		version:           "v0.6.2-alpha",
 		packageURL:        "/tmp/nextunnel-server-linux-amd64.tar.gz",
 		packageSHA256:     "abc123",
-		releaseBaseURL:    "https://cos.example.com/nextunnel/v0.6.0-beta",
+		releaseBaseURL:    "https://cos.example.com/nextunnel/v0.6.2-alpha",
 		publicHost:        "example.com",
 		relayPort:         "27000",
 		relayQuicPort:     "27443",
@@ -41,10 +41,10 @@ func TestBuildServerInstallerArgsForLinux(t *testing.T) {
 	}
 
 	want := []string{
-		"--version", "v0.6.0-beta",
+		"--version", "v0.6.2-alpha",
 		"--package-url", "/tmp/nextunnel-server-linux-amd64.tar.gz",
 		"--sha256", "abc123",
-		"--release-base-url", "https://cos.example.com/nextunnel/v0.6.0-beta",
+		"--release-base-url", "https://cos.example.com/nextunnel/v0.6.2-alpha",
 		"--install-dir", "/opt/nextunnel-test",
 		"--config-dir", "/etc/nextunnel-test",
 		"--data-dir", "/var/lib/nextunnel-test",

@@ -19,7 +19,7 @@ export default {
       { text: '服务端', link: '/deploy/server' },
       { text: 'Dashboard', link: '/dashboard/operations' },
       {
-        text: 'v0.6.0-beta',
+        text: 'v0.6.2-alpha',
         items: [
           { text: '架构说明', link: '/guide/architecture' },
           { text: '发布流程', link: '/deploy/release' },

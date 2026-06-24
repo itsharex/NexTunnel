@@ -8,7 +8,7 @@ import (
 )
 
 // version 由发布脚本通过 -ldflags 注入，默认值用于本地开发。
-var version = "0.5.0-alpha"
+var version = "0.6.2-alpha"
 
 func main() {
 	if err := command.NewRootCommand(version).Execute(); err != nil {

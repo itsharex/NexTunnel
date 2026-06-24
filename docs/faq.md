@@ -4,7 +4,7 @@
 
 NexTunnel 同样支持把内网服务通过中继暴露到远端端口，但它额外提供桌面端可视化、Control Plane、Dashboard、Relay Admin API、NAT/STUN 诊断、真实 TUN 预检和发布前生产验证工具链。
 
-v0.6.0-beta 的生产可用核心是自部署 Relay/Dashboard、桌面 TCP/HTTP 隧道、客户端监控、服务端安装脚本和诊断闭环。P2P、TUN、eBPF 和 Edge 能力按验证工具链与当前平台条件明确边界。
+v0.6.2-alpha 的生产可用核心是自部署 Relay/Dashboard、桌面 TCP/HTTP 隧道、客户端监控、服务端安装脚本和诊断闭环。P2P、TUN、eBPF 和 Edge 能力按验证工具链与当前平台条件明确边界。
 
 ## 最少需要开放哪些端口？
 
@@ -61,8 +61,8 @@ sudo ./install.sh install \
 
 ```bash
 sudo ./install.sh install \
-  --version v0.6.0-beta \
-  --release-base-url https://cos.example.com/nextunnel/v0.6.0-beta \
+  --version v0.6.2-alpha \
+  --release-base-url https://cos.example.com/nextunnel/v0.6.2-alpha \
   --sha256 <sha256>
 ```
 
@@ -70,7 +70,7 @@ sudo ./install.sh install \
 
 ```bash
 sudo ./install.sh install \
-  --version v0.6.0-beta \
+  --version v0.6.2-alpha \
   --github-proxy https://your-proxy.example.com/
 ```
 
@@ -101,7 +101,7 @@ Windows 系统路由 TUN 需要官方、匹配架构的 `wintun.dll`。处理方
 
 ## macOS 系统路由 TUN 是生产可用吗？
 
-v0.6.0-beta 中 macOS P2P/Relay 可用，系统路由 TUN 需要 root/sudo、授权 helper 或 LaunchDaemon。没有这些外部条件时，只能标注为预览限制。
+v0.6.2-alpha 中 macOS P2P/Relay 可用，系统路由 TUN 需要 root/sudo、授权 helper 或 LaunchDaemon。没有这些外部条件时，只能标注为预览限制。
 
 ## Linux TUN 需要什么权限？
 

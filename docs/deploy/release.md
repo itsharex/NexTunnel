@@ -1,28 +1,28 @@
 # 发布流程
 
-v0.6.0-beta 使用统一版本号发布桌面端安装器、CLI、服务端包、一键安装脚本、验证工具和 VitePress 文档站。
+v0.6.2-alpha 使用统一版本号发布桌面端安装器、CLI、服务端包、一键安装脚本、验证工具和 VitePress 文档站。
 
 ## 本地打包
 
 ```bash
-make package-desktop VERSION=v0.6.0-beta
-make package-macos VERSION=v0.6.0-beta
-make package-cli VERSION=v0.6.0-beta
-make package-server VERSION=v0.6.0-beta
+make package-desktop VERSION=v0.6.2-alpha
+make package-macos VERSION=v0.6.2-alpha
+make package-cli VERSION=v0.6.2-alpha
+make package-server VERSION=v0.6.2-alpha
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\scripts\package-desktop.ps1 -Version v0.6.0-beta -Installer nsis
-.\scripts\package-cli.ps1 -Version v0.6.0-beta
-.\scripts\package-server.ps1 -Version v0.6.0-beta
+.\scripts\package-desktop.ps1 -Version v0.6.2-alpha -Installer nsis
+.\scripts\package-cli.ps1 -Version v0.6.2-alpha
+.\scripts\package-server.ps1 -Version v0.6.2-alpha
 ```
 
 macOS DMG 只能在 macOS 本机或 macOS runner 构建：
 
 ```bash
-bash scripts/package-macos.sh --version v0.6.0-beta
+bash scripts/package-macos.sh --version v0.6.2-alpha
 ```
 
 ## Windows Wintun 打包
@@ -45,7 +45,7 @@ NSIS 安装包默认使用 `-WintunMode bundled`：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
-  -Version v0.6.0-beta `
+  -Version v0.6.2-alpha `
   -Installer nsis `
   -WintunMode bundled `
   -WintunSha256 "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
@@ -55,7 +55,7 @@ NSIS 安装包默认使用 `-WintunMode bundled`：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
-  -Version v0.6.0-beta `
+  -Version v0.6.2-alpha `
   -Installer nsis `
   -WintunDllPath "D:\path\to\wintun.dll"
 ```
@@ -64,26 +64,26 @@ zip 便携包缺少 DLL 时，桌面端网络页会显示 Wintun 状态，并提
 
 ## GitHub Release
 
-推送 `v0.6.0-beta` 标签会触发 `.github/workflows/release.yml`。
+推送 `v0.6.2-alpha` 标签会触发 `.github/workflows/release.yml`。
 
 发布资产：
 
 ```text
-nextunnel-v0.6.0-beta-windows-amd64-installer.exe
-nextunnel-v0.6.0-beta-windows-amd64-installer.exe.sha256
-nextunnel-v0.6.0-beta-windows-amd64-installer.MANIFEST.txt
-nextunnel-v0.6.0-beta-windows-amd64.zip
-nextunnel-v0.6.0-beta-windows-amd64.zip.sha256
-nextunnel-v0.6.0-beta-darwin-universal.dmg
-nextunnel-v0.6.0-beta-darwin-universal.dmg.sha256
-nextunnel-v0.6.0-beta-darwin-universal.MANIFEST.txt
-nextunnel-cli-v0.6.0-beta-linux-amd64.tar.gz
-nextunnel-cli-v0.6.0-beta-linux-arm64.tar.gz
-nextunnel-cli-v0.6.0-beta-windows-amd64.zip
+nextunnel-v0.6.2-alpha-windows-amd64-installer.exe
+nextunnel-v0.6.2-alpha-windows-amd64-installer.exe.sha256
+nextunnel-v0.6.2-alpha-windows-amd64-installer.MANIFEST.txt
+nextunnel-v0.6.2-alpha-windows-amd64.zip
+nextunnel-v0.6.2-alpha-windows-amd64.zip.sha256
+nextunnel-v0.6.2-alpha-darwin-universal.dmg
+nextunnel-v0.6.2-alpha-darwin-universal.dmg.sha256
+nextunnel-v0.6.2-alpha-darwin-universal.MANIFEST.txt
+nextunnel-cli-v0.6.2-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.6.2-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.6.2-alpha-windows-amd64.zip
 nextunnel-server-linux-amd64.tar.gz
 nextunnel-server-linux-arm64.tar.gz
 nextunnel-server-windows-amd64.zip
-nextunnel-docs-v0.6.0-beta.tar.gz
+nextunnel-docs-v0.6.2-alpha.tar.gz
 install.sh
 install.ps1
 *.sha256
@@ -100,7 +100,7 @@ cd docs
 npm run docs:build
 ```
 
-Release workflow 会打包 `nextunnel-docs-v0.6.0-beta.tar.gz`，并同步发布到 GitHub Pages。首次启用前需要在仓库 Pages 设置中选择 `GitHub Actions` 发布模式。
+Release workflow 会打包 `nextunnel-docs-v0.6.2-alpha.tar.gz`，并同步发布到 GitHub Pages。首次启用前需要在仓库 Pages 设置中选择 `GitHub Actions` 发布模式。
 
 站点地址：
 
@@ -150,7 +150,7 @@ sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
 - `install.sh` 和 `install.ps1` 可从 Release 下载。
 - Linux 一键安装后 `nextunnel server health` 通过。
 - Dashboard HTTPS 或 SSH 隧道验证通过。
-- 文档站可访问，导航显示 `v0.6.0-beta`。
+- 文档站可访问，导航显示 `v0.6.2-alpha`。
 
 ## 能力边界
 
