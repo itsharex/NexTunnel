@@ -1,7 +1,7 @@
-// VitePress 文档站配置，参考开源项目文档网站组织首页、指南和发布说明。
+// VitePress 文档站配置；导航按用户路径组织，避免把实现细节放在入口层。
 export default {
   title: 'NexTunnel',
-  description: '开源内网穿透、P2P 直连与可视化桌面管理工具',
+  description: '开源内网穿透、P2P 直连优先与可视化运维工具',
   base: '/NexTunnel/',
   lang: 'zh-CN',
   lastUpdated: true,
@@ -13,14 +13,18 @@ export default {
     logo: '/logo.png',
     nav: [
       { text: '首页', link: '/' },
-      { text: '指南', link: '/guide/getting-started' },
+      { text: '快速开始', link: '/guide/getting-started' },
       { text: '桌面端', link: '/desktop/overview' },
       { text: 'CLI', link: '/cli/overview' },
-      { text: '部署', link: '/deploy/server' },
+      { text: '服务端', link: '/deploy/server' },
+      { text: 'Dashboard', link: '/dashboard/operations' },
       {
-        text: 'v0.3.3-alpha',
+        text: 'v0.6.0-beta',
         items: [
-          { text: '更新日志', link: '/changelog' },
+          { text: '架构说明', link: '/guide/architecture' },
+          { text: '发布流程', link: '/deploy/release' },
+          { text: '生产验证', link: '/deploy/production-verification' },
+          { text: 'FAQ', link: '/faq' },
           { text: 'GitHub', link: 'https://github.com/Lee-zg/NexTunnel' },
         ],
       },
@@ -41,7 +45,9 @@ export default {
           items: [
             { text: '能力总览', link: '/desktop/overview' },
             { text: '隧道与端口', link: '/desktop/tunnels-and-ports' },
-            { text: '设置分类', link: '/desktop/settings' },
+            { text: '网络健康与 TUN', link: '/desktop/network' },
+            { text: '设置与多实例', link: '/desktop/settings' },
+            { text: '日志与诊断', link: '/desktop/logs-diagnostics' },
           ],
         },
       ],
@@ -49,16 +55,39 @@ export default {
         {
           text: 'CLI',
           items: [
-            { text: '使用指南', link: '/cli/overview' },
+            { text: '命令手册', link: '/cli/overview' },
           ],
         },
       ],
       '/deploy/': [
         {
-          text: '部署',
+          text: '服务端与发布',
           items: [
             { text: '服务端部署', link: '/deploy/server' },
             { text: '发布流程', link: '/deploy/release' },
+            { text: '生产验证', link: '/deploy/production-verification' },
+          ],
+        },
+      ],
+      '/dashboard/': [
+        {
+          text: 'Dashboard',
+          items: [
+            { text: '运维手册', link: '/dashboard/operations' },
+          ],
+        },
+      ],
+      '/': [
+        {
+          text: '文档',
+          items: [
+            { text: '快速开始', link: '/guide/getting-started' },
+            { text: '桌面端', link: '/desktop/overview' },
+            { text: 'CLI', link: '/cli/overview' },
+            { text: '服务端部署', link: '/deploy/server' },
+            { text: 'Dashboard 运维', link: '/dashboard/operations' },
+            { text: '架构说明', link: '/guide/architecture' },
+            { text: 'FAQ', link: '/faq' },
           ],
         },
       ],

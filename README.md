@@ -1,467 +1,411 @@
 # NexTunnel
 
-NexTunnel 是一款**开源内网穿透 + P2P 直连**的现代化网络工具，提供可视化桌面管理界面。项目采用 Go + Vue 3 + Wails 技术栈构建，旨在超越传统 FRP/NPS 等"客户端→中转服务器"的 TCP 转发模式，打造下一代智能组网方案。
+NexTunnel 是一套开源内网穿透、P2P 直连优先和可视化运维工具。它提供桌面客户端、统一 CLI、Relay 中继、Control Plane、Dashboard、NAT/STUN 探测和生产验证脚本，适合把本地开发服务、内网 Web、数据库管理入口或自部署节点安全地暴露给受控访问方。
 
-> **项目愿景**：让内网穿透从"能连上"进化为"智能直连"——用户无需理解端口、NAT、UDP、Tunnel 等底层概念，设备自动发现、自动组网、自动加速、自动直连。
+当前版本：`v0.6.0-beta`
 
----
+> 设计目标：像 FRP/NPS 一样快速完成内网服务暴露，同时提供更明确的桌面体验、服务端可观测性、P2P/TUN 诊断和发布前生产验收路径。
 
-## 核心特性
+## 文档导航
 
-| 特性 | 说明 |
-|------|------|
-| **P2P 优先** | 自动探测网络环境，优先使用 P2P 直连路径，无法直连时切换到 Relay |
-| **智能链路** | 结合 NAT 探测、Control Plane 元数据和 Relay 状态选择可用链路 |
-| **安全零信任** | 端到端加密与身份认证；支持 mTLS 双向认证、Bearer Token、bcrypt 密码存储、CORS 白名单 |
-| **自动降级** | P2P 不可达时自动切换至中继，保证连通性 |
-| **可视化桌面端** | 基于 Wails 的原生桌面应用，支持 Relay 连接、隧道配置、实时流量图和运行日志 |
-| **统一 CLI** | 提供服务端安装管理、远端控制面操作和桌面端本机控制入口 |
-| **跨平台** | 覆盖 Windows / macOS / Linux |
+| 入口 | 内容 |
+| --- | --- |
+| [快速开始](docs/guide/getting-started.md) | 10 分钟部署服务端、连接桌面端、创建第一条隧道 |
+| [桌面端指南](docs/desktop/overview.md) | 连接、隧道、端口扫描、网络健康、日志和设置 |
+| [CLI 手册](docs/cli/overview.md) | `nextunnel server/config/remote/desktop/doctor` 命令 |
+| [服务端部署](docs/deploy/server.md) | `install.sh`、`install.ps1`、Docker Compose、端口和 HTTPS |
+| [Dashboard 运维](docs/dashboard/operations.md) | 登录、RBAC、客户端监控、ACL、告警、审计 |
+| [架构说明](docs/guide/architecture.md) | 组件职责、数据流、接口和生产边界 |
+| [发布流程](docs/deploy/release.md) | 桌面端、CLI、服务端、文档站发布 |
+| [FAQ](docs/faq.md) | 常见部署、Wintun、TUN、HTTPS、下载问题 |
 
----
+## 核心能力
 
-## 技术栈
+| 能力 | 当前状态 |
+| --- | --- |
+| Relay TCP/QUIC | 已支持客户端注册、认证、TCP/HTTP 代理、中继转发和流量统计 |
+| Relay Admin API | 已支持在线客户端列表和断开客户端，强制 Bearer Token |
+| Control Plane | 已支持节点注册、心跳、Peer 查询、路由/IPAM、ACL、Key 和审计查询 |
+| Dashboard | 已支持登录、RBAC、节点、客户端、流量、ACL、告警、审计和配置状态 |
+| 桌面端 | 已支持 Relay 连接、TCP/HTTP 隧道、本机端口扫描、运行日志、设置导入导出 |
+| P2P/NAT | 已支持 STUN/NAT 探测、P2P 状态展示和验证工具链 |
+| 系统 TUN | Windows 依赖 Wintun 和管理员权限；macOS 系统路由 TUN 在 beta 中按预览能力处理 |
+| 生产验证 | 已提供 Dashboard、SSH 隧道、P2P/TUN、Edge/Anycast、eBPF Linux 验证脚本 |
 
-| 组件 | 技术 |
-|------|------|
-| 客户端核心 | Go 1.25 |
-| 桌面框架 | Wails v2 |
-| 前端 | Vue 3 + Vite + TypeScript |
-| 状态管理 | Pinia |
-| 本地存储 | SQLite（modernc.org/sqlite，纯 Go 实现） |
-| STUN | pion/stun v2 |
-| WireGuard | wireguard-go |
-| 中继传输 | QUIC |
-| 服务端 | Go + Docker |
-| 统一 CLI | Go + Cobra |
-| CI/CD | GitHub Actions |
+## 架构概览
 
----
+```mermaid
+flowchart LR
+  desktop["桌面客户端<br/>Wails + Vue + Go"]
+  cli["nextunnel CLI"]
+  relay["Relay Server<br/>TCP 7000 / QUIC 7443"]
+  relayAdmin["Relay Admin API<br/>127.0.0.1:7001"]
+  cp["Control Plane<br/>HTTP 9090"]
+  nat["NAT Detector<br/>STUN UDP 3478"]
+  dash["Dashboard<br/>HTTP/HTTPS 8080"]
+  db["SQLite / JSONL<br/>配置、审计、运行数据"]
+  scripts["验证脚本<br/>verify-dashboard / tun / edge / ebpf"]
 
-## 项目结构
-
-```
-NexTunnel/
-├── desktop/                          # Wails 桌面客户端（Go + Vue）
-│   ├── main.go                       # 主程序入口
-│   ├── app.go                        # Wails 应用入口
-│   ├── frontend/                     # Vue 3 前端
-│   │   ├── src/
-│   │   │   ├── api/                  # Wails binding 调用
-│   │   │   ├── components/           # UI 组件
-│   │   │   ├── views/                # 页面视图
-│   │   │   ├── stores/               # Pinia 状态管理
-│   │   │   ├── App.vue               # 根组件
-│   │   │   └── main.ts               # 前端入口
-│   │   ├── wailsjs/                  # Wails Go↔JS 自动绑定
-│   │   ├── package.json
-│   │   ├── vite.config.ts
-│   │   └── tsconfig.json
-│   ├── internal/                     # 客户端内部模块
-│   │   ├── auth/                     # 认证模块（Token 管理）
-│   │   ├── config/                   # 本地配置持久化（SQLite）
-│   │   ├── nat/                      # NAT 穿透（STUN 检测、类型识别）
-│   │   ├── oidc/                     # OIDC 认证客户端
-│   │   ├── p2p/                      # P2P 连接引擎（ICE、WireGuard、Mesh）
-│   │   ├── relay/                    # Relay 中继客户端
-│   │   ├── scheduler/                # 链路调度器
-│   │   └── tunnel/                   # 隧道核心（TCP/HTTP Tunnel、重连）
-│   ├── go.mod
-│   └── wails.json
-│
-├── server/                           # 服务端
-│   ├── cmd/
-│   │   ├── control-plane/            # 控制面入口（节点管理、认证、ACL）
-│   │   ├── relay/                    # Relay 中继服务入口
-│   │   ├── nat-detector/             # NAT 检测服务入口
-│   │   └── dashboard/                # Dashboard 管理控制台入口
-│   ├── web/                          # Dashboard Vue 前端
-│   ├── internal/
-│   │   ├── controlplane/             # 控制面逻辑
-│   │   ├── relay/                    # Relay 服务逻辑（会话管理、代理路由）
-│   │   ├── natdetect/                # NAT 检测逻辑
-│   │   └── common/                   # 公共组件
-│   ├── Dockerfile
-│   ├── go.mod
-│   └── go.sum
-│
-├── pkg/                              # 公共包（客户端与服务端共享）
-│   ├── protocol/                     # 协议定义（消息编解码）
-│   ├── crypto/                       # 加密工具（密钥管理）
-│   ├── types/                        # 共享类型定义
-│   └── go.mod
-│
-├── cli/                              # 统一 nextunnel CLI
-│   ├── internal/                     # 命令、配置、远端 API、本机服务控制
-│   ├── main.go
-│   └── go.mod
-│
-├── scripts/                          # 构建与部署脚本
-├── docs/                             # 项目文档
-├── .github/workflows/ci.yml          # CI 流水线配置
-├── go.work                           # Go 工作区配置
-├── docker-compose.yml                # 服务端容器编排
-└── Makefile                          # 构建命令
+  desktop -->|"Relay Token<br/>代理注册"| relay
+  desktop -->|"节点注册、路由、ACL"| cp
+  desktop -->|"STUN 探测"| nat
+  desktop -. "P2P 直连候选" .-> desktop
+  cli -->|"server/config/remote/desktop"| cp
+  cli --> dash
+  dash -->|"客户端监控"| relayAdmin
+  relayAdmin --> relay
+  cp --> db
+  dash --> db
+  scripts --> dash
+  scripts --> cp
+  scripts --> relay
 ```
 
-## 统一 CLI
+生产部署建议把 Dashboard 放在 HTTPS 反向代理后面，Relay Admin API 只监听本机或容器内网，不对公网开放。
 
-`nextunnel` CLI 提供服务端、本机桌面端和远端控制面的统一入口：
+## 系统要求
 
-```bash
-nextunnel server status
-nextunnel server health
-nextunnel remote node list
-nextunnel desktop status
-nextunnel doctor
-```
-
-服务端 Release 包会内置对应平台的 `bin/nextunnel`；也可以下载独立 CLI 包使用。CLI 配置默认保存在用户目录下，token 文件使用当前用户可读写权限。
-
----
-
-## 架构设计
-
-### 系统架构
-
-```
-  ┌──────────────┐                              ┌──────────────┐
-  │  Client A    │                              │  Client B    │
-  │ (Wails App)  │                              │ (Wails App)  │
-  └──────┬───────┘                              └──────┬───────┘
-         │                                             │
-         │  ←─────── P2P Direct (WireGuard/QUIC) ───→ │
-         │                                             │
-         │         ┌─────────────────────┐             │
-         ├────────→│   Control Plane     │←────────────┤
-         │         │  - 节点注册/认证     │             │
-         │         │  - 密钥交换          │             │
-         │         │  - ACL/路由下发      │             │
-         │         └─────────────────────┘             │
-         │                                             │
-         │         ┌─────────────────────┐             │
-         ├────────→│   STUN/TURN 服务    │←────────────┤
-         │         │  - NAT 类型检测      │             │
-         │         │  - 打洞协助          │             │
-         │         └─────────────────────┘             │
-         │                                             │
-         │         ┌─────────────────────┐             │
-         └────────→│   Relay 中继节点    │←────────────┘
-                   │  (QUIC Relay)       │
-                   │  - 降级中继          │             │
-                   └─────────────────────┘
-```
-
-### 客户端分层
-
-```
-┌─────────────────────────────────────────┐
-│       Vue 3 + Vite (Desktop UI)         │  表现层
-├─────────────────────────────────────────┤
-│    Wails Bridge (Go ↔ Frontend IPC)     │  应用层
-├─────────────────────────────────────────┤
-│  Tunnel Manager │ P2P Engine │ Config   │  业务逻辑层
-├─────────────────────────────────────────┤
-│ WireGuard Tunnel │ ICE/STUN │ Link      │  P2P 引擎层
-├─────────────────────────────────────────┤
-│   QUIC Transport │ UDP │ TCP            │  传输层
-├─────────────────────────────────────────┤
-│          SQLite (Local Config)          │  存储层
-└─────────────────────────────────────────┘
-```
-
-### 链路调度策略
-
-```
-检测 NAT 类型 → 评估 RTT/丢包 → 选择最优路径:
-  ├── Full Cone NAT     → UDP P2P (直连)
-  ├── Restricted NAT    → QUIC P2P (打洞)
-  ├── Symmetric NAT     → TCP P2P (尝试)
-  ├── P2P 全部失败      → Nearby Relay (就近中继)
-  └── 全部不可用        → Global Relay (全球中继)
-```
-
----
-
-## 模块说明
-
-### 桌面端（`desktop/`）
-
-基于 **Wails v2** 构建的桌面应用，Go 后端 + Vue 3 前端通过 Wails Bridge 进行 IPC 通信。
-
-- **`internal/tunnel`** — 隧道核心：TCP/HTTP 端口转发，支持多路复用与断线自动重连
-- **`internal/p2p`** — P2P 引擎：ICE 协商、WireGuard 隧道、Mesh 组网
-- **`internal/nat`** — NAT 穿透：STUN 绑定、NAT 类型检测（Full Cone / Restricted / Symmetric）
-- **`internal/config`** — 配置管理：SQLite 持久化存储，支持数据库迁移
-- **`internal/auth`** — 认证模块：Token 管理，支持过期与刷新
-- **`internal/oidc`** — OIDC 客户端：对接第三方身份提供商
-- **`internal/scheduler`** — 链路调度：基于网络指标动态选择最优链路
-- **`internal/relay`** — Relay 客户端：P2P 失败时的降级中继路径
-
-### 服务端（`server/`）
-
-独立部署的四个服务进程：
-
-| 服务 | 入口 | 端口 | 职责 |
-|------|------|------|------|
-| **Relay Server** | `cmd/relay/` | 7000/TCP、7443/QUIC | TCP/QUIC 中继转发，客户端注册与认证，流量统计 |
-| **Control Plane** | `cmd/control-plane/` | 9090/HTTP | 节点管理、ACL 规则、密钥交换、Peer 查询 |
-| **NAT Detector** | `cmd/nat-detector/` | 3478/UDP | NAT 类型检测服务，支持高并发请求 |
-| **Dashboard** | `cmd/dashboard/` + `server/web/` | 8080/HTTP | Web 管理台、节点/客户端/流量/ACL/告警/审计查看与操作，SQLite 持久化 |
-
-### 公共包（`pkg/`）
-
-客户端与服务端共享的基础库：
-
-- **`protocol`** — 自定义协议的消息编解码
-- **`crypto`** — 加密工具与密钥管理
-- **`types`** — 项目共享类型定义
-
----
+| 场景 | 要求 |
+| --- | --- |
+| 桌面端运行 | Windows 10/11、macOS 或 Linux 桌面环境 |
+| Windows TUN | 官方匹配架构 `wintun.dll`，首次创建适配器需要管理员权限 |
+| macOS TUN | beta 中需要 root/sudo 或后续授权 helper；普通用户可使用 Relay/P2P 能力 |
+| 服务端二进制部署 | Linux amd64/arm64 或 Windows amd64 |
+| 本地开发 | Go `1.25.0`、Node.js `>=18`、Wails v2、PowerShell 或 GNU Make |
+| 容器部署 | Docker / Docker Compose |
 
 ## 快速开始
 
-### 环境要求
-
-| 工具 | 版本 |
-|------|------|
-| Go | >= 1.25 |
-| Node.js | >= 18 |
-| Wails CLI | v2.x |
-| Docker & Docker Compose | （服务端部署可选） |
-| GNU Make | 可选；Windows PowerShell 可使用 `.\make.ps1` |
-
-### 安装 Wails CLI
+### 1. Linux 一键部署服务端
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+curl -fL -o /tmp/nextunnel-install.sh \
+  https://github.com/Lee-zg/NexTunnel/releases/download/v0.6.0-beta/install.sh
+chmod +x /tmp/nextunnel-install.sh
+
+sudo /tmp/nextunnel-install.sh install \
+  --version v0.6.0-beta \
+  --public-host example.com \
+  --relay-token <strong-relay-token> \
+  --control-token <strong-control-token> \
+  --dashboard-password <strong-password> \
+  --non-interactive
 ```
 
-### 克隆项目
+查看状态：
+
+```bash
+sudo /opt/nextunnel/deploy/server/install.sh status
+sudo /opt/nextunnel/deploy/server/install.sh health
+sudo /opt/nextunnel/deploy/server/install.sh logs --no-log-follow --log-lines 80
+```
+
+默认入口：
+
+| 服务 | 地址 |
+| --- | --- |
+| Relay TCP | `example.com:7000` |
+| Relay QUIC | `example.com:7443/udp` |
+| Control Plane | `http://example.com:9090` |
+| Dashboard | `http://example.com:8080` |
+| NAT Detector | `example.com:3478/udp` |
+
+安全组或防火墙至少放行 `7000/tcp`。启用 QUIC、NAT 和 Dashboard 时，还需要放行 `7443/udp`、`3478/udp`、`8080/tcp`。`7001/tcp` 是 Relay Admin API，默认只给 Dashboard 内部访问，不应开放公网。
+
+### 2. Windows PowerShell 部署服务端
+
+```powershell
+Invoke-WebRequest `
+  -Uri "https://github.com/Lee-zg/NexTunnel/releases/download/v0.6.0-beta/install.ps1" `
+  -OutFile ".\install.ps1"
+
+.\install.ps1 -Action install `
+  -Version v0.6.0-beta `
+  -PublicHost "example.com" `
+  -RelayToken "<strong-relay-token>" `
+  -ControlToken "<strong-control-token>" `
+  -DashboardPassword "<strong-password>" `
+  -NonInteractive
+```
+
+常用操作：
+
+```powershell
+.\install.ps1 -Action status
+.\install.ps1 -Action health
+.\install.ps1 -Action logs
+.\install.ps1 -Action restart
+.\install.ps1 -Action update -Version v0.6.0-beta
+```
+
+### 3. Docker Compose 试用
+
+```bash
+cp deploy/server/.env.example deploy/server/.env
+# 修改 RELAY_AUTH_TOKEN、RELAY_ADMIN_TOKEN、CONTROL_PLANE_API_TOKEN、DASHBOARD_SECRET_KEY、DASHBOARD_ADMIN_PASSWORD
+docker compose -f deploy/server/docker-compose.yml --env-file deploy/server/.env up -d
+```
+
+仓库根目录的 `docker-compose.yml` 适合源码本地构建试用；`deploy/server/docker-compose.yml` 适合基于 Release 镜像或 1Panel 等容器平台部署。
+
+### 4. 桌面端连接并创建隧道
+
+1. 打开 NexTunnel 桌面端。
+2. 进入“设置 -> 连接”，新增或编辑服务端实例。
+3. 填写：
+   - Relay 地址：`example.com:7000`
+   - Relay Token：`<strong-relay-token>`
+   - Control Plane URL：`http://example.com:9090`
+   - Control Plane Token：`<strong-control-token>`
+   - STUN：`example.com:3478` 或公共 STUN
+4. 回到总览页点击连接。
+5. 进入“隧道”，创建第一条 TCP 隧道：
+
+```text
+名称：web-3000
+协议：tcp
+本地地址：127.0.0.1
+本地端口：3000
+远端端口：13000
+```
+
+连接成功后，访问 `example.com:13000` 会转发到桌面端所在机器的 `127.0.0.1:3000`。
+
+## CLI 示例
+
+安装服务端后，Linux 默认会创建 `/usr/local/bin/nextunnel`：
+
+```bash
+nextunnel version
+nextunnel doctor
+nextunnel server health
+```
+
+配置远端上下文并登录 Dashboard：
+
+```bash
+nextunnel config set-context prod \
+  --server http://example.com:9090 \
+  --token <strong-control-token> \
+  --dashboard http://example.com:8080
+
+nextunnel remote login \
+  --dashboard http://example.com:8080 \
+  --username admin \
+  --password <strong-password> \
+  --context prod
+
+nextunnel config use-context prod
+nextunnel remote node list
+nextunnel remote alert list
+```
+
+控制本机桌面端：
+
+```bash
+nextunnel desktop status
+nextunnel desktop settings set \
+  --relay example.com:7000 \
+  --relay-token <strong-relay-token> \
+  --control-plane http://example.com:9090 \
+  --control-token <strong-control-token> \
+  --stun example.com:3478
+nextunnel desktop connect --relay example.com:7000 --token <strong-relay-token>
+nextunnel desktop network apply
+```
+
+## 配置样例
+
+`deploy/server/.env` 最小生产配置示例：
+
+```dotenv
+NEXTUNNEL_VERSION=v0.6.0-beta
+NEXTUNNEL_PUBLIC_HOST=example.com
+
+RELAY_BIND=0.0.0.0
+RELAY_CONTROL_PORT=7000
+RELAY_QUIC_PORT=7443
+RELAY_AUTH_TOKEN=<strong-relay-token>
+RELAY_ADMIN_LISTEN=127.0.0.1:7001
+RELAY_ADMIN_TOKEN=<strong-relay-admin-token>
+
+CONTROL_PLANE_PORT=9090
+CONTROL_PLANE_API_TOKEN=<strong-control-token>
+
+DASHBOARD_ENABLED=true
+DASHBOARD_PORT=8080
+DASHBOARD_SECRET_KEY=<strong-dashboard-secret>
+DASHBOARD_ADMIN_USER=admin
+DASHBOARD_ADMIN_PASSWORD=<strong-password>
+DASHBOARD_ALLOWED_ORIGINS=https://dashboard.example.com
+DASHBOARD_RELAY_ADMIN_URL=http://127.0.0.1:7001
+DASHBOARD_RELAY_ADMIN_TOKEN=<strong-relay-admin-token>
+
+NAT_PRIMARY_ADDR=0.0.0.0
+NAT_ALT_ADDR=127.0.0.1
+NAT_PORT=3478
+```
+
+生产环境建议通过 Nginx/OpenResty/Caddy 提供 Dashboard HTTPS，反代到 `127.0.0.1:8080`。
+
+## 服务端进程参数
+
+Relay：
+
+```bash
+relay \
+  -bind 0.0.0.0 \
+  -control-port 7000 \
+  -quic-port 7443 \
+  -auth-token <strong-relay-token> \
+  -require-auth \
+  -admin-listen 127.0.0.1:7001 \
+  -admin-token <strong-relay-admin-token>
+```
+
+Control Plane：
+
+```bash
+control-plane \
+  -listen 0.0.0.0:9090 \
+  -api-token <strong-control-token> \
+  -store-path /var/lib/nextunnel/control-plane.db \
+  -virtual-subnet 10.7.0.0/24 \
+  -virtual-gateway 10.7.0.1 \
+  -virtual-interface nextunnel0 \
+  -virtual-mtu 1420
+```
+
+Dashboard：
+
+```bash
+dashboard \
+  -listen 127.0.0.1:8080 \
+  -secret-key <strong-dashboard-secret> \
+  -admin-user admin \
+  -admin-password <strong-password> \
+  -store-path /var/lib/nextunnel/dashboard.db \
+  -allowed-origins https://dashboard.example.com \
+  -relay-admin-url http://127.0.0.1:7001 \
+  -relay-admin-token <strong-relay-admin-token> \
+  -audit-log /var/log/nextunnel/dashboard-audit.jsonl
+```
+
+NAT Detector：
+
+```bash
+nat-detector -primary-addr 0.0.0.0 -alt-addr 127.0.0.1 -port 3478 -realm nextunnel.local
+```
+
+## 公开管理接口
+
+Relay Admin API：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/health` | Relay 管理接口健康检查 |
+| `GET` | `/api/v1/admin/clients` | 查看在线客户端与代理 |
+| `DELETE` | `/api/v1/admin/clients/{client_id}` | 断开指定客户端 |
+
+Dashboard 常用 API：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/login` | 登录并获取 token |
+| `GET` | `/api/v1/clients` | 查看 Relay 在线客户端 |
+| `DELETE` | `/api/v1/clients/{id}` | 断开客户端 |
+| `GET` | `/api/v1/audit` | 查询审计日志 |
+| `GET` | `/api/v1/config/status` | 查看运行配置状态 |
+
+Control Plane 常用 API：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/nodes` | 注册节点 |
+| `POST` | `/api/v1/nodes/{id}/heartbeat` | 节点心跳 |
+| `GET` | `/api/v1/nodes/{id}/routes` | 获取虚拟 IP 与路由配置 |
+| `GET` | `/api/v1/acl` | 查看 ACL |
+| `POST` | `/api/v1/keys` | 注册节点密钥 |
+| `GET` | `/api/v1/ipam/allocations` | 查看 IPAM 分配 |
+| `GET` | `/api/v1/audit` | 查询控制面审计 |
+
+## 本地开发
 
 ```bash
 git clone https://github.com/Lee-zg/NexTunnel.git
 cd NexTunnel
-```
 
-### 安装依赖
-
-```bash
 make install-deps
-```
-
-Windows PowerShell：
-
-```powershell
-.\make.ps1 install-deps
-```
-
-或手动安装：
-
-```bash
-# Go 依赖
-cd desktop && go mod tidy && cd ..
-cd server  && go mod tidy && cd ..
-cd pkg     && go mod tidy && cd ..
-
-# 前端依赖
-cd desktop/frontend && npm install && cd ../..
-```
-
-### 开发模式
-
-启动 Wails 开发服务器（支持前端热更新）：
-
-```bash
 make dev
 ```
 
 Windows PowerShell：
 
 ```powershell
+.\make.ps1 install-deps
 .\make.ps1 dev
 ```
 
-> 如需在 Windows 中继续使用裸命令 `make dev`，需要先安装 GNU Make 并确认 `make.exe` 已加入 `PATH`。
+常用命令：
 
-### 构建桌面应用
+| 功能 | GNU Make | Windows PowerShell |
+| --- | --- | --- |
+| 查看帮助 | `make help` | `.\make.ps1 help` |
+| Go 测试 | `make test-go` | `.\make.ps1 test-go` |
+| 桌面构建 | `make build` | `.\make.ps1 build` |
+| 服务端构建 | `make build-server` | `.\make.ps1 build-server` |
+| CLI 打包 | `make package-cli VERSION=v0.6.0-beta` | `.\scripts\package-cli.ps1 -Version v0.6.0-beta` |
+| 服务端打包 | `make package-server VERSION=v0.6.0-beta` | `.\scripts\package-server.ps1 -Version v0.6.0-beta` |
+| 文档构建 | `cd docs && npm run docs:build` | `cd docs; npm run docs:build` |
 
-```bash
-make build
-```
+## 生产验证
 
-Windows PowerShell：
-
-```powershell
-.\make.ps1 build
-```
-
-构建产物位于 `desktop/build/bin/`。
-
-### 桌面安装包
-
-桌面端发布包提供 Windows NSIS 安装包、Windows zip 便携包和 macOS DMG：
-
-```bash
-make package-desktop VERSION=v0.6.0-beta
-make package-macos VERSION=v0.6.0-beta
-```
-
-Windows 安装器使用 Wails 官方 NSIS 流程和自定义暗色向导，支持安装位置、桌面快捷方式、完成后立即运行和 Wintun 组件选择。默认发布包会内置经过 SHA256 校验的官方 `wintun.dll`，安装时离线复制到 `NexTunnel.exe` 同目录；联网下载只作为兜底路径，也可以选择手动安装或暂时跳过。zip 便携包仍可通过 `NEXTUNNEL_WINTUN_DLL` 或 `-WintunDllPath` 放入官方 DLL，缺失时可在桌面端网络页使用“修复 Wintun”入口。
-
-macOS 使用 `.app + .dmg` 分发，DMG 内含 Applications 拖拽入口和权限说明。Beta 预发布默认未签名；发布脚本预留 Developer ID 签名与 notarization 环境变量，真实系统路由仍需要运行时管理员授权、授权 helper 或 LaunchDaemon 支持。
-
-### 构建服务端
-
-```bash
-make build-server
-```
-
-Windows PowerShell：
-
-```powershell
-.\make.ps1 build-server
-```
-
-生成四个二进制文件至 `build/` 目录：
-- `control-plane` — 控制面服务
-- `relay-server` — 中继服务
-- `nat-detector` — NAT 检测服务
-- `dashboard` — Web 管理控制台
-
-### 本地运行服务端
-
-```bash
-# Relay：非本地环境必须配置强随机 auth token；管理 API 仅供 Dashboard 内部访问
-cd server
-go run ./cmd/relay -bind 127.0.0.1 -control-port 7000 -quic-port 7443 \
-  -auth-token <strong-token> -admin-listen 127.0.0.1:7001 -admin-token <strong-admin-token>
-
-# Control Plane：生产环境应配置 Bearer Token，可启用 mTLS
-go run ./cmd/control-plane -listen 127.0.0.1:9090 -api-token <strong-token>
-
-# Dashboard：生产环境必须配置强 secret 和管理员密码，可启用 HTTPS
-go run ./cmd/dashboard -listen 127.0.0.1:8080 -secret-key <strong-secret> \
-  -admin-password <strong-password> -store-path ./data/dashboard.db -static-dir ./web/dist \
-  -relay-admin-url http://127.0.0.1:7001 -relay-admin-token <strong-admin-token>
-```
-
-### mTLS 双向认证（可选）
-
-Control Plane 和 Relay 均支持 mTLS 双向证书认证，作为 Bearer Token 的安全升级选项：
-
-```bash
-# 使用 pkg/tlsutil 工具生成 CA 和证书，然后配置服务端：
-go run ./cmd/control-plane -listen 0.0.0.0:9090 \
-  -tls-ca /path/to/ca.pem -tls-cert /path/to/server.pem -tls-key /path/to/server-key.pem
-
-go run ./cmd/relay -bind 0.0.0.0 -control-port 7000 \
-  -tls-ca /path/to/ca.pem -tls-cert /path/to/server.pem -tls-key /path/to/server-key.pem
-```
-
-### Dashboard HTTPS 与 RBAC
-
-Dashboard 支持 HTTPS 和基于角色的访问控制（admin/operator/viewer）：
-
-```bash
-go run ./cmd/dashboard -listen 0.0.0.0:8080 \
-  -secret-key <secret> -admin-password <password> \
-  -tls-cert /path/to/cert.pem -tls-key /path/to/key.pem \
-  -audit-log /var/log/nextunnel/audit.jsonl
-```
-
-**RBAC 权限矩阵**：
-
-| 资源 | admin | operator | viewer |
-|------|:-----:|:--------:|:------:|
-| 节点管理 | 读写删 | 读写删 | 只读 |
-| 客户端监控 | 查看/断开 | 查看/断开 | 只读 |
-| ACL 规则 | 读写删 | 读写删 | 只读 |
-| 告警 | 读写删 | 读写 | 只读 |
-| 告警规则 | 读写删 | 只读 | 只读 |
-| 用户管理 | 读写删 | — | — |
-| 审计日志 | 只读 | — | — |
-| 运行配置状态 | 只读 | 只读 | 只读 |
-
----
-
-## 部署
-
-### Docker Compose 部署服务端
-
-```bash
-docker-compose up -d
-```
-
-默认启动以下服务：
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| Relay Server | `7000` | 中继服务（控制端口） |
-| Dashboard | `8080` | Web 管理控制台 |
-| Control Plane | `9090` | 控制面 API |
-| NAT Detector | `3478/UDP` | NAT 类型检测（STUN） |
-
-如需自定义 NAT Detector 的 IP 地址，设置环境变量：
-
-```bash
-PRIMARY_IP=<主IP> ALT_IP=<备用IP> docker-compose up -d
-```
-
-### Docker 单独构建
-
-```bash
-cd server
-docker build -t nextunnel-server .
-```
-
-### 生产验证
-
-Beta 发布前建议按 [生产验证手册](docs/deploy/production-verification.md) 执行 Dashboard、TUN、Windows/macOS P2P、eBPF 和多地域 Edge 演练：
+验证脚本会生成 JSON 报告到 `dist/verification/`。真实 TUN、eBPF 和路由验证会修改系统网络状态，只能在授权的实机或隔离节点执行。
 
 ```bash
 make verify-edge
 make verify-tun
-make verify-p2p-tun MAC_HOST=10.160.166.44 MAC_USER=lizhigang
+make verify-p2p-tun MAC_HOST=mac.example.com MAC_USER=<ssh-user>
 DASHBOARD_URL=https://dashboard.example.com DASHBOARD_PASSWORD=<password> make verify-dashboard
-DASHBOARD_HOST=47.116.218.140 DASHBOARD_USER=root DASHBOARD_IDENTITY=~/.ssh/id_ed25519 DASHBOARD_REMOTE_PORT=8080 make verify-dashboard-ssh
+DASHBOARD_HOST=server.example.com DASHBOARD_USER=root DASHBOARD_IDENTITY=~/.ssh/id_ed25519 make verify-dashboard-ssh
 sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
 ```
 
-验证报告默认输出到 `dist/verification/`。eBPF、真实 TUN 和 Windows/macOS P2P 验证会修改本机网络状态，只应在授权的实机或隔离节点执行。没有可用 HTTPS 域名时，用 `verify-dashboard-ssh` 通过 SSH 隧道验证 Dashboard，避免管理员密码经过公网 HTTP。
+详见 [生产验证手册](docs/deploy/production-verification.md)。
 
----
+## FAQ
 
-## 常用命令
+### 为什么 `netsh interface ipv4 set subinterface nextunnel0 mtu=1420` 报“文件名、目录名或卷标语法不正确”？
 
-| 功能 | GNU Make | Windows PowerShell |
-|------|----------|--------------------|
-| 查看所有可用命令 | `make help` | `.\make.ps1 help` |
-| 启动桌面开发服务器 | `make dev` | `.\make.ps1 dev` |
-| 启动服务端管理 Web 控制台 | `make dev-server-web` | `.\make.ps1 dev-server-web` |
-| 构建桌面应用 | `make build` | `.\make.ps1 build` |
-| 构建服务端二进制 | `make build-server` | `.\make.ps1 build-server` |
-| 运行所有测试（Go + 前端） | `make test` | `.\make.ps1 test` |
-| 运行 Go 测试 | `make test-go` | `.\make.ps1 test-go` |
-| 运行前端测试 | `make test-frontend` | `.\make.ps1 test-frontend` |
-| 代码检查（Go + 前端） | `make lint` | `.\make.ps1 lint` |
-| 清理构建产物 | `make clean` | `.\make.ps1 clean` |
-| 安装所有依赖 | `make install-deps` | `.\make.ps1 install-deps` |
+Windows 的 `netsh` 在目标接口不存在或接口名未被识别时可能返回该错误。请确认：
 
----
+- 安装了匹配架构的官方 `wintun.dll`。
+- 以管理员身份启动桌面端，允许创建 `nextunnel0` 适配器。
+- Control Plane 下发的 `virtual-interface` 与本机适配器名称一致。
+- 网络页 Wintun 状态为就绪后再执行“应用路由”。
 
-## 贡献指南
+### Dashboard 可以直接暴露 HTTP 吗？
 
-欢迎贡献！请遵循以下流程：
+不建议。生产环境应使用 HTTPS 反向代理，配置强 `DASHBOARD_SECRET_KEY`、管理员密码和 CORS 白名单。没有域名证书时，使用 `verify-dashboard-ssh` 通过 SSH 隧道验证，不要把管理员密码发送到公网 HTTP。
 
-1. Fork 本仓库
-2. 创建功能分支：`git checkout -b feature/your-feature`
-3. 提交代码前运行测试：`make test` 或 `.\make.ps1 test`
-4. 确保代码检查通过：`make lint` 或 `.\make.ps1 lint`
-5. 提交 Pull Request
+### 国内服务器下载 GitHub Release 很慢怎么办？
 
----
+优先把 Release 资产同步到 COS/CDN，然后使用：
+
+```bash
+sudo ./install.sh install \
+  --release-base-url https://cos.example.com/nextunnel/v0.6.0-beta \
+  --sha256 <sha256>
+```
+
+也可以手动上传包并使用 `--package-url /tmp/nextunnel-server-linux-amd64.tar.gz`。
+
+### macOS 系统 TUN 当前是什么状态？
+
+v0.6.0-beta 中 macOS P2P/Relay 能力可用，系统路由 TUN 仍需要 root/sudo、授权 helper 或 LaunchDaemon。没有这些外部条件时，不应把 macOS 系统 TUN 宣称为生产可用。
+
+更多问题见 [FAQ](docs/faq.md)。
 
 ## 许可证
 
-本项目开源，具体许可证信息请参阅 [LICENSE](LICENSE) 文件。
+本项目开源发布，许可证信息以仓库中的 `LICENSE` 文件为准。

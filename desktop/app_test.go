@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/nextunnel/desktop/internal/config"
+	"github.com/nextunnel/desktop/internal/p2p"
+	"github.com/nextunnel/desktop/internal/virtualnet"
 )
 
 func newTestApp(t *testing.T) *App {
@@ -273,6 +276,117 @@ func TestFetchVirtualNetworkConfigWithRegistrationRetriesMissingAllocation(t *te
 	}
 	if registerCount != 2 || routeCount != 2 {
 		t.Fatalf("registerCount=%d routeCount=%d, want 2/2", registerCount, routeCount)
+	}
+}
+
+func TestEnsureVirtualNetworkDeviceForWindowsCreatesAndReusesTUN(t *testing.T) {
+	app := newTestApp(t)
+	cfg := testVirtualNetworkConfig()
+
+	createdDevices := []*fakeVirtualNetworkTUN{}
+	capturedConfigs := []p2p.TUNConfig{}
+	originalCreateVirtualNetworkTUNDevice := createVirtualNetworkTUNDevice
+	originalCheckVirtualNetworkInterfaceName := checkVirtualNetworkInterfaceName
+	createVirtualNetworkTUNDevice = func(cfg p2p.TUNConfig) (p2p.TUNDevice, error) {
+		capturedConfigs = append(capturedConfigs, cfg)
+		device := &fakeVirtualNetworkTUN{name: cfg.Name, mtu: cfg.MTU, localIP: cfg.LocalIP, peerIP: cfg.PeerIP}
+		createdDevices = append(createdDevices, device)
+		return device, nil
+	}
+	checkVirtualNetworkInterfaceName = func(string) (bool, error) {
+		return false, nil
+	}
+	t.Cleanup(func() {
+		createVirtualNetworkTUNDevice = originalCreateVirtualNetworkTUNDevice
+		checkVirtualNetworkInterfaceName = originalCheckVirtualNetworkInterfaceName
+	})
+
+	if err := app.ensureVirtualNetworkDeviceForPlatform("windows", cfg); err != nil {
+		t.Fatalf("ensureVirtualNetworkDeviceForPlatform: %v", err)
+	}
+	if len(capturedConfigs) != 1 {
+		t.Fatalf("expected one TUN create, got %d", len(capturedConfigs))
+	}
+	captured := capturedConfigs[0]
+	if captured.Name != "nextunnel0" || captured.MTU != 1420 || !captured.LocalIP.Equal(net.ParseIP("10.7.0.2")) || !captured.PeerIP.Equal(net.ParseIP("10.7.0.1")) {
+		t.Fatalf("unexpected TUN config: %+v", captured)
+	}
+	if captured.Subnet == nil || captured.Subnet.String() != "10.7.0.0/24" {
+		t.Fatalf("unexpected TUN subnet: %+v", captured.Subnet)
+	}
+
+	if err := app.ensureVirtualNetworkDeviceForPlatform("windows", cfg); err != nil {
+		t.Fatalf("ensureVirtualNetworkDeviceForPlatform reuse: %v", err)
+	}
+	if len(capturedConfigs) != 1 {
+		t.Fatalf("existing TUN should be reused, got %d creates", len(capturedConfigs))
+	}
+
+	app.closeVirtualNetworkDevice()
+	if len(createdDevices) != 1 || !createdDevices[0].closed {
+		t.Fatalf("expected TUN device to be closed, got %+v", createdDevices)
+	}
+}
+
+func TestEnsureVirtualNetworkDeviceForWindowsReportsCreateFailure(t *testing.T) {
+	app := newTestApp(t)
+	originalCreateVirtualNetworkTUNDevice := createVirtualNetworkTUNDevice
+	originalCheckVirtualNetworkInterfaceName := checkVirtualNetworkInterfaceName
+	createVirtualNetworkTUNDevice = func(p2p.TUNConfig) (p2p.TUNDevice, error) {
+		return nil, errors.New("access denied")
+	}
+	checkVirtualNetworkInterfaceName = func(string) (bool, error) {
+		return false, nil
+	}
+	t.Cleanup(func() {
+		createVirtualNetworkTUNDevice = originalCreateVirtualNetworkTUNDevice
+		checkVirtualNetworkInterfaceName = originalCheckVirtualNetworkInterfaceName
+	})
+
+	err := app.ensureVirtualNetworkDeviceForPlatform("windows", testVirtualNetworkConfig())
+	if err == nil {
+		t.Fatal("expected TUN create failure")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "创建 Windows TUN 适配器") || !strings.Contains(message, "wintun.dll") || !strings.Contains(message, "管理员") {
+		t.Fatalf("missing actionable TUN remediation: %s", message)
+	}
+	if app.virtualNetworkTUN != nil {
+		t.Fatal("failed TUN create must not keep a device")
+	}
+}
+
+func TestEnsureVirtualNetworkDeviceForWindowsReusesExistingInterface(t *testing.T) {
+	app := newTestApp(t)
+	originalCreateVirtualNetworkTUNDevice := createVirtualNetworkTUNDevice
+	originalCheckVirtualNetworkInterfaceName := checkVirtualNetworkInterfaceName
+	createVirtualNetworkTUNDevice = func(p2p.TUNConfig) (p2p.TUNDevice, error) {
+		t.Fatal("existing Windows interface must not create a new TUN device")
+		return nil, nil
+	}
+	checkVirtualNetworkInterfaceName = func(name string) (bool, error) {
+		return name == "nextunnel0", nil
+	}
+	t.Cleanup(func() {
+		createVirtualNetworkTUNDevice = originalCreateVirtualNetworkTUNDevice
+		checkVirtualNetworkInterfaceName = originalCheckVirtualNetworkInterfaceName
+	})
+
+	if err := app.ensureVirtualNetworkDeviceForPlatform("windows", testVirtualNetworkConfig()); err != nil {
+		t.Fatalf("ensureVirtualNetworkDeviceForPlatform: %v", err)
+	}
+}
+
+func TestTunConfigFromVirtualNetworkConfigAllowsEmptyGateway(t *testing.T) {
+	cfg := testVirtualNetworkConfig()
+	cfg.Gateway = ""
+
+	tunConfig, err := tunConfigFromVirtualNetworkConfig(cfg)
+	if err != nil {
+		t.Fatalf("tunConfigFromVirtualNetworkConfig: %v", err)
+	}
+	if tunConfig.PeerIP != nil {
+		t.Fatalf("empty gateway should keep nil peer IP, got %s", tunConfig.PeerIP)
 	}
 }
 
@@ -681,4 +795,60 @@ func containsActivityAction(logs []ActivityLogInfo, action string) bool {
 		}
 	}
 	return false
+}
+
+func testVirtualNetworkConfig() virtualnet.Config {
+	return virtualnet.Config{
+		NodeID:    "desktop-node-1",
+		VirtualIP: "10.7.0.2",
+		Subnet:    "10.7.0.0/24",
+		Gateway:   "10.7.0.1",
+		Interface: "nextunnel0",
+		MTU:       1420,
+		Routes: []virtualnet.Route{
+			{
+				Destination: "10.7.0.0/24",
+				Gateway:     "10.7.0.1",
+				Interface:   "nextunnel0",
+				Metric:      100,
+			},
+		},
+	}
+}
+
+type fakeVirtualNetworkTUN struct {
+	name    string
+	mtu     int
+	localIP net.IP
+	peerIP  net.IP
+	closed  bool
+}
+
+func (d *fakeVirtualNetworkTUN) ReadPacket([]byte) (int, error) {
+	return 0, errors.New("fake TUN does not read packets")
+}
+
+func (d *fakeVirtualNetworkTUN) WritePacket(packet []byte) (int, error) {
+	return len(packet), nil
+}
+
+func (d *fakeVirtualNetworkTUN) Close() error {
+	d.closed = true
+	return nil
+}
+
+func (d *fakeVirtualNetworkTUN) MTU() (int, error) {
+	return d.mtu, nil
+}
+
+func (d *fakeVirtualNetworkTUN) Name() (string, error) {
+	return d.name, nil
+}
+
+func (d *fakeVirtualNetworkTUN) LocalAddr() net.IP {
+	return d.localIP
+}
+
+func (d *fakeVirtualNetworkTUN) PeerAddr() net.IP {
+	return d.peerIP
 }

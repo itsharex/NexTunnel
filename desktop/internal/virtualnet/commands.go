@@ -44,31 +44,33 @@ func buildResetCommands(goos string, state State) ([]systemCommand, error) {
 }
 
 func buildWindowsApplyCommands(cfg Config) []systemCommand {
+	interfaceArg := windowsNetshInterfaceArg(cfg.Interface)
 	commands := []systemCommand{
 		{
 			name: "netsh",
-			args: []string{"interface", "ipv4", "set", "subinterface", cfg.Interface, fmt.Sprintf("mtu=%d", cfg.MTU), "store=active"},
+			args: []string{"interface", "ipv4", "set", "subinterface", interfaceArg, fmt.Sprintf("mtu=%d", cfg.MTU), "store=active"},
 		},
 		{
 			name: "netsh",
-			args: []string{"interface", "ip", "set", "address", fmt.Sprintf("name=%s", cfg.Interface), "static", cfg.VirtualIP, maskFromCIDR(cfg.Subnet)},
+			args: []string{"interface", "ip", "set", "address", windowsNetshNameArg(cfg.Interface), "static", cfg.VirtualIP, maskFromCIDR(cfg.Subnet)},
 		},
 	}
 	for _, route := range cfg.Routes {
 		commands = append(commands, systemCommand{
 			name: "netsh",
-			args: []string{"interface", "ipv4", "add", "route", fmt.Sprintf("prefix=%s", route.Destination), fmt.Sprintf("interface=%s", cfg.Interface), fmt.Sprintf("nexthop=%s", route.Gateway), fmt.Sprintf("metric=%d", route.Metric), "store=active"},
+			args: []string{"interface", "ipv4", "add", "route", fmt.Sprintf("prefix=%s", route.Destination), interfaceArg, fmt.Sprintf("nexthop=%s", route.Gateway), fmt.Sprintf("metric=%d", route.Metric), "store=active"},
 		})
 	}
 	return commands
 }
 
 func buildWindowsResetCommands(state State) []systemCommand {
+	interfaceArg := windowsNetshInterfaceArg(state.Interface)
 	commands := make([]systemCommand, 0, len(state.Routes))
 	for _, route := range state.Routes {
 		commands = append(commands, systemCommand{
 			name: "netsh",
-			args: []string{"interface", "ipv4", "delete", "route", fmt.Sprintf("prefix=%s", route.Destination), fmt.Sprintf("interface=%s", state.Interface)},
+			args: []string{"interface", "ipv4", "delete", "route", fmt.Sprintf("prefix=%s", route.Destination), interfaceArg},
 		})
 	}
 	return commands
@@ -141,4 +143,12 @@ func maskFromCIDR(cidr string) string {
 	default:
 		return "255.255.255.0"
 	}
+}
+
+func windowsNetshInterfaceArg(interfaceName string) string {
+	return fmt.Sprintf("interface=%s", interfaceName)
+}
+
+func windowsNetshNameArg(interfaceName string) string {
+	return fmt.Sprintf("name=%s", interfaceName)
 }

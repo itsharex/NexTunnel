@@ -7,25 +7,35 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	windowsInterfaceCheckAttempts = 6
+	windowsInterfaceCheckDelay    = 250 * time.Millisecond
 )
 
 // Manager 负责将控制面虚拟网络配置应用到本机，并维护可展示状态。
 type Manager struct {
-	runner CommandRunner
-	logger *slog.Logger
-	mu     sync.Mutex
-	state  State
+	runner           CommandRunner
+	interfaceChecker NetworkInterfaceChecker
+	logger           *slog.Logger
+	mu               sync.Mutex
+	state            State
 }
 
 // NewManager 创建虚拟网络管理器，runner 为空时使用真实系统命令执行器。
 func NewManager(runner CommandRunner, logger *slog.Logger) *Manager {
+	var interfaceChecker NetworkInterfaceChecker
 	if runner == nil {
-		runner = ExecRunner{}
+		execRunner := ExecRunner{}
+		runner = execRunner
+		interfaceChecker = execRunner
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Manager{runner: runner, logger: logger}
+	return &Manager{runner: runner, interfaceChecker: interfaceChecker, logger: logger}
 }
 
 // State 返回当前虚拟网络状态副本。
@@ -42,6 +52,15 @@ func (m *Manager) Apply(cfg Config) (State, error) {
 
 	if err := validateConfig(cfg); err != nil {
 		m.state.LastError = err.Error()
+		return m.state, err
+	}
+
+	if err := m.ensureApplyPreconditions(runtime.GOOS, cfg); err != nil {
+		m.state = stateFromConfig(cfg)
+		m.state.Applied = false
+		m.state.LastError = err.Error()
+		m.state.LastCommands = nil
+		m.logger.Error("virtual network preflight failed", "interface", cfg.Interface, "error", err)
 		return m.state, err
 	}
 
@@ -105,6 +124,13 @@ func (m *Manager) Reset() (State, error) {
 	return m.state, nil
 }
 
+func (m *Manager) ensureApplyPreconditions(goos string, cfg Config) error {
+	if goos != "windows" || m.interfaceChecker == nil {
+		return nil
+	}
+	return ensureWindowsInterfaceAvailable(m.interfaceChecker, cfg.Interface, windowsInterfaceCheckAttempts, windowsInterfaceCheckDelay)
+}
+
 func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.NodeID) == "" {
 		return fmt.Errorf("node_id is required")
@@ -150,6 +176,26 @@ func validateConfig(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func ensureWindowsInterfaceAvailable(checker NetworkInterfaceChecker, interfaceName string, attempts int, delay time.Duration) error {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	normalizedInterfaceName := strings.TrimSpace(interfaceName)
+	for attempt := 1; attempt <= attempts; attempt++ {
+		exists, err := checker.InterfaceExists(normalizedInterfaceName)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+		if attempt < attempts && delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	return fmt.Errorf("未找到 Windows 网络接口 %q。请先确认 wintun.dll 已就绪，并以管理员身份启动 NexTunnel 创建 Wintun 适配器；如果适配器名称不同，请同步 Control Plane 下发的 virtual_interface 后再应用路由", normalizedInterfaceName)
 }
 
 func stateFromConfig(cfg Config) State {

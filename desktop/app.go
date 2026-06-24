@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -90,19 +91,25 @@ const (
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
 var AppVersion = "0.6.0-beta"
 
+var (
+	createVirtualNetworkTUNDevice    = p2p.CreateKernelTUN
+	checkVirtualNetworkInterfaceName = virtualnet.ExecRunner{}.InterfaceExists
+)
+
 // App is the main Wails application struct.
 type App struct {
-	ctx             context.Context
-	logger          *slog.Logger
-	manager         *tunnel.Manager
-	db              *config.DB
-	store           *config.Store
-	vnet            *virtualnet.Manager
-	controlServer   *http.Server
-	controlFilePath string
-	runMu           sync.Mutex
-	cancel          context.CancelFunc
-	lastErr         string
+	ctx               context.Context
+	logger            *slog.Logger
+	manager           *tunnel.Manager
+	db                *config.DB
+	store             *config.Store
+	vnet              *virtualnet.Manager
+	virtualNetworkTUN p2p.TUNDevice
+	controlServer     *http.Server
+	controlFilePath   string
+	runMu             sync.Mutex
+	cancel            context.CancelFunc
+	lastErr           string
 }
 
 // NewApp creates a new App application struct.
@@ -139,6 +146,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.manager != nil {
 		a.manager.Stop()
 	}
+	a.closeVirtualNetworkDevice()
 	if a.db != nil {
 		a.db.Close()
 	}
@@ -889,6 +897,10 @@ func (a *App) ApplyVirtualNetwork() (virtualnet.State, error) {
 		a.recordError(err)
 		return a.virtualNetworkState(), err
 	}
+	if err := a.ensureVirtualNetworkDevice(*cfg); err != nil {
+		a.recordError(err)
+		return a.virtualNetworkState(), err
+	}
 	state, err := a.vnet.Apply(*cfg)
 	if err != nil {
 		a.recordError(err)
@@ -922,6 +934,7 @@ func (a *App) ResetVirtualNetwork() (virtualnet.State, error) {
 		a.recordError(err)
 		return state, err
 	}
+	a.closeVirtualNetworkDevice()
 	a.clearError()
 	a.appendActivityLog(activityLog{
 		Level:      activityLogLevelInfo,
@@ -1579,6 +1592,98 @@ func (a *App) virtualNetworkState() virtualnet.State {
 		return virtualnet.State{}
 	}
 	return a.vnet.State()
+}
+
+func (a *App) ensureVirtualNetworkDevice(cfg virtualnet.Config) error {
+	return a.ensureVirtualNetworkDeviceForPlatform(runtime.GOOS, cfg)
+}
+
+// ensureVirtualNetworkDevice 在 Windows 应用路由前确保 Wintun 适配器已经存在。
+func (a *App) ensureVirtualNetworkDeviceForPlatform(goos string, cfg virtualnet.Config) error {
+	if goos != "windows" {
+		return nil
+	}
+	interfaceName := strings.TrimSpace(cfg.Interface)
+	if interfaceName == "" {
+		return fmt.Errorf("interface is required")
+	}
+
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
+	if a.virtualNetworkTUN != nil {
+		currentName, err := a.virtualNetworkTUN.Name()
+		if err == nil && strings.EqualFold(strings.TrimSpace(currentName), interfaceName) {
+			return nil
+		}
+		_ = a.virtualNetworkTUN.Close()
+		a.virtualNetworkTUN = nil
+	}
+
+	exists, err := checkVirtualNetworkInterfaceName(interfaceName)
+	if err != nil {
+		return fmt.Errorf("检查 Windows 网络接口 %q 失败：%w", interfaceName, err)
+	}
+	if exists {
+		return nil
+	}
+
+	tunConfig, err := tunConfigFromVirtualNetworkConfig(cfg)
+	if err != nil {
+		return err
+	}
+	device, err := createVirtualNetworkTUNDevice(tunConfig)
+	if err != nil {
+		return fmt.Errorf("创建 Windows TUN 适配器 %q 失败：%w。请确认 wintun.dll 已就绪，并以管理员身份运行 NexTunnel 后重新应用路由", interfaceName, err)
+	}
+	if device == nil {
+		return fmt.Errorf("创建 Windows TUN 适配器 %q 失败：系统返回空设备", interfaceName)
+	}
+	a.virtualNetworkTUN = device
+	return nil
+}
+
+// closeVirtualNetworkDevice 仅释放当前进程持有的 TUN 句柄，不主动删除系统适配器。
+func (a *App) closeVirtualNetworkDevice() {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.virtualNetworkTUN == nil {
+		return
+	}
+	_ = a.virtualNetworkTUN.Close()
+	a.virtualNetworkTUN = nil
+}
+
+// tunConfigFromVirtualNetworkConfig 将控制面配置转换为底层 TUN 创建参数。
+func tunConfigFromVirtualNetworkConfig(cfg virtualnet.Config) (p2p.TUNConfig, error) {
+	interfaceName := strings.TrimSpace(cfg.Interface)
+	virtualIP := net.ParseIP(strings.TrimSpace(cfg.VirtualIP))
+	if virtualIP == nil {
+		return p2p.TUNConfig{}, fmt.Errorf("virtual_ip is invalid: %s", cfg.VirtualIP)
+	}
+	var gatewayIP net.IP
+	normalizedGateway := strings.TrimSpace(cfg.Gateway)
+	if normalizedGateway != "" {
+		gatewayIP = net.ParseIP(normalizedGateway)
+		if gatewayIP == nil {
+			return p2p.TUNConfig{}, fmt.Errorf("gateway is invalid: %s", cfg.Gateway)
+		}
+	}
+	_, subnet, err := net.ParseCIDR(strings.TrimSpace(cfg.Subnet))
+	if err != nil {
+		return p2p.TUNConfig{}, fmt.Errorf("subnet is invalid: %w", err)
+	}
+	mtu := cfg.MTU
+	if mtu == 0 {
+		mtu = p2p.DefaultTUNConfig().MTU
+	}
+	return p2p.TUNConfig{
+		Name:    interfaceName,
+		MTU:     mtu,
+		LocalIP: virtualIP,
+		PeerIP:  gatewayIP,
+		Subnet:  subnet,
+	}, nil
 }
 
 type activityLog struct {

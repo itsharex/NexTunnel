@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 type recordingRunner struct {
@@ -21,6 +22,22 @@ func (r *recordingRunner) Run(name string, args ...string) error {
 		return fmt.Errorf("forced failure")
 	}
 	return nil
+}
+
+type fakeNetworkInterfaceChecker struct {
+	existsAfter int
+	err         error
+	calls       int
+	names       []string
+}
+
+func (c *fakeNetworkInterfaceChecker) InterfaceExists(name string) (bool, error) {
+	c.calls++
+	c.names = append(c.names, name)
+	if c.err != nil {
+		return false, c.err
+	}
+	return c.existsAfter > 0 && c.calls >= c.existsAfter, nil
 }
 
 func testConfig() Config {
@@ -173,11 +190,62 @@ func TestBuildWindowsApplyCommands(t *testing.T) {
 		got = append(got, command.String())
 	}
 	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "netsh interface ipv4 set subinterface interface=nextunnel0 mtu=1420 store=active") {
+		t.Fatalf("missing mtu command:\n%s", joined)
+	}
 	if !strings.Contains(joined, "netsh interface ip set address name=nextunnel0 static 10.7.0.2 255.255.255.0") {
 		t.Fatalf("missing address command:\n%s", joined)
 	}
 	if !strings.Contains(joined, "netsh interface ipv4 add route prefix=10.7.0.0/24 interface=nextunnel0 nexthop=10.7.0.1 metric=100 store=active") {
 		t.Fatalf("missing route command:\n%s", joined)
+	}
+}
+
+func TestBuildWindowsApplyCommandsPreservesInterfaceAliasAsSingleArg(t *testing.T) {
+	cfg := testConfig()
+	cfg.Interface = "NexTunnel Adapter"
+	cfg.Routes[0].Interface = cfg.Interface
+
+	commands, err := buildApplyCommands("windows", cfg)
+	if err != nil {
+		t.Fatalf("buildApplyCommands: %v", err)
+	}
+	if got := commands[0].args[4]; got != "interface=NexTunnel Adapter" {
+		t.Fatalf("mtu interface arg = %q", got)
+	}
+	if got := commands[1].args[4]; got != "name=NexTunnel Adapter" {
+		t.Fatalf("address interface arg = %q", got)
+	}
+	if got := commands[2].args[5]; got != "interface=NexTunnel Adapter" {
+		t.Fatalf("route interface arg = %q", got)
+	}
+}
+
+func TestEnsureWindowsInterfaceAvailableRetriesUntilInterfaceExists(t *testing.T) {
+	checker := &fakeNetworkInterfaceChecker{existsAfter: 3}
+
+	err := ensureWindowsInterfaceAvailable(checker, " nextunnel0 ", 4, 0)
+	if err != nil {
+		t.Fatalf("ensureWindowsInterfaceAvailable: %v", err)
+	}
+	if checker.calls != 3 {
+		t.Fatalf("calls = %d, want 3", checker.calls)
+	}
+	if checker.names[0] != "nextunnel0" {
+		t.Fatalf("interface name not normalized: %+v", checker.names)
+	}
+}
+
+func TestEnsureWindowsInterfaceAvailableReportsActionableMissingInterface(t *testing.T) {
+	checker := &fakeNetworkInterfaceChecker{}
+
+	err := ensureWindowsInterfaceAvailable(checker, "nextunnel0", 1, time.Millisecond)
+	if err == nil {
+		t.Fatal("expected missing interface error")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "未找到 Windows 网络接口") || !strings.Contains(message, "wintun.dll") || !strings.Contains(message, "管理员") {
+		t.Fatalf("missing actionable remediation: %s", message)
 	}
 }
 

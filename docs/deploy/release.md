@@ -1,6 +1,6 @@
 # 发布流程
 
-v0.6.0-beta 使用统一版本号发布桌面端安装器、CLI、服务端和文档。
+v0.6.0-beta 使用统一版本号发布桌面端安装器、CLI、服务端包、一键安装脚本、验证工具和 VitePress 文档站。
 
 ## 本地打包
 
@@ -11,19 +11,37 @@ make package-cli VERSION=v0.6.0-beta
 make package-server VERSION=v0.6.0-beta
 ```
 
-Windows 推荐发布 NSIS 安装包和 zip 便携包：
+Windows PowerShell：
 
 ```powershell
 .\scripts\package-desktop.ps1 -Version v0.6.0-beta -Installer nsis
+.\scripts\package-cli.ps1 -Version v0.6.0-beta
+.\scripts\package-server.ps1 -Version v0.6.0-beta
 ```
 
-NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 Wintun ZIP、校验 SHA256、抽取 `bin/amd64/wintun.dll`，再把 DLL 打进安装包。安装时优先离线复制内置 DLL 到 `NexTunnel.exe` 同目录，只有内置 DLL 缺失时才走联网下载兜底。当前官方 Wintun 0.14.1 ZIP SHA256 为：
+macOS DMG 只能在 macOS 本机或 macOS runner 构建：
+
+```bash
+bash scripts/package-macos.sh --version v0.6.0-beta
+```
+
+## Windows Wintun 打包
+
+NSIS 安装包默认使用 `-WintunMode bundled`：
+
+- 下载官方 Wintun 0.14.1 ZIP。
+- 校验 SHA256。
+- 抽取匹配架构 `wintun.dll`。
+- 打入安装包。
+- 安装时复制到 `NexTunnel.exe` 同目录。
+
+官方 ZIP SHA256：
 
 ```text
 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 ```
 
-可显式指定校验值和模式：
+显式指定：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
@@ -33,35 +51,22 @@ NSIS 安装包默认使用 `-WintunMode bundled`：发布脚本会下载官方 W
   -WintunSha256 "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 ```
 
-`-WintunDllPath` 可用于本地指定已经校验过的官方 DLL，优先级高于下载。zip 便携包仍支持把官方 DLL 随包放入应用目录；如果旧包或手动复制导致 DLL 缺失，桌面端网络页会显示 Wintun 状态，并提供“修复 Wintun”和“以管理员身份重启修复”入口：
+本地已校验 DLL：
 
 ```powershell
-$env:NEXTUNNEL_WINTUN_DLL="D:\path\to\wintun.dll"
-make package-desktop VERSION=v0.6.0-beta
+.\scripts\package-desktop.ps1 `
+  -Version v0.6.0-beta `
+  -Installer nsis `
+  -WintunDllPath "D:\path\to\wintun.dll"
 ```
 
-macOS DMG 只能在 macOS 本机或 macOS runner 构建：
-
-```bash
-bash scripts/package-macos.sh --version v0.6.0-beta
-```
-
-Beta 预发布默认生成未签名 DMG。配置 `MACOS_DEVELOPER_ID_APPLICATION` 后可加 `--sign`，配置 `MACOS_NOTARY_APPLE_ID`、`MACOS_NOTARY_TEAM_ID`、`MACOS_NOTARY_PASSWORD` 后可加 `--notarize`。
+zip 便携包缺少 DLL 时，桌面端网络页会显示 Wintun 状态，并提供修复入口。
 
 ## GitHub Release
 
-推送 `v0.6.0-beta` 标签会触发 `.github/workflows/release.yml`：
+推送 `v0.6.0-beta` 标签会触发 `.github/workflows/release.yml`。
 
-- Windows NSIS 安装包、Windows zip 便携包、manifest 和 SHA256。
-- macOS universal DMG、manifest 和 SHA256。
-- Linux/Windows CLI 包和 SHA256。
-- Linux/Windows 服务端包和 SHA256。
-- Linux `install.sh` 和 Windows `install.ps1` 一键安装脚本。
-- VitePress 文档站压缩包和 SHA256，并同步发布到 GitHub Pages。
-
-首次发布文档站前，需要在仓库 Pages 中启用 `GitHub Actions` 发布模式。当前站点地址为 `https://lee-zg.github.io/NexTunnel/`。
-
-## Release 资产清单
+发布资产：
 
 ```text
 nextunnel-v0.6.0-beta-windows-amd64-installer.exe
@@ -84,9 +89,28 @@ install.ps1
 *.sha256
 ```
 
-发布资源只上传最终压缩包、安装器、manifest、校验文件和一键安装脚本；不上传 unpacked 目录、构建缓存、旧版本 exe、日志或临时下载资源。
+不上传 unpacked 目录、构建缓存、旧版本 exe、日志或临时下载资源。
+
+## 文档站发布
+
+文档站使用 VitePress：
+
+```bash
+cd docs
+npm run docs:build
+```
+
+Release workflow 会打包 `nextunnel-docs-v0.6.0-beta.tar.gz`，并同步发布到 GitHub Pages。首次启用前需要在仓库 Pages 设置中选择 `GitHub Actions` 发布模式。
+
+站点地址：
+
+```text
+https://lee-zg.github.io/NexTunnel/
+```
 
 ## 发布前检查
+
+必跑：
 
 ```bash
 go test ./...
@@ -95,14 +119,46 @@ cd server/web && npm run build
 cd docs && npm run docs:build
 ```
 
-发布前还应按 `docs/deploy/production-verification.md` 更新生产验证状态。真实 TUN 验证需要 Windows 管理员权限和匹配架构 `wintun.dll`。安装 DLL 只解决“找不到 DLL”，首次创建或管理 Wintun adapter 仍需要管理员权限；macOS 需要授权 helper、LaunchDaemon 或可用的 `sudo -n`。Dashboard 若没有可用 HTTPS 域名，应使用 `scripts/verify-dashboard-ssh.ps1` 通过 SSH 隧道完成 API 验收，不能把管理员密码发送到公网 HTTP。
+Windows PowerShell 可使用：
 
-发布后需要确认：
+```powershell
+.\make.ps1 test-go
+cd desktop\frontend; npm run build; cd ..\..
+cd server\web; npm run build; cd ..\..
+cd docs; npm run docs:build; cd ..
+```
 
-- Release 页面存在所有安装器、压缩包和校验文件。
-- Windows 安装器可启动并显示自定义欢迎页、安装位置、桌面快捷方式、Wintun 检测、内置安装/下载兜底/手动/跳过路径和完成页立即运行选项。
-- Windows zip 包或旧安装缺少 DLL 时，网络页可显示 Wintun 路径、架构状态和修复入口。
-- macOS DMG 可挂载并包含 `NexTunnel.app`、Applications 链接、README 和 manifest。
-- `install.sh` 可以通过 `releases/download/v0.6.0-beta/install.sh` 下载。
-- `nextunnel-docs-v0.6.0-beta.tar.gz` 可下载，且校验文件匹配。
-- 文档站可访问并显示 `v0.6.0-beta` 更新日志。
+生产验证按 [生产验证手册](./production-verification.md) 执行：
+
+```bash
+make verify-edge
+make verify-tun
+make verify-p2p-tun MAC_HOST=mac.example.com MAC_USER=<ssh-user>
+DASHBOARD_URL=https://dashboard.example.com DASHBOARD_PASSWORD=<password> make verify-dashboard
+DASHBOARD_HOST=server.example.com DASHBOARD_USER=root DASHBOARD_IDENTITY=~/.ssh/id_ed25519 make verify-dashboard-ssh
+sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
+```
+
+真实 TUN、eBPF 和路由验证会修改系统网络状态，只能在授权实机或隔离节点执行。
+
+## 发布后检查
+
+- Release 页面存在所有安装器、压缩包、manifest 和 SHA256。
+- Windows 安装器可启动并显示安装位置、桌面快捷方式、Wintun 检测和完成页立即运行选项。
+- Windows zip 包缺少 DLL 时，网络页能显示 Wintun 状态和修复入口。
+- macOS DMG 可挂载，包含 `NexTunnel.app`、Applications 链接、README 和 manifest。
+- `install.sh` 和 `install.ps1` 可从 Release 下载。
+- Linux 一键安装后 `nextunnel server health` 通过。
+- Dashboard HTTPS 或 SSH 隧道验证通过。
+- 文档站可访问，导航显示 `v0.6.0-beta`。
+
+## 能力边界
+
+Release notes 必须明确：
+
+- 支持自部署 Relay、Control Plane、Dashboard。
+- 支持桌面端 TCP/HTTP 隧道和客户端监控。
+- Windows TUN 需要 Wintun 和管理员权限。
+- macOS 系统路由 TUN 若未配置授权 helper/LaunchDaemon，只标注预览限制。
+- Dashboard 生产 HTTPS 需要可用域名、证书和反向代理。
+- eBPF 压测需要隔离 Linux 节点或维护窗口。

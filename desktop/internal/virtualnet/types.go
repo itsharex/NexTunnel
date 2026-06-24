@@ -36,3 +36,8 @@ type State struct {
 type CommandRunner interface {
 	Run(name string, args ...string) error
 }
+
+// NetworkInterfaceChecker 在执行系统路由命令前确认目标网卡已经被操作系统识别。
+type NetworkInterfaceChecker interface {
+	InterfaceExists(name string) (bool, error)
+}
