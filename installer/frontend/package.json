@@ -2,6 +2,7 @@
   "name": "nextunnel-installer-frontend",
   "private": true,
   "version": "0.6.3-alpha",
+  "packageManager": "pnpm@11.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

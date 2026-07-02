@@ -40,6 +40,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: desktop/frontend/package-lock.json
 
+      - name: Enable pnpm for installer frontend
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.7.0 --activate
+
       - name: Install Wails CLI
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
@@ -52,6 +58,11 @@ jobs:
         working-directory: desktop/frontend
         shell: pwsh
         run: npm ci
+
+      - name: Install installer frontend dependencies
+        working-directory: installer/frontend
+        shell: pwsh
+        run: pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 
       - name: Package desktop installers
         shell: pwsh

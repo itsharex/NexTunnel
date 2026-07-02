@@ -244,15 +244,15 @@ function Invoke-FrontendBuild {
   Write-Host "构建 $Name 前端"
   $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
   $pnpmCommand = Get-Command pnpm -ErrorAction SilentlyContinue
+  $usesNpmLock = Test-Path (Join-Path $FrontendRoot "package-lock.json")
+  # 桌面前端仍以 package-lock.json 为准；只有纯 pnpm 项目才走 pnpm 锁文件。
+  $usesPnpmLock = (-not $usesNpmLock) -and (Test-Path (Join-Path $FrontendRoot "pnpm-lock.yaml"))
   Push-Location $FrontendRoot
   try {
-    if ($npmCommand) {
-      npm run build
-      Assert-NativeCommandSucceeded -Action "$Name 前端 npm build"
-      return
-    }
-
-    if ($pnpmCommand) {
+    if ($usesPnpmLock) {
+      if (-not $pnpmCommand) {
+        throw "$Name 前端使用 pnpm-lock.yaml，但当前环境未安装 pnpm。请先运行 corepack enable 并安装 pnpm。"
+      }
       $previousPath = $env:Path
       $previousCI = $env:CI
       $bundledNodeDirectory = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
@@ -264,7 +264,8 @@ function Invoke-FrontendBuild {
         $env:CI = "true"
       }
       try {
-        pnpm install --no-frozen-lockfile --config.confirmModulesPurge=false
+        # 安装器前端使用 pnpm 锁文件，发布构建必须按锁文件安装，避免 CI 缺依赖或依赖漂移。
+        pnpm install --frozen-lockfile --config.confirmModulesPurge=false
         Assert-NativeCommandSucceeded -Action "$Name 前端 pnpm install"
         pnpm run build
         Assert-NativeCommandSucceeded -Action "$Name 前端 pnpm build"
@@ -276,6 +277,12 @@ function Invoke-FrontendBuild {
           $env:CI = $previousCI
         }
       }
+      return
+    }
+
+    if ($npmCommand) {
+      npm run build
+      Assert-NativeCommandSucceeded -Action "$Name 前端 npm build"
       return
     }
   } finally {
