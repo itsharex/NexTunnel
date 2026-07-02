@@ -1,6 +1,7 @@
 # 依赖
 node_modules/
 vendor/
+.pnpm-store/
 
 # 构建输出
 dist/
@@ -55,6 +56,13 @@ desktop.db
 
 # 前端
 desktop/frontend/node_modules/
+installer/frontend/node_modules/
+!installer/frontend/dist/
+installer/frontend/dist/*
+!installer/frontend/dist/.gitkeep
+installer/frontend/wailsjs/go/
+installer/frontend/wailsjs/runtime/
+installer/payload/nextunnel-payload.zip
 
 # 环境变量
 .env

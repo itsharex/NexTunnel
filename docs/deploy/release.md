@@ -1,39 +1,39 @@
 # 发布流程
 
-v0.6.2-alpha 使用统一版本号发布桌面端安装器、CLI、服务端包、一键安装脚本、验证工具和 VitePress 文档站。
+v0.6.3-alpha 使用统一版本号发布桌面端安装器、CLI、服务端包、一键安装脚本、验证工具和 VitePress 文档站。
 
 ## 本地打包
 
 ```bash
-make package-desktop VERSION=v0.6.2-alpha
-make package-macos VERSION=v0.6.2-alpha
-make package-cli VERSION=v0.6.2-alpha
-make package-server VERSION=v0.6.2-alpha
+make package-desktop VERSION=v0.6.3-alpha
+make package-macos VERSION=v0.6.3-alpha
+make package-cli VERSION=v0.6.3-alpha
+make package-server VERSION=v0.6.3-alpha
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\scripts\package-desktop.ps1 -Version v0.6.2-alpha -Installer nsis
-.\scripts\package-cli.ps1 -Version v0.6.2-alpha
-.\scripts\package-server.ps1 -Version v0.6.2-alpha
+.\scripts\package-desktop.ps1 -Version v0.6.3-alpha -WintunMode bundled
+.\scripts\package-cli.ps1 -Version v0.6.3-alpha
+.\scripts\package-server.ps1 -Version v0.6.3-alpha
 ```
 
 macOS DMG 只能在 macOS 本机或 macOS runner 构建：
 
 ```bash
-bash scripts/package-macos.sh --version v0.6.2-alpha
+bash scripts/package-macos.sh --version v0.6.3-alpha
 ```
 
 ## Windows Wintun 打包
 
-NSIS 安装包默认使用 `-WintunMode bundled`：
+Windows 自定义 Wails 安装器默认使用 `-WintunMode bundled`：
 
 - 下载官方 Wintun 0.14.1 ZIP。
 - 校验 SHA256。
 - 抽取匹配架构 `wintun.dll`。
-- 打入安装包。
-- 安装时复制到 `NexTunnel.exe` 同目录。
+- 打入安装器内置 payload。
+- 安装时离线解压到 `NexTunnel.exe` 同目录。
 
 官方 ZIP SHA256：
 
@@ -45,8 +45,7 @@ NSIS 安装包默认使用 `-WintunMode bundled`：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
-  -Version v0.6.2-alpha `
-  -Installer nsis `
+  -Version v0.6.3-alpha `
   -WintunMode bundled `
   -WintunSha256 "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 ```
@@ -55,8 +54,7 @@ NSIS 安装包默认使用 `-WintunMode bundled`：
 
 ```powershell
 .\scripts\package-desktop.ps1 `
-  -Version v0.6.2-alpha `
-  -Installer nsis `
+  -Version v0.6.3-alpha `
   -WintunDllPath "D:\path\to\wintun.dll"
 ```
 
@@ -64,26 +62,26 @@ zip 便携包缺少 DLL 时，桌面端网络页会显示 Wintun 状态，并提
 
 ## GitHub Release
 
-推送 `v0.6.2-alpha` 标签会触发 `.github/workflows/release.yml`。
+推送 `v0.6.3-alpha` 标签会触发 `.github/workflows/release.yml`。
 
 发布资产：
 
 ```text
-nextunnel-v0.6.2-alpha-windows-amd64-installer.exe
-nextunnel-v0.6.2-alpha-windows-amd64-installer.exe.sha256
-nextunnel-v0.6.2-alpha-windows-amd64-installer.MANIFEST.txt
-nextunnel-v0.6.2-alpha-windows-amd64.zip
-nextunnel-v0.6.2-alpha-windows-amd64.zip.sha256
-nextunnel-v0.6.2-alpha-darwin-universal.dmg
-nextunnel-v0.6.2-alpha-darwin-universal.dmg.sha256
-nextunnel-v0.6.2-alpha-darwin-universal.MANIFEST.txt
-nextunnel-cli-v0.6.2-alpha-linux-amd64.tar.gz
-nextunnel-cli-v0.6.2-alpha-linux-arm64.tar.gz
-nextunnel-cli-v0.6.2-alpha-windows-amd64.zip
+nextunnel-v0.6.3-alpha-windows-amd64-installer.exe
+nextunnel-v0.6.3-alpha-windows-amd64-installer.exe.sha256
+nextunnel-v0.6.3-alpha-windows-amd64-installer.MANIFEST.txt
+nextunnel-v0.6.3-alpha-windows-amd64.zip
+nextunnel-v0.6.3-alpha-windows-amd64.zip.sha256
+nextunnel-v0.6.3-alpha-darwin-universal.dmg
+nextunnel-v0.6.3-alpha-darwin-universal.dmg.sha256
+nextunnel-v0.6.3-alpha-darwin-universal.MANIFEST.txt
+nextunnel-cli-v0.6.3-alpha-linux-amd64.tar.gz
+nextunnel-cli-v0.6.3-alpha-linux-arm64.tar.gz
+nextunnel-cli-v0.6.3-alpha-windows-amd64.zip
 nextunnel-server-linux-amd64.tar.gz
 nextunnel-server-linux-arm64.tar.gz
 nextunnel-server-windows-amd64.zip
-nextunnel-docs-v0.6.2-alpha.tar.gz
+nextunnel-docs-v0.6.3-alpha.tar.gz
 install.sh
 install.ps1
 *.sha256
@@ -100,7 +98,7 @@ cd docs
 npm run docs:build
 ```
 
-Release workflow 会打包 `nextunnel-docs-v0.6.2-alpha.tar.gz`，并同步发布到 GitHub Pages。首次启用前需要在仓库 Pages 设置中选择 `GitHub Actions` 发布模式。
+Release workflow 会打包 `nextunnel-docs-v0.6.3-alpha.tar.gz`，并同步发布到 GitHub Pages。首次启用前需要在仓库 Pages 设置中选择 `GitHub Actions` 发布模式。
 
 站点地址：
 
@@ -115,6 +113,7 @@ https://lee-zg.github.io/NexTunnel/
 ```bash
 go test ./...
 cd desktop/frontend && npm run build
+cd installer/frontend && npm run build
 cd server/web && npm run build
 cd docs && npm run docs:build
 ```
@@ -124,6 +123,7 @@ Windows PowerShell 可使用：
 ```powershell
 .\make.ps1 test-go
 cd desktop\frontend; npm run build; cd ..\..
+cd installer\frontend; npm run build; cd ..\..
 cd server\web; npm run build; cd ..\..
 cd docs; npm run docs:build; cd ..
 ```
@@ -144,13 +144,13 @@ sudo INTERFACE_NAME=eth0 make verify-ebpf-linux
 ## 发布后检查
 
 - Release 页面存在所有安装器、压缩包、manifest 和 SHA256。
-- Windows 安装器可启动并显示安装位置、桌面快捷方式、Wintun 检测和完成页立即运行选项。
+- Windows 自定义 Wails 安装器可提权启动，显示安装位置、桌面快捷方式、payload/WebView2/Wintun 状态和完成后立即运行选项。
 - Windows zip 包缺少 DLL 时，网络页能显示 Wintun 状态和修复入口。
 - macOS DMG 可挂载，包含 `NexTunnel.app`、Applications 链接、README 和 manifest。
 - `install.sh` 和 `install.ps1` 可从 Release 下载。
 - Linux 一键安装后 `nextunnel server health` 通过。
 - Dashboard HTTPS 或 SSH 隧道验证通过。
-- 文档站可访问，导航显示 `v0.6.2-alpha`。
+- 文档站可访问，导航显示 `v0.6.3-alpha`。
 
 ## 能力边界
 

@@ -152,10 +152,12 @@
               <SettingsView
                 v-else
                 key="settings"
+                :theme-mode="resolvedThemeMode"
               />
             </Transition>
           </main>
         </div>
+        <UpdatePrompt />
       </div>
     </n-message-provider>
   </n-config-provider>
@@ -183,11 +185,13 @@ import StatusView from './views/StatusView.vue'
 import NetworkView from './views/NetworkView.vue'
 import LogsView from './views/LogsView.vue'
 import SettingsView from './views/SettingsView.vue'
+import UpdatePrompt from './components/UpdatePrompt.vue'
 import { GetVersion } from './api/app'
 import { closeWindow, minimiseWindow, toggleMaximiseWindow } from './api/window'
 import { SUPPORTED_LOCALES, type SupportedLocale } from './i18n'
 import { useTunnelStore } from './stores/tunnel'
-import sidebarLogoImage from './assets/logo.png'
+import sidebarDarkLogoImage from './assets/logo.png'
+import sidebarLightLogoImage from './assets/logo-light.png'
 
 interface NavItem {
   key: AppView
@@ -198,6 +202,7 @@ interface NavItem {
 }
 
 type AppView = 'overview' | 'tunnels' | 'network' | 'logs' | 'settings'
+type ResolvedThemeMode = 'dark' | 'light'
 
 const { t, locale } = useI18n()
 const store = useTunnelStore()
@@ -211,12 +216,17 @@ const normalizedAccentColor = computed(() => {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#00ffff'
 })
 
-const resolvedThemeMode = computed(() => {
+const resolvedThemeMode = computed<ResolvedThemeMode>(() => {
   if (store.appearanceSettings.theme_mode === 'system') {
     return prefersDarkMode.value ? 'dark' : 'light'
   }
   return store.appearanceSettings.theme_mode === 'light' ? 'light' : 'dark'
 })
+
+// 侧边栏图标跟随最终解析主题，system 模式下也使用正确资源。
+const sidebarLogoImage = computed(() => (
+  resolvedThemeMode.value === 'light' ? sidebarLightLogoImage : sidebarDarkLogoImage
+))
 
 const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   common: {
@@ -344,6 +354,8 @@ watch(
 
 onMounted(async () => {
   bindSystemTheme()
+  // 后台检查更新不参与首屏初始化链路，失败只在设置页展示。
+  void store.checkForUpdate({ silent: true }).catch(() => undefined)
   await store.loadAppearanceSettings()
   await store.loadGeneralSettings()
   await store.loadServerSettings()
@@ -626,7 +638,7 @@ select {
   width: 68px;
   height: 68px;
   border-radius: 8px;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .sidebar-nav {
@@ -793,5 +805,25 @@ select {
   --text-dim: #34445c;
   --text-muted: #66758a;
   color: var(--text-main);
+}
+
+.app-shell.theme-light .titlebar {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 251, 0.92)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.app-shell.theme-light .sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(231, 239, 246, 0.92)),
+    var(--sidebar-bg);
+}
+
+.app-shell.theme-light .sidebar-logo {
+  border-color: color-mix(in srgb, var(--nex-cyan) 30%, rgba(36, 54, 77, 0.18));
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 12px 28px rgba(36, 54, 77, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 </style>

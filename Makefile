@@ -1,6 +1,6 @@
 .PHONY: all dev dev-server-web build package-cli package-server package-desktop package-macos lint test verify-edge verify-ebpf-linux verify-tun verify-p2p-tun verify-dashboard verify-dashboard-ssh clean help
 
-VERSION ?= v0.6.2-alpha
+VERSION ?= v0.6.3-alpha
 WINTUN_SHA256 ?= 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 MAC_HOST ?= 10.160.166.44
 MAC_USER ?= lizhigang
@@ -77,6 +77,7 @@ test: test-go test-frontend
 ## test-go: Run Go tests
 test-go:
 	cd desktop && go list ./... | grep -v '/frontend/node_modules/' | xargs go test
+	cd installer && go test ./...
 	cd server && go list ./... | grep -v '/web/node_modules/' | xargs go test
 	cd cli && go test ./...
 	cd pkg && go test ./...
@@ -84,6 +85,7 @@ test-go:
 ## test-frontend: Run frontend tests
 test-frontend:
 	cd desktop/frontend && npm run test
+	cd installer/frontend && npm run test
 	cd server/web && npm run test
 
 ## verify-dashboard: Run Dashboard production API verification; pass DASHBOARD_URL, DASHBOARD_PASSWORD, optional DASHBOARD_ORIGIN
@@ -114,13 +116,19 @@ verify-ebpf-linux:
 clean:
 	rm -rf desktop/build/bin/
 	rm -rf desktop/frontend/dist/
+	rm -rf installer/build/bin/
+	rm -rf installer/frontend/dist/
+	mkdir -p installer/frontend/dist/
+	touch installer/frontend/dist/.gitkeep
 	rm -rf server/web/dist/
 	rm -rf build/
 
 ## install-deps: Install all dependencies
 install-deps:
 	cd desktop && go mod tidy
+	cd installer && go mod tidy
 	cd server && go mod tidy
 	cd pkg && go mod tidy
 	cd desktop/frontend && npm install
+	cd installer/frontend && npm install
 	cd server/web && npm install

@@ -89,7 +89,7 @@ const (
 )
 
 // AppVersion 通过发布脚本的 -ldflags 注入；默认值用于本地开发和测试。
-var AppVersion = "0.6.2-alpha"
+var AppVersion = "0.6.3-alpha"
 
 var (
 	createVirtualNetworkTUNDevice    = p2p.CreateKernelTUN

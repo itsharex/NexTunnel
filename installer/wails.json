@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "NexTunnelInstaller",
+  "outputfilename": "NexTunnelInstaller",
+  "productName": "NexTunnel Installer",
+  "productVersion": "0.6.3",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "NexTunnel Contributors",
+    "email": "nextunnel@example.com"
+  },
+  "info": {
+    "companyName": "NexTunnel Contributors",
+    "productName": "NexTunnel Installer",
+    "productVersion": "0.6.3",
+    "copyright": "Copyright 2026 NexTunnel Contributors",
+    "comments": "NexTunnel Windows installer"
+  }
+}

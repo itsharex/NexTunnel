@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v0.6.2-alpha",
+  [string]$Version = "v0.6.3-alpha",
   [switch]$SkipWeb
 )
 

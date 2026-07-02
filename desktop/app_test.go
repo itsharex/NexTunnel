@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -176,6 +178,174 @@ func TestCheckServerNodeReportsRelayError(t *testing.T) {
 	}
 	if result.Relay.Status != statusError || result.OverallStatus != statusError || len(result.Actions) == 0 {
 		t.Fatalf("expected relay error with actions, got %+v", result)
+	}
+}
+
+func TestCheckForUpdateUsesReleaseAssetAndSemver(t *testing.T) {
+	app := newTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(githubReleaseResponse{
+			TagName: "v0.7.0",
+			HTMLURL: "https://github.com/Lee-zg/NexTunnel/releases/tag/v0.7.0",
+			Body:    "更新说明",
+			Assets: []githubReleaseAsset{
+				{Name: "nextunnel-v0.7.0-windows-amd64.zip", BrowserDownloadURL: "https://github.com/Lee-zg/NexTunnel/releases/download/v0.7.0/zip"},
+				{Name: "nextunnel-v0.7.0-windows-amd64-installer.exe", BrowserDownloadURL: "https://github.com/Lee-zg/NexTunnel/releases/download/v0.7.0/installer.exe"},
+			},
+		})
+	}))
+	defer server.Close()
+	withUpdateCheckServer(t, server)
+
+	originalVersion := AppVersion
+	AppVersion = "0.6.3-alpha"
+	t.Cleanup(func() { AppVersion = originalVersion })
+
+	info, err := app.CheckForUpdate()
+	if err != nil {
+		t.Fatalf("CheckForUpdate: %v", err)
+	}
+	if !info.Available || info.LatestVersion != "v0.7.0" || !strings.HasSuffix(info.URL, "/installer.exe") {
+		t.Fatalf("unexpected update info: %+v", info)
+	}
+	logs := mustListActivityLogs(t, app, ActivityLogFilter{Category: activityLogCategoryOperation, Limit: 10})
+	if !containsActivityAction(logs, activityActionUpdate) {
+		t.Fatalf("expected update activity log, got %+v", logs)
+	}
+}
+
+func TestUpdateInfoFromReleaseDoesNotPromptForSameOldOrInvalidVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		latest  string
+	}{
+		{name: "same", current: "0.6.3-alpha", latest: "v0.6.3-alpha"},
+		{name: "old", current: "0.6.3", latest: "v0.6.1"},
+		{name: "invalid latest", current: "0.6.3", latest: "nightly"},
+		{name: "invalid current", current: "dev", latest: "v0.7.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := updateInfoFromRelease(tt.current, githubReleaseResponse{TagName: tt.latest})
+			if info.Available {
+				t.Fatalf("expected no update prompt, got %+v", info)
+			}
+		})
+	}
+}
+
+func TestCheckForUpdateReturnsStructuredErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{
+			name: "http status",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			},
+			want: "HTTP 503",
+		},
+		{
+			name: "invalid json",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{`))
+			},
+			want: "unexpected EOF",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := newTestApp(t)
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+			withUpdateCheckServer(t, server)
+
+			info, err := app.CheckForUpdate()
+			if err != nil {
+				t.Fatalf("CheckForUpdate should not fail main flow: %v", err)
+			}
+			if !strings.Contains(info.Error, tt.want) {
+				t.Fatalf("error = %q, want contains %q", info.Error, tt.want)
+			}
+			logs := mustListActivityLogs(t, app, ActivityLogFilter{Level: activityLogLevelWarn, Limit: 10})
+			if len(logs) == 0 || logs[0].Action != activityActionUpdate {
+				t.Fatalf("expected warning update log, got %+v", logs)
+			}
+		})
+	}
+}
+
+func TestInstallUpdateRejectsInvalidURL(t *testing.T) {
+	app := newTestApp(t)
+	withRuntimeGOOS(t, "windows")
+
+	info, err := app.InstallUpdate("http://github.com/Lee-zg/NexTunnel/releases/download/v0.7.0/installer.exe")
+	if err != nil {
+		t.Fatalf("InstallUpdate should return structured errors: %v", err)
+	}
+	if info.Error == "" || !strings.Contains(info.Error, "HTTPS") {
+		t.Fatalf("expected HTTPS validation error, got %+v", info)
+	}
+}
+
+func TestInstallUpdateRejectsMissingChecksum(t *testing.T) {
+	app := newTestApp(t)
+	server := newUpdateDownloadServer(t, []byte("installer"), "", http.StatusNotFound)
+	defer server.Close()
+	withUpdateDownloadServer(t, server)
+	withRuntimeGOOS(t, "windows")
+
+	info, err := app.InstallUpdate(server.URL + "/nextunnel-v0.7.0-windows-amd64-installer.exe")
+	if err != nil {
+		t.Fatalf("InstallUpdate should return structured errors: %v", err)
+	}
+	if info.Error == "" || !strings.Contains(info.Error, "校验文件") {
+		t.Fatalf("expected checksum error, got %+v", info)
+	}
+}
+
+func TestInstallUpdateRejectsChecksumMismatch(t *testing.T) {
+	app := newTestApp(t)
+	server := newUpdateDownloadServer(t, []byte("installer"), strings.Repeat("0", sha256.Size*2), http.StatusOK)
+	defer server.Close()
+	withUpdateDownloadServer(t, server)
+	withRuntimeGOOS(t, "windows")
+
+	info, err := app.InstallUpdate(server.URL + "/nextunnel-v0.7.0-windows-amd64-installer.exe")
+	if err != nil {
+		t.Fatalf("InstallUpdate should return structured errors: %v", err)
+	}
+	if info.Error == "" || !strings.Contains(info.Error, "SHA256 校验失败") {
+		t.Fatalf("expected checksum mismatch, got %+v", info)
+	}
+}
+
+func TestInstallUpdateStartsVerifiedInstaller(t *testing.T) {
+	app := newTestApp(t)
+	payload := []byte("installer")
+	hash := sha256.Sum256(payload)
+	server := newUpdateDownloadServer(t, payload, fmt.Sprintf("%x", hash), http.StatusOK)
+	defer server.Close()
+	withUpdateDownloadServer(t, server)
+	withRuntimeGOOS(t, "windows")
+
+	startedPath := ""
+	originalStarter := updateInstallerStarter
+	updateInstallerStarter = func(path string) error {
+		startedPath = path
+		return nil
+	}
+	t.Cleanup(func() { updateInstallerStarter = originalStarter })
+
+	info, err := app.InstallUpdate(server.URL + "/nextunnel-v0.7.0-windows-amd64-installer.exe")
+	if err != nil {
+		t.Fatalf("InstallUpdate: %v", err)
+	}
+	if !info.Started || info.Error != "" || startedPath == "" || info.FilePath != startedPath {
+		t.Fatalf("unexpected install info: %+v startedPath=%q", info, startedPath)
 	}
 }
 
@@ -779,6 +949,24 @@ func TestCollectDiagnosticsMasksTokenWords(t *testing.T) {
 	}
 }
 
+func TestSanitizeDiagnosticsTextMasksSensitiveValues(t *testing.T) {
+	input := strings.Join([]string{
+		"Authorization: Bearer abc.def.ghi",
+		"relay_token=secret-value",
+		"password: plain-text",
+		"Endpoint: https://user:pass@example.com/path",
+	}, "\n")
+	sanitized := sanitizeDiagnosticsText(input)
+	for _, secret := range []string{"abc.def.ghi", "secret-value", "plain-text", "user:pass"} {
+		if strings.Contains(sanitized, secret) {
+			t.Fatalf("sanitized diagnostics leaked %q: %s", secret, sanitized)
+		}
+	}
+	if !strings.Contains(sanitized, "<redacted>") {
+		t.Fatalf("expected redacted markers, got %s", sanitized)
+	}
+}
+
 func mustListActivityLogs(t *testing.T, app *App, filter ActivityLogFilter) []ActivityLogInfo {
 	t.Helper()
 	logs, err := app.ListActivityLogs(filter)
@@ -814,6 +1002,58 @@ func testVirtualNetworkConfig() virtualnet.Config {
 			},
 		},
 	}
+}
+
+func withUpdateCheckServer(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	originalURL := updateCheckURL
+	originalClient := updateCheckHTTPClient
+	updateCheckURL = server.URL
+	updateCheckHTTPClient = server.Client()
+	t.Cleanup(func() {
+		updateCheckURL = originalURL
+		updateCheckHTTPClient = originalClient
+	})
+}
+
+func withUpdateDownloadServer(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	originalClient := updateDownloadHTTPClient
+	originalHosts := allowedUpdateDownloadHosts
+	updateDownloadHTTPClient = server.Client()
+	allowedUpdateDownloadHosts = []string{parsedURL.Hostname()}
+	t.Cleanup(func() {
+		updateDownloadHTTPClient = originalClient
+		allowedUpdateDownloadHosts = originalHosts
+	})
+}
+
+func withRuntimeGOOS(t *testing.T, goos string) {
+	t.Helper()
+	originalGOOS := currentRuntimeGOOS
+	currentRuntimeGOOS = goos
+	t.Cleanup(func() { currentRuntimeGOOS = originalGOOS })
+}
+
+func newUpdateDownloadServer(t *testing.T, installer []byte, checksum string, checksumStatus int) *httptest.Server {
+	t.Helper()
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ".exe.sha256"):
+			w.WriteHeader(checksumStatus)
+			if checksumStatus >= 200 && checksumStatus < 300 {
+				_, _ = fmt.Fprintf(w, "%s  nextunnel-installer.exe", checksum)
+			}
+		case strings.HasSuffix(r.URL.Path, ".exe"):
+			_, _ = w.Write(installer)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
 }
 
 type fakeVirtualNetworkTUN struct {

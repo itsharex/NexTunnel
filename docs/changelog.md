@@ -1,8 +1,18 @@
 # 更新日志
 
+## v0.6.3-alpha
+
+- 版本入口统一升级到 `v0.6.3-alpha` / `0.6.3-alpha`，同步桌面端、Dashboard、CLI、服务端打包脚本、前端包元数据、部署示例、发布流程和文档站口径。
+- 明亮主题下新增专用 `logo-light.png` 图标，侧边栏和关于页按最终解析主题选择图标，暗色主题继续使用原 `logo.png`。
+- 补齐明亮主题标题栏、侧边栏和 logo 容器样式，提升浅色模式下的视觉一致性和对比度。
+- 修正 GitHub Release workflow 的桌面打包参数，使其匹配当前自定义 Wails 安装器打包脚本。
+- 发布边界继续沿用 v0.6.2-alpha 的生产验收口径：真实系统 TUN、Dashboard 公网 HTTPS、eBPF 压力基准和真实多地域拓扑仍需外部资源复验。
+
 ## v0.6.2-alpha
 
 - 版本入口统一升级到 `v0.6.2-alpha` / `0.6.2-alpha`，同步桌面端、Dashboard、CLI、服务端打包脚本、前端包元数据和文档站发布口径。
+- Windows 桌面安装器切换为独立 `installer/` Wails 项目，Vue3 绘制安装界面，Go 后端负责 payload 校验、安全解压、升级替换、回滚、快捷方式和卸载信息。
+- 桌面发布脚本移除 NSIS 构建路径，改为先生成桌面 payload，再构建内置 WebView2 bootstrapper 的自定义 Wails 安装器，Release 资产名保持不变。
 - 发布说明、部署示例、生产验证手册和 README 切换到 `v0.6.2-alpha`，便于通过 GitHub tag 生成一致的 Release 产物。
 - 保留 v0.6.0-beta 的生产收口能力边界：Relay Admin API、Dashboard 客户端监控、审计日志、运行配置状态、桌面服务端实例检测和真实生产外部验收清单继续作为本版本验收基线。
 

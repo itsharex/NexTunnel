@@ -106,6 +106,12 @@ export interface DiagnosticsInfo {
   nat_type: string
 }
 
+export interface UpdateInstallInfo {
+  started: boolean
+  file_path: string
+  error: string
+}
+
 export interface PlatformCapabilities {
   HasKernelTUN: boolean
   HasUserspaceNetstack: boolean
@@ -464,6 +470,11 @@ const createPreviewBinding = (): Record<string, WailsMethod> => ({
     changelog: '',
     error: '',
   }),
+  InstallUpdate: () => ({
+    started: false,
+    file_path: '',
+    error: '预览模式不启动安装器。',
+  }),
   CollectDiagnostics: () => ({
     text: 'NexTunnel Diagnostics\nPreview mode\n',
     generated_at: new Date().toISOString(),
@@ -649,6 +660,10 @@ export const ImportConfig = (data: string): Promise<void> => {
 
 export const CheckForUpdate = (): Promise<UpdateInfo> => {
   return call<UpdateInfo>('CheckForUpdate')
+}
+
+export const InstallUpdate = (url: string): Promise<UpdateInstallInfo> => {
+  return call<UpdateInstallInfo>('InstallUpdate', url)
 }
 
 export const CollectDiagnostics = (): Promise<DiagnosticsInfo> => {

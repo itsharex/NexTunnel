@@ -1,0 +1,2 @@
+This file keeps the payload directory non-empty for Go embed during local tests.
+Release packaging replaces the payload contents with a generated manifest and zip.

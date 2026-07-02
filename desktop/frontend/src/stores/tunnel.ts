@@ -7,6 +7,7 @@ import {
   CheckForUpdate,
   CollectDiagnostics,
   ExportConfig,
+  InstallUpdate,
   GetTunnels,
   CreateTunnel,
   UpdateTunnel,
@@ -54,6 +55,7 @@ import {
   type AppearanceSettings,
   type GeneralSettings,
   type UpdateInfo,
+  type UpdateInstallInfo,
   type DiagnosticsInfo,
   type ExportConfigOptions,
   type VirtualNetworkState,
@@ -88,6 +90,10 @@ export interface TrafficSample {
   timestamp: number
   bytes_in: number
   bytes_out: number
+}
+
+export interface CheckForUpdateOptions {
+  silent?: boolean
 }
 
 const MAX_TRAFFIC_HISTORY_LENGTH = 40
@@ -140,6 +146,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     language: 'zh-CN',
   })
   const updateInfo = ref<UpdateInfo | null>(null)
+  const isInstallingUpdate = ref<boolean>(false)
+  const hasShownUpdatePrompt = ref<boolean>(false)
   const diagnosticsInfo = ref<DiagnosticsInfo | null>(null)
   const autoStartEnabled = ref(false)
   const lastError = ref<string>('')
@@ -356,15 +364,43 @@ export const useTunnelStore = defineStore('tunnels', () => {
     }
   }
 
-  const checkForUpdate = async (): Promise<UpdateInfo> => {
-    lastError.value = ''
+  const checkForUpdate = async (options: CheckForUpdateOptions = {}): Promise<UpdateInfo> => {
+    if (!options.silent) {
+      lastError.value = ''
+    }
     try {
       updateInfo.value = await CheckForUpdate()
+      if (updateInfo.value.available) {
+        hasShownUpdatePrompt.value = false
+      }
       return updateInfo.value
+    } catch (e) {
+      if (!options.silent) {
+        lastError.value = extractErrorMessage(e)
+      }
+      throw e
+    }
+  }
+
+  const installUpdate = async (url: string): Promise<UpdateInstallInfo> => {
+    isInstallingUpdate.value = true
+    lastError.value = ''
+    try {
+      const result = await InstallUpdate(url)
+      if (result.error) {
+        lastError.value = result.error
+      }
+      return result
     } catch (e) {
       lastError.value = extractErrorMessage(e)
       throw e
+    } finally {
+      isInstallingUpdate.value = false
     }
+  }
+
+  const dismissUpdatePrompt = (): void => {
+    hasShownUpdatePrompt.value = true
   }
 
   const collectDiagnostics = async (): Promise<DiagnosticsInfo> => {
@@ -717,6 +753,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     appearanceSettings,
     generalSettings,
     updateInfo,
+    isInstallingUpdate,
+    hasShownUpdatePrompt,
     diagnosticsInfo,
     autoStartEnabled,
     lastError,
@@ -756,6 +794,8 @@ export const useTunnelStore = defineStore('tunnels', () => {
     exportConfig,
     importConfig,
     checkForUpdate,
+    installUpdate,
+    dismissUpdatePrompt,
     collectDiagnostics,
     loadTunnels,
     createTunnel,

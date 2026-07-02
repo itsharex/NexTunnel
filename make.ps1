@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DefaultVersion = "v0.6.2-alpha"
+$DefaultVersion = "v0.6.3-alpha"
 $DefaultWintunSha256 = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 $DefaultMacHost = "10.160.166.44"
 $DefaultMacUser = "lizhigang"
@@ -344,12 +344,16 @@ function Invoke-Target {
         }
         "test-go" {
             Invoke-GoTest -ModulePath "desktop" -ExcludedPackageRegex @("/frontend/node_modules/")
+            Invoke-GoTest -ModulePath "installer"
             Invoke-GoTest -ModulePath "server" -ExcludedPackageRegex @("/web/node_modules/")
             Invoke-GoTest -ModulePath "cli"
             Invoke-GoTest -ModulePath "pkg"
         }
         "test-frontend" {
             Invoke-InDirectory "desktop\frontend" {
+                Invoke-RequiredCommand -Command "npm" -Arguments @("run", "test")
+            }
+            Invoke-InDirectory "installer\frontend" {
                 Invoke-RequiredCommand -Command "npm" -Arguments @("run", "test")
             }
             Invoke-InDirectory "server\web" {
@@ -418,11 +422,18 @@ function Invoke-Target {
         "clean" {
             Remove-RepoPath "desktop\build\bin"
             Remove-RepoPath "desktop\frontend\dist"
+            Remove-RepoPath "installer\build\bin"
+            Remove-RepoPath "installer\frontend\dist"
+            New-Item -ItemType Directory -Path (Join-Path $RepoRoot "installer\frontend\dist") -Force | Out-Null
+            New-Item -ItemType File -Path (Join-Path $RepoRoot "installer\frontend\dist\.gitkeep") -Force | Out-Null
             Remove-RepoPath "server\web\dist"
             Remove-RepoPath "build"
         }
         "install-deps" {
             Invoke-InDirectory "desktop" {
+                Invoke-RequiredCommand -Command "go" -Arguments @("mod", "tidy")
+            }
+            Invoke-InDirectory "installer" {
                 Invoke-RequiredCommand -Command "go" -Arguments @("mod", "tidy")
             }
             Invoke-InDirectory "server" {
@@ -432,6 +443,9 @@ function Invoke-Target {
                 Invoke-RequiredCommand -Command "go" -Arguments @("mod", "tidy")
             }
             Invoke-InDirectory "desktop\frontend" {
+                Invoke-RequiredCommand -Command "npm" -Arguments @("install")
+            }
+            Invoke-InDirectory "installer\frontend" {
                 Invoke-RequiredCommand -Command "npm" -Arguments @("install")
             }
             Invoke-InDirectory "server\web" {

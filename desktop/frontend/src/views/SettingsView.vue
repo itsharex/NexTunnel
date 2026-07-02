@@ -575,7 +575,7 @@
 
         <div class="about-panel">
           <img
-            src="../assets/logo.png"
+            :src="aboutLogoImage"
             alt="NexTunnel"
           >
           <div>
@@ -656,6 +656,8 @@ import {
   type SelectOption,
 } from 'naive-ui'
 import LocalPortManager from '../components/LocalPortManager.vue'
+import darkLogoImage from '../assets/logo.png'
+import lightLogoImage from '../assets/logo-light.png'
 import { useTunnelStore } from '../stores/tunnel'
 import type {
   AppearanceSettings,
@@ -667,6 +669,7 @@ import type {
 } from '../api/app'
 
 type SettingsSection = 'connection' | 'network' | 'ports' | 'security' | 'appearance' | 'general' | 'about'
+type ThemeMode = 'dark' | 'light'
 type NodeViewMode = 'card' | 'table'
 type NodeModalMode = 'create' | 'edit'
 type ServerNodeCheckTagType = 'default' | 'error' | 'success' | 'warning' | 'info'
@@ -677,6 +680,10 @@ interface SettingsNavItem {
   description: string
   symbol: string
 }
+
+const props = defineProps<{
+  themeMode: ThemeMode
+}>()
 
 const PanelTitle = defineComponent({
   props: {
@@ -745,6 +752,8 @@ const AUTO_SAVE_DELAY_MS = 520
 const store = useTunnelStore()
 const message = useMessage()
 const { t } = useI18n()
+// 关于页 logo 与全局解析后的主题保持一致，避免 system 模式下出现资源错配。
+const aboutLogoImage = computed(() => (props.themeMode === 'light' ? lightLogoImage : darkLogoImage))
 const isSavingConnection = ref(false)
 const isSavingAppearance = ref(false)
 const isSavingGeneral = ref(false)

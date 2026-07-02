@@ -1,8 +1,6 @@
 param(
-  [string]$Version = "v0.6.2-alpha",
+  [string]$Version = "v0.6.3-alpha",
   [string]$Platform = "windows/amd64",
-  [ValidateSet("none", "nsis")]
-  [string]$Installer = "nsis",
   [ValidateSet("bundled", "download", "manual")]
   [string]$WintunMode = "bundled",
   [string]$WintunDllPath = "",
@@ -16,17 +14,19 @@ $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $desktopRoot = Join-Path $repositoryRoot "desktop"
-$frontendRoot = Join-Path $desktopRoot "frontend"
+$desktopFrontendRoot = Join-Path $desktopRoot "frontend"
+$installerRoot = Join-Path $repositoryRoot "installer"
+$installerFrontendRoot = Join-Path $installerRoot "frontend"
+$installerPayloadRoot = Join-Path $installerRoot "payload"
 $distRoot = Join-Path $repositoryRoot "dist"
 $releaseVersion = $Version.Trim()
 $supportedDesktopPlatform = "windows/amd64"
 $wintunMachineAmd64 = 0x8664
 $wintunArchiveRelativeDllPath = "wintun\bin\amd64\wintun.dll"
-$installerConfigPath = Join-Path $desktopRoot "build\windows\installer\nextunnel_installer_config.local.nsh"
-$installerBundledWintunPath = Join-Path $desktopRoot "build\windows\installer\resources\wintun-amd64.dll"
 $goCacheRoot = Join-Path $repositoryRoot ".gocache-release"
 $wintunDownloadRoot = Join-Path $repositoryRoot ".tmp\wintun-release"
 $preparedWintunDllPath = ""
+$payloadIncludesWintun = $false
 
 if ([string]::IsNullOrWhiteSpace($releaseVersion)) {
   throw "Version 不能为空"
@@ -36,9 +36,6 @@ if ($releaseVersion -notmatch '^v?[0-9A-Za-z][0-9A-Za-z.\-+]*$') {
 }
 if ($Platform -ne $supportedDesktopPlatform) {
   throw "当前桌面端发布脚本仅支持 $supportedDesktopPlatform"
-}
-if ($Installer -eq "none" -and $SkipZip) {
-  throw "Installer=none 时不能同时使用 -SkipZip，否则不会生成任何桌面发布资产"
 }
 if (($WintunMode -eq "bundled" -or $WintunMode -eq "download") -and [string]::IsNullOrWhiteSpace($WintunSha256)) {
   throw "WintunMode=$WintunMode 时必须提供 WintunSha256，避免发布不可校验的 DLL 来源"
@@ -51,8 +48,16 @@ $targetDirectory = Join-Path $distRoot $targetName
 $binaryOutputName = "$targetName.exe"
 $binarySource = Join-Path $desktopRoot "build\bin\$binaryOutputName"
 $binaryTarget = Join-Path $targetDirectory $binaryOutputName
-$installerSource = Join-Path $desktopRoot "build\bin\NexTunnel-amd64-installer.exe"
+$portableArchivePath = Join-Path $distRoot "$targetName.zip"
+$installerPayloadZipName = "nextunnel-payload.zip"
+$installerPayloadZipPath = Join-Path $installerPayloadRoot $installerPayloadZipName
+$installerPayloadManifestPath = Join-Path $installerPayloadRoot "manifest.json"
+$installerOutputName = "NexTunnelInstaller.exe"
+$installerSource = Join-Path $installerRoot "build\bin\$installerOutputName"
 $installerTarget = Join-Path $distRoot "$targetName-installer.exe"
+$originalInstallerManifest = $null
+$hadInstallerManifest = $false
+$hadInstallerPayloadZip = $false
 
 function New-DirectoryIfMissing {
   param([string]$Path)
@@ -86,6 +91,13 @@ function New-Sha256File {
   $checksumPath = "$Path.sha256"
   "$($hash.Hash.ToLowerInvariant())  $(Split-Path -Leaf $Path)" | Set-Content -Path $checksumPath -Encoding ASCII
   return $checksumPath
+}
+
+function Assert-NativeCommandSucceeded {
+  param([string]$Action)
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Action 失败，退出码：$LASTEXITCODE"
+  }
 }
 
 function Assert-Sha256File {
@@ -182,16 +194,14 @@ function Assert-WintunDllArchitecture {
 }
 
 function Save-OfficialWintunDll {
-  if ($WintunMode -ne "bundled") {
+  if ($WintunMode -eq "manual") {
     return
   }
 
   $existingWintunPath = Get-WintunDllCandidatePath
   if (-not [string]::IsNullOrWhiteSpace($existingWintunPath)) {
     Assert-WintunDllArchitecture -Path $existingWintunPath
-    New-DirectoryIfMissing -Path (Split-Path -Parent $installerBundledWintunPath)
-    Copy-Item -LiteralPath $existingWintunPath -Destination $installerBundledWintunPath -Force
-    $script:preparedWintunDllPath = $installerBundledWintunPath
+    $script:preparedWintunDllPath = $existingWintunPath
     Write-Host "已使用本地官方 Wintun DLL：$existingWintunPath"
     return
   }
@@ -200,7 +210,6 @@ function Save-OfficialWintunDll {
     throw "WintunDownloadUrl 必须使用 HTTPS：$WintunDownloadUrl"
   }
   New-DirectoryIfMissing -Path $wintunDownloadRoot
-  New-DirectoryIfMissing -Path (Split-Path -Parent $installerBundledWintunPath)
 
   $wintunZipPath = Join-Path $wintunDownloadRoot "wintun.zip"
   $wintunExtractRoot = Join-Path $wintunDownloadRoot "extract"
@@ -218,104 +227,95 @@ function Save-OfficialWintunDll {
     throw "官方 Wintun 包中未找到预期 DLL：$wintunArchiveRelativeDllPath"
   }
   Assert-WintunDllArchitecture -Path $extractedDllPath
-  Copy-Item -LiteralPath $extractedDllPath -Destination $installerBundledWintunPath -Force
-  $script:preparedWintunDllPath = $installerBundledWintunPath
-  Write-Host "已准备内置 Wintun DLL：$installerBundledWintunPath"
+  $script:preparedWintunDllPath = $extractedDllPath
+  Write-Host "已准备官方 Wintun DLL：$extractedDllPath"
 }
 
 function Invoke-FrontendBuild {
+  param(
+    [string]$Name,
+    [string]$FrontendRoot
+  )
   if ($SkipFrontend) {
-    Write-Host "跳过桌面端前端构建"
+    Write-Host "跳过 $Name 前端构建"
     return
   }
 
-  Write-Host "构建桌面端前端"
+  Write-Host "构建 $Name 前端"
   $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
-  if ($npmCommand) {
-    Push-Location $frontendRoot
-    try {
+  $pnpmCommand = Get-Command pnpm -ErrorAction SilentlyContinue
+  Push-Location $FrontendRoot
+  try {
+    if ($npmCommand) {
       npm run build
-    } finally {
-      Pop-Location
+      Assert-NativeCommandSucceeded -Action "$Name 前端 npm build"
+      return
     }
-    return
+
+    if ($pnpmCommand) {
+      $previousPath = $env:Path
+      $previousCI = $env:CI
+      $bundledNodeDirectory = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
+      if (Test-Path $bundledNodeDirectory) {
+        # pnpm 的 postinstall 会直接调用 node，受限环境下需要显式补齐 PATH。
+        $env:Path = "$bundledNodeDirectory;$env:Path"
+      }
+      if ([string]::IsNullOrWhiteSpace($env:CI)) {
+        $env:CI = "true"
+      }
+      try {
+        pnpm install --no-frozen-lockfile --config.confirmModulesPurge=false
+        Assert-NativeCommandSucceeded -Action "$Name 前端 pnpm install"
+        pnpm run build
+        Assert-NativeCommandSucceeded -Action "$Name 前端 pnpm build"
+      } finally {
+        $env:Path = $previousPath
+        if ([string]::IsNullOrWhiteSpace($previousCI)) {
+          Remove-Item Env:CI -ErrorAction SilentlyContinue
+        } else {
+          $env:CI = $previousCI
+        }
+      }
+      return
+    }
+  } finally {
+    Pop-Location
   }
 
   $bundledNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
   if (-not (Test-Path $bundledNode)) {
-    throw "未找到 npm，也未找到 bundled Node：$bundledNode"
+    throw "未找到 npm/pnpm，也未找到 bundled Node：$bundledNode"
   }
 
-  Push-Location $frontendRoot
+  Push-Location $FrontendRoot
   try {
     & $bundledNode "node_modules\vue-tsc\bin\vue-tsc.js" "--noEmit"
+    Assert-NativeCommandSucceeded -Action "$Name 前端 vue-tsc"
     & $bundledNode "node_modules\vite\bin\vite.js" "build"
+    Assert-NativeCommandSucceeded -Action "$Name 前端 vite build"
   } finally {
     Pop-Location
   }
 }
 
-function Set-InstallerConfig {
-  if ($Installer -ne "nsis") {
-    return
-  }
-  if ($WintunDownloadUrl -notmatch '^https://') {
-    throw "WintunDownloadUrl 必须使用 HTTPS：$WintunDownloadUrl"
-  }
-  if (-not [string]::IsNullOrWhiteSpace($WintunSha256) -and $WintunSha256 -notmatch '^[0-9a-fA-F]{64}$') {
-    throw "WintunSha256 必须是 64 位十六进制 SHA256"
-  }
-  $installerConfigDirectory = Split-Path -Parent $installerConfigPath
-  New-DirectoryIfMissing -Path $installerConfigDirectory
+function Reset-InstallerFrontendDist {
+  $installerFrontendDist = Join-Path $installerFrontendRoot "dist"
+  Assert-UnderDirectory -ChildPath $installerFrontendDist -ParentPath $installerFrontendRoot
+  New-DirectoryIfMissing -Path $installerFrontendDist
+  Get-ChildItem -LiteralPath $installerFrontendDist -Force | Where-Object {
+    $_.Name -ne ".gitkeep"
+  } | Remove-Item -Recurse -Force
+  New-Item -ItemType File -Path (Join-Path $installerFrontendDist ".gitkeep") -Force | Out-Null
+}
 
-  # 本地 NSIS 配置由发布脚本生成，避免把临时下载地址或校验值写进模板。
-  @(
-    "!define WINTUN_DOWNLOAD_URL `"$WintunDownloadUrl`""
-    "!define WINTUN_SHA256 `"$($WintunSha256.Trim())`""
-    "!define WINTUN_MODE `"$WintunMode`""
-  ) | Set-Content -Path $installerConfigPath -Encoding UTF8
-  if ($WintunMode -eq "bundled" -and (Test-Path $installerBundledWintunPath)) {
-    Add-Content -Path $installerConfigPath -Encoding UTF8 -Value "!define WINTUN_BUNDLED_DLL `"resources\wintun-amd64.dll`""
+function Assert-InstallerFrontendBuilt {
+  $installerFrontendIndex = Join-Path $installerFrontendRoot "dist\index.html"
+  if (-not (Test-Path $installerFrontendIndex)) {
+    throw "安装器前端产物缺失：$installerFrontendIndex。请移除 -SkipFrontend 或先在 installer/frontend 运行前端构建。"
   }
 }
 
-function Add-NSISToPath {
-  if ($Installer -ne "nsis") {
-    return
-  }
-
-  $existingMakensis = Get-Command makensis -ErrorAction SilentlyContinue
-  if ($existingMakensis) {
-    Write-Host "NSIS 已可用：$($existingMakensis.Source)"
-    return
-  }
-
-  $candidatePaths = [System.Collections.Generic.List[string]]::new()
-  if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
-    $candidatePaths.Add((Join-Path $env:ProgramFiles "NSIS\makensis.exe")) | Out-Null
-  }
-  $programFilesX86 = ${env:ProgramFiles(x86)}
-  if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
-    $candidatePaths.Add((Join-Path $programFilesX86 "NSIS\makensis.exe")) | Out-Null
-  }
-  if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
-    $candidatePaths.Add((Join-Path $env:ChocolateyInstall "bin\makensis.exe")) | Out-Null
-    $candidatePaths.Add((Join-Path $env:ChocolateyInstall "lib\nsis\tools\makensis.exe")) | Out-Null
-  }
-
-  foreach ($candidatePath in $candidatePaths) {
-    if (Test-Path $candidatePath) {
-      $nsisDirectory = Split-Path -Parent (Resolve-Path $candidatePath).Path
-      $env:PATH = "$nsisDirectory;$env:PATH"
-      Write-Host "已加入 NSIS 路径：$nsisDirectory"
-      return
-    }
-  }
-
-  throw "未找到 makensis.exe。请先安装 NSIS，或把 makensis.exe 所在目录加入 PATH。"
-}
-
-function Invoke-WailsBuild {
+function Invoke-DesktopWailsBuild {
   Write-Host "打包桌面端 $releaseVersion ($Platform)"
   New-DirectoryIfMissing -Path $goCacheRoot
   Push-Location $desktopRoot
@@ -332,12 +332,9 @@ function Invoke-WailsBuild {
       "-o", $binaryOutputName,
       "-ldflags", "-s -w -X main.AppVersion=$normalizedVersion"
     )
-    if ($Installer -eq "nsis") {
-      $buildArguments += "-nsis"
-    }
     & wails @buildArguments
     if ($LASTEXITCODE -ne 0) {
-      throw "Wails 构建失败，退出码：$LASTEXITCODE"
+      throw "桌面端 Wails 构建失败，退出码：$LASTEXITCODE"
     }
   } finally {
     $env:GOCACHE = $previousGoCache
@@ -345,11 +342,7 @@ function Invoke-WailsBuild {
   }
 }
 
-function New-PortableArchive {
-  if ($SkipZip) {
-    Write-Host "跳过 Windows 便携 zip"
-    return
-  }
+function New-DesktopPayloadDirectory {
   if (-not (Test-Path $binarySource)) {
     throw "未找到 Wails 构建产物：$binarySource"
   }
@@ -362,11 +355,13 @@ function New-PortableArchive {
 
   Copy-Item -LiteralPath $binarySource -Destination $binaryTarget
   $wintunSourcePath = Get-PreparedWintunDllPath
-  $wintunManifestLine = "Wintun: missing; zip users must place official wintun.dll beside NexTunnel.exe or use NEXTUNNEL_WINTUN_DLL"
+  $wintunManifestLine = "Wintun: missing; installer payload does not include wintun.dll"
+  $script:payloadIncludesWintun = $false
   if (-not [string]::IsNullOrWhiteSpace($wintunSourcePath)) {
     Assert-WintunDllArchitecture -Path $wintunSourcePath
     Copy-Item -LiteralPath $wintunSourcePath -Destination (Join-Path $targetDirectory "wintun.dll") -Force
     $wintunManifestLine = "Wintun: bundled; architecture verified for $Platform"
+    $script:payloadIncludesWintun = $true
   }
   $manifestPath = Join-Path $targetDirectory "MANIFEST.txt"
   @(
@@ -375,78 +370,141 @@ function New-PortableArchive {
     "ApplicationVersion: $normalizedVersion"
     "WindowsResourceVersion: $windowsResourceVersion"
     "Target: $Platform"
-    "Installer: zip"
+    "Installer: custom-wails-payload"
     "Binary: $binaryOutputName"
     $wintunManifestLine
     "Signing: unsigned-alpha"
     "PrunedResources: true"
-    "WebView2: download strategy"
+    "WebView2: installed by custom Wails installer"
   ) | Set-Content -Path $manifestPath -Encoding UTF8
+}
 
-  $archivePath = Join-Path $distRoot "$targetName.zip"
-  if (Test-Path $archivePath) {
-    Remove-Item -LiteralPath $archivePath -Force
+function New-PortableArchive {
+  if ($SkipZip) {
+    Write-Host "跳过 Windows 便携 zip"
+    return
   }
-  Compress-Archive -Path (Join-Path $targetDirectory "*") -DestinationPath $archivePath -Force
-  $checksumPath = New-Sha256File -Path $archivePath
+  if (Test-Path $portableArchivePath) {
+    Remove-Item -LiteralPath $portableArchivePath -Force
+  }
+  Compress-Archive -Path (Join-Path $targetDirectory "*") -DestinationPath $portableArchivePath -Force
+  $checksumPath = New-Sha256File -Path $portableArchivePath
 
-  Write-Host "桌面端便携包已生成：$archivePath"
+  Write-Host "桌面端便携包已生成：$portableArchivePath"
   Write-Host "SHA256：$checksumPath"
 }
 
-function Rename-NSISInstaller {
-  if ($Installer -ne "nsis") {
-    return
+function Set-InstallerPayload {
+  New-DirectoryIfMissing -Path $installerPayloadRoot
+  $script:hadInstallerManifest = Test-Path $installerPayloadManifestPath
+  if ($script:hadInstallerManifest) {
+    $script:originalInstallerManifest = Get-Content -Path $installerPayloadManifestPath -Raw
   }
+  $script:hadInstallerPayloadZip = Test-Path $installerPayloadZipPath
+
+  if (Test-Path $installerPayloadZipPath) {
+    Remove-Item -LiteralPath $installerPayloadZipPath -Force
+  }
+  Compress-Archive -Path (Join-Path $targetDirectory "*") -DestinationPath $installerPayloadZipPath -Force
+  $payloadHash = (Get-FileHash -Algorithm SHA256 -Path $installerPayloadZipPath).Hash.ToLowerInvariant()
+
+  $manifest = [ordered]@{
+    version = $releaseVersion
+    target = $Platform
+    payload_file = $installerPayloadZipName
+    payload_sha256 = $payloadHash
+    app_executable = $binaryOutputName
+    required_space_mb = 512
+    wintun_included = $payloadIncludesWintun
+    webview2_bootstrapper = "embedded-by-wails"
+    signing = "unsigned-alpha"
+  }
+  $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path $installerPayloadManifestPath -Encoding UTF8
+  Write-Host "安装器 payload 已生成：$installerPayloadZipPath"
+}
+
+function Restore-InstallerPayload {
+  if ($hadInstallerManifest) {
+    $originalInstallerManifest | Set-Content -Path $installerPayloadManifestPath -Encoding UTF8
+  } elseif (Test-Path $installerPayloadManifestPath) {
+    Remove-Item -LiteralPath $installerPayloadManifestPath -Force
+  }
+  if (-not $hadInstallerPayloadZip -and (Test-Path $installerPayloadZipPath)) {
+    Remove-Item -LiteralPath $installerPayloadZipPath -Force
+  }
+}
+
+function Invoke-InstallerWailsBuild {
+  Assert-InstallerFrontendBuilt
+  Write-Host "构建自定义 Wails 安装器"
+  New-DirectoryIfMissing -Path $goCacheRoot
+  Push-Location $installerRoot
+  try {
+    $previousGoCache = $env:GOCACHE
+    $env:GOCACHE = $goCacheRoot
+    $buildArguments = @(
+      "build",
+      "-m",
+      "-s",
+      "-skipbindings",
+      "-trimpath",
+      "-platform", $Platform,
+      "-webview2", "embed",
+      "-o", $installerOutputName,
+      "-ldflags", "-s -w -X main.AppVersion=$normalizedVersion"
+    )
+    & wails @buildArguments
+    if ($LASTEXITCODE -ne 0) {
+      throw "安装器 Wails 构建失败，退出码：$LASTEXITCODE"
+    }
+  } finally {
+    $env:GOCACHE = $previousGoCache
+    Pop-Location
+  }
+
   if (-not (Test-Path $installerSource)) {
-    throw "未找到 NSIS 安装器产物：$installerSource"
+    throw "未找到自定义安装器产物：$installerSource"
   }
   if (Test-Path $installerTarget) {
     Remove-Item -LiteralPath $installerTarget -Force
   }
-  Move-Item -LiteralPath $installerSource -Destination $installerTarget -Force
+  Copy-Item -LiteralPath $installerSource -Destination $installerTarget -Force
   $checksumPath = New-Sha256File -Path $installerTarget
 
   $manifestPath = Join-Path $distRoot "$targetName-installer.MANIFEST.txt"
-  $wintunMode = switch ($WintunMode) {
-    "bundled" { "bundled; fallback download sha256 pinned" }
-    "download" { "download-on-install; sha256 pinned" }
-    default { "manual" }
-  }
   @(
     "NexTunnel desktop installer"
     "Version: $releaseVersion"
     "ApplicationVersion: $normalizedVersion"
     "WindowsResourceVersion: $windowsResourceVersion"
     "Target: $Platform"
-    "Installer: nsis"
+    "Installer: custom-wails"
     "Binary: $(Split-Path -Leaf $installerTarget)"
-    "Wintun: $wintunMode"
-    "WintunDownloadUrl: $WintunDownloadUrl"
+    "Payload: $installerPayloadZipName"
+    "PayloadSHA256: $((Get-FileHash -Algorithm SHA256 -Path $installerPayloadZipPath).Hash.ToLowerInvariant())"
+    "Wintun: $(if ($payloadIncludesWintun) { 'bundled; architecture verified' } else { 'missing; desktop repair required' })"
     "Signing: unsigned-alpha"
     "PrunedResources: true"
-    "WebView2: download strategy"
+    "WebView2: embedded Evergreen bootstrapper"
   ) | Set-Content -Path $manifestPath -Encoding UTF8
 
-  Write-Host "桌面端 NSIS 安装包已生成：$installerTarget"
+  Write-Host "桌面端自定义安装包已生成：$installerTarget"
   Write-Host "SHA256：$checksumPath"
-}
-
-function Remove-InstallerConfig {
-  if (Test-Path $installerConfigPath) {
-    Remove-Item -LiteralPath $installerConfigPath -Force
-  }
 }
 
 New-DirectoryIfMissing -Path $distRoot
 Save-OfficialWintunDll
-Set-InstallerConfig
 try {
-  Invoke-FrontendBuild
-  Add-NSISToPath
-  Invoke-WailsBuild
+  Invoke-FrontendBuild -Name "桌面端" -FrontendRoot $desktopFrontendRoot
+  Invoke-DesktopWailsBuild
+  New-DesktopPayloadDirectory
   New-PortableArchive
-  Rename-NSISInstaller
+  if (-not $SkipFrontend) {
+    Reset-InstallerFrontendDist
+  }
+  Invoke-FrontendBuild -Name "安装器" -FrontendRoot $installerFrontendRoot
+  Set-InstallerPayload
+  Invoke-InstallerWailsBuild
 } finally {
-  Remove-InstallerConfig
+  Restore-InstallerPayload
 }

@@ -20,7 +20,7 @@ const (
 	defaultDashboardAdmin       = "admin"
 )
 
-var dashboardVersion = "0.6.2-alpha"
+var dashboardVersion = "0.6.3-alpha"
 
 func main() {
 	fs := flag.NewFlagSet("dashboard", flag.ExitOnError)

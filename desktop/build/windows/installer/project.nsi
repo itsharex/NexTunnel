@@ -7,12 +7,30 @@
 ####
 
 !include "wails_tools.nsh"
-!include "MUI2.nsh"
+
+!define NEXTUNNEL_COLOR_TEXT 0x111827
+!define NEXTUNNEL_COLOR_MUTED 0x475569
+!define NEXTUNNEL_COLOR_BG 0xF7FAFC
+!define NEXTUNNEL_COLOR_PANEL 0xEAF6FF
+!define NEXTUNNEL_COLOR_SURFACE 0xFFFFFF
+!define NEXTUNNEL_WINDOW_WIDTH 820
+!define NEXTUNNEL_WINDOW_HEIGHT 620
+!define NEXTUNNEL_PAGE_X 14
+!define NEXTUNNEL_PAGE_Y 14
+!define NEXTUNNEL_PAGE_WIDTH 792
+!define NEXTUNNEL_PAGE_HEIGHT 512
+!define NEXTUNNEL_BUTTON_Y 548
+!define NEXTUNNEL_BUTTON_WIDTH 112
+!define NEXTUNNEL_BUTTON_HEIGHT 32
+
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
 !include "WinMessages.nsh"
+!include "FileFunc.nsh"
 
 !include /NONFATAL "nextunnel_installer_config.local.nsh"
+!insertmacro GetRoot
+!insertmacro DriveSpace
 
 !ifndef WINTUN_DOWNLOAD_URL
   !define WINTUN_DOWNLOAD_URL "https://www.wintun.net/builds/wintun-0.14.1.zip"
@@ -22,6 +40,9 @@
 !endif
 !ifndef WINTUN_MODE
   !define WINTUN_MODE "bundled"
+!endif
+!ifndef REQUIRED_INSTALL_SPACE_MB
+  !define REQUIRED_INSTALL_SPACE_MB 512
 !endif
 
 VIProductVersion "${INFO_PRODUCTVERSION}.0"
@@ -36,22 +57,26 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 
 ManifestDPIAware true
 
-!define MUI_ICON "..\icon.ico"
-!define MUI_UNICON "..\icon.ico"
-!define MUI_ABORTWARNING
-!define MUI_FINISHPAGE_NOAUTOCLOSE
-
+Icon "..\icon.ico"
+UninstallIcon "..\icon.ico"
 BrandingText "NexTunnel v${INFO_PRODUCTVERSION}"
+Caption "${INFO_PRODUCTNAME} 安装"
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe"
 InstallDir "$PROGRAMFILES64\${INFO_PRODUCTNAME}"
 ShowInstDetails show
 ShowUninstDetails show
+ChangeUI all "${NSISDIR}\Contrib\UIs\modern.exe"
+InstProgressFlags smooth
+InstallColors ${NEXTUNNEL_COLOR_TEXT} ${NEXTUNNEL_COLOR_BG}
+CompletedText "NexTunnel 安装完成"
 
 Var Dialog
 Var InstallDirText
+Var LicenseAgreeCheckbox
 Var DesktopShortcutCheckbox
-Var RunAfterInstallCheckbox
+Var StartMenuShortcutCheckbox
+Var AutoRunAfterInstallCheckbox
 Var WintunChoice
 Var WintunDetectedPath
 Var WintunBundledRadio
@@ -60,47 +85,209 @@ Var WintunManualRadio
 Var WintunSkipRadio
 Var WintunResult
 Var CreateDesktopShortcut
+Var CreateStartMenuShortcut
 Var RunAfterInstall
+Var InstallDriveRoot
+Var InstallFreeSpaceMB
+Var InstallerIsDarkMode
+Var InstallerTitleFont
+Var InstallerSubtitleFont
+Var InstallerBodyFont
+Var InstallerStrongFont
+Var InstallerSmallFont
+Var InstallerButtonFont
 
 Page custom WelcomePageCreate
+Page custom LicensePageCreate LicensePageLeave
 Page custom OptionsPageCreate OptionsPageLeave
 Page custom WintunPageCreate WintunPageLeave
-!insertmacro MUI_PAGE_INSTFILES
+Page instfiles InstallFilesPagePre InstallFilesPageShow
 Page custom FinishPageCreate FinishPageLeave
 
-!insertmacro MUI_UNPAGE_INSTFILES
+UninstPage instfiles
 
-!insertmacro MUI_LANGUAGE "SimpChinese"
-!insertmacro MUI_LANGUAGE "English"
+LoadLanguageFile "${NSISDIR}\Contrib\Language files\SimpChinese.nlf"
 
 ## The following two statements can be enabled by release scripts when signing is configured.
 #!uninstfinalize 'signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%1"'
 #!finalize 'signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%1"'
 
 Function .onInit
+  Call ConfigureNativeTheme
   StrCpy $WintunChoice "${WINTUN_MODE}"
   StrCpy $WintunResult "pending"
   StrCpy $CreateDesktopShortcut "1"
+  StrCpy $CreateStartMenuShortcut "1"
   StrCpy $RunAfterInstall "1"
   !insertmacro wails.checkArchitecture
 FunctionEnd
 
+Function .onGUIInit
+  Call CreateInstallerFonts
+  # NSIS 默认现代 UI 的内容框偏小；这里同步扩大主窗口、页面容器和底部按钮区。
+  Call ResizeNativeInstallerChrome
+  Call ApplyNativeModernFrame
+  Call StyleNativeNavigation
+FunctionEnd
+
+Function .onUserAbort
+  MessageBox MB_ICONQUESTION|MB_YESNO "确定要取消 NexTunnel 安装吗？" IDYES allowAbort
+  Abort
+
+  allowAbort:
+FunctionEnd
+
+Function CreateInstallerFonts
+  CreateFont $InstallerTitleFont "Microsoft YaHei UI" 17 700
+  CreateFont $InstallerSubtitleFont "Microsoft YaHei UI" 9 400
+  CreateFont $InstallerBodyFont "Microsoft YaHei UI" 9 400
+  CreateFont $InstallerStrongFont "Microsoft YaHei UI" 10 700
+  CreateFont $InstallerSmallFont "Microsoft YaHei UI" 8 400
+  CreateFont $InstallerButtonFont "Microsoft YaHei UI" 9 500
+FunctionEnd
+
+Function ResizeNativeInstallerChrome
+  System::Call 'user32::GetSystemMetrics(i 0) i.r0'
+  System::Call 'user32::GetSystemMetrics(i 1) i.r1'
+  IntOp $2 $0 - ${NEXTUNNEL_WINDOW_WIDTH}
+  IntOp $2 $2 / 2
+  IntOp $3 $1 - ${NEXTUNNEL_WINDOW_HEIGHT}
+  IntOp $3 $3 / 2
+  ${If} $2 < 0
+    StrCpy $2 0
+  ${EndIf}
+  ${If} $3 < 0
+    StrCpy $3 0
+  ${EndIf}
+  System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r2, i r3, i ${NEXTUNNEL_WINDOW_WIDTH}, i ${NEXTUNNEL_WINDOW_HEIGHT}, i 0x0014)'
+
+  GetDlgItem $0 $HWNDPARENT 1018
+  ${If} $0 <> 0
+    System::Call 'user32::SetWindowPos(p $0, p 0, i ${NEXTUNNEL_PAGE_X}, i ${NEXTUNNEL_PAGE_Y}, i ${NEXTUNNEL_PAGE_WIDTH}, i ${NEXTUNNEL_PAGE_HEIGHT}, i 0x0014)'
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 2
+  ${If} $0 <> 0
+    System::Call 'user32::SetWindowPos(p $0, p 0, i 24, i ${NEXTUNNEL_BUTTON_Y}, i ${NEXTUNNEL_BUTTON_WIDTH}, i ${NEXTUNNEL_BUTTON_HEIGHT}, i 0x0014)'
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $0 <> 0
+    System::Call 'user32::SetWindowPos(p $0, p 0, i 560, i ${NEXTUNNEL_BUTTON_Y}, i ${NEXTUNNEL_BUTTON_WIDTH}, i ${NEXTUNNEL_BUTTON_HEIGHT}, i 0x0014)'
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 1
+  ${If} $0 <> 0
+    System::Call 'user32::SetWindowPos(p $0, p 0, i 684, i ${NEXTUNNEL_BUTTON_Y}, i ${NEXTUNNEL_BUTTON_WIDTH}, i ${NEXTUNNEL_BUTTON_HEIGHT}, i 0x0014)'
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 1028
+  ${If} $0 <> 0
+    ShowWindow $0 0
+  ${EndIf}
+FunctionEnd
+
+Function ConfigureNativeTheme
+  ReadRegDWORD $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" "AppsUseLightTheme"
+  IfErrors useLightTheme
+
+  ${If} $0 == 0
+    StrCpy $InstallerIsDarkMode "1"
+    Return
+  ${EndIf}
+
+  useLightTheme:
+    StrCpy $InstallerIsDarkMode "0"
+FunctionEnd
+
+Function ApplyNativeModernFrame
+  # 仅使用 NSIS 原生 System 插件调用 Windows DWM/WinAPI；旧系统不支持时会静默退回标准窗口。
+  SetCtlColors $HWNDPARENT "" ${NEXTUNNEL_COLOR_BG}
+
+  System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -16) i.r0'
+  IntOp $0 $0 & 0xFF0BFFFF
+  System::Call 'user32::SetWindowLong(p $HWNDPARENT, i -16, i r0) i.r1'
+  System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i 0, i 0, i 0, i 0, i 0x0027)'
+
+  ${If} $InstallerIsDarkMode == "1"
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 19, *i 1, i 4)'
+    System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)'
+  ${EndIf}
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, *i 2, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 38, *i 3, i 4)'
+FunctionEnd
+
+Function StyleDialog
+  Pop $0
+  SetCtlColors $0 "" ${NEXTUNNEL_COLOR_BG}
+FunctionEnd
+
 Function SetDarkDialog
   Pop $0
-  SetCtlColors $0 0xEAF7FF 0x111827
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} transparent
+  SendMessage $0 ${WM_SETFONT} $InstallerBodyFont 1
   Push $0
 FunctionEnd
 
-Function CreateInstallerTitle
-  ${NSD_CreateLabel} 0 0 100% 18u "NexTunnel 桌面端安装向导"
-  Call SetDarkDialog
+Function SetMutedDialog
   Pop $0
-  CreateFont $1 "Microsoft YaHei UI" 12 700
-  SendMessage $0 ${WM_SETFONT} $1 1
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_MUTED} transparent
+  SendMessage $0 ${WM_SETFONT} $InstallerSmallFont 1
+  Push $0
+FunctionEnd
 
-  ${NSD_CreateLabel} 0 22u 100% 14u "安装客户端、WebView2 引导器，并准备真实 TUN 所需的官方 Wintun 组件。"
-  Call SetDarkDialog
+Function SetPanelDialog
   Pop $0
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} ${NEXTUNNEL_COLOR_SURFACE}
+  SendMessage $0 ${WM_SETFONT} $InstallerBodyFont 1
+  Push $0
+FunctionEnd
+
+Function SetSectionTitleDialog
+  Pop $0
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} transparent
+  SendMessage $0 ${WM_SETFONT} $InstallerStrongFont 1
+  Push $0
+FunctionEnd
+
+Function StyleNativeNavigation
+  GetDlgItem $0 $HWNDPARENT 1
+  ${If} $0 <> 0
+    SendMessage $0 ${WM_SETFONT} $InstallerButtonFont 1
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 2
+  ${If} $0 <> 0
+    SendMessage $0 ${WM_SETFONT} $InstallerButtonFont 1
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $0 <> 0
+    SendMessage $0 ${WM_SETFONT} $InstallerButtonFont 1
+  ${EndIf}
+FunctionEnd
+
+Function SetNextButtonText
+  Pop $0
+  GetDlgItem $1 $HWNDPARENT 1
+  SendMessage $1 ${WM_SETTEXT} 0 "STR:$0"
+FunctionEnd
+
+Function CreateInstallerTitle
+  ${NSD_CreateLabel} 0 0 100% 56u ""
+  Call SetPanelDialog
+  Pop $0
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} ${NEXTUNNEL_COLOR_PANEL}
+
+  ${NSD_CreateLabel} 18u 10u 74% 20u "NexTunnel 安装"
+  Call SetPanelDialog
+  Pop $0
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} ${NEXTUNNEL_COLOR_PANEL}
+  SendMessage $0 ${WM_SETFONT} $InstallerTitleFont 1
+
+  ${NSD_CreateLabel} 18u 34u 84% 13u "安装客户端、WebView2 引导器和真实 TUN 所需组件"
+  Call SetPanelDialog
+  Pop $0
+  SetCtlColors $0 ${NEXTUNNEL_COLOR_MUTED} ${NEXTUNNEL_COLOR_PANEL}
+  SendMessage $0 ${WM_SETFONT} $InstallerSubtitleFont 1
 FunctionEnd
 
 Function DetectWintun
@@ -124,18 +311,71 @@ Function WelcomePageCreate
     Abort
   ${EndIf}
 
-  SetCtlColors $Dialog 0xEAF7FF 0x111827
+  Push $Dialog
+  Call StyleDialog
+  Push "下一步"
+  Call SetNextButtonText
   Call CreateInstallerTitle
 
-  ${NSD_CreateLabel} 0 52u 100% 62u "本安装器使用 Wails 官方 NSIS 流程构建，采用可审计的原生 NSIS 自定义界面。$\r$\n$\r$\n安装过程会请求管理员权限，用于写入 Program Files、创建快捷方式，并把官方 wintun.dll 放到 NexTunnel.exe 同目录。安装 DLL 只解决组件缺失，首次创建虚拟网卡仍需要管理员权限。"
+  ${NSD_CreateLabel} 4u 72u 92% 14u "准备安装"
+  Call SetSectionTitleDialog
+  Pop $0
+
+  ${NSD_CreateLabel} 4u 96u 92% 56u "安装器将复制 NexTunnel 客户端，按需安装 WebView2 引导器，并配置真实 TUN 所需的 Wintun 组件。安装过程会请求管理员权限，用于写入 Program Files、创建快捷方式和写入卸载信息。"
   Call SetDarkDialog
   Pop $0
 
-  ${NSD_CreateLabel} 0 128u 100% 28u "点击“下一步”继续选择安装位置、快捷方式和 Wintun 处理方式。"
-  Call SetDarkDialog
+  ${NSD_CreateLabel} 4u 168u 92% 42u "当前界面使用 NSIS 原生自定义页面实现，不依赖 nsNiuniuSkin 插件。点击“下一步”后可阅读许可协议，并选择安装位置、快捷方式和启动选项。"
+  Call SetMutedDialog
   Pop $0
 
   nsDialogs::Show
+FunctionEnd
+
+Function LicensePageCreate
+  nsDialogs::Create 1018
+  Pop $Dialog
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+
+  Push $Dialog
+  Call StyleDialog
+  Push "下一步"
+  Call SetNextButtonText
+  Call CreateInstallerTitle
+
+  ${NSD_CreateLabel} 4u 72u 92% 14u "软件许可协议"
+  Call SetSectionTitleDialog
+  Pop $0
+
+  ${NSD_CreateText} 4u 96u 92% 96u "请在继续安装前阅读并同意 NexTunnel 软件许可条款。$\r$\n$\r$\nNexTunnel 按开源项目方式提供，安装和使用即表示你理解网络穿透、虚拟网卡和本地端口暴露可能带来的安全影响。请仅在你拥有管理权限且可信的设备上安装，并妥善保护 Relay Token、Control Plane Token 等敏感凭据。$\r$\n$\r$\n继续安装表示你同意自行确认部署环境、网络策略和第三方组件许可。"
+  Pop $0
+  SendMessage $0 ${EM_SETREADONLY} 1 0
+  Push $0
+  Call SetPanelDialog
+  Pop $0
+
+  # 许可勾选必须独立可见，未同意时不允许进入安装选项。
+  ${NSD_CreateCheckbox} 4u 210u 92% 14u "我已阅读并同意许可条款"
+  Pop $LicenseAgreeCheckbox
+  Push $LicenseAgreeCheckbox
+  Call SetDarkDialog
+  Pop $0
+
+  ${NSD_CreateLabel} 4u 232u 92% 18u "未勾选同意时无法继续安装。"
+  Call SetMutedDialog
+  Pop $0
+
+  nsDialogs::Show
+FunctionEnd
+
+Function LicensePageLeave
+  ${NSD_GetState} $LicenseAgreeCheckbox $0
+  ${If} $0 != ${BST_CHECKED}
+    MessageBox MB_ICONEXCLAMATION "请先勾选同意许可条款后继续。"
+    Abort
+  ${EndIf}
 FunctionEnd
 
 Function OptionsPageCreate
@@ -145,30 +385,66 @@ Function OptionsPageCreate
     Abort
   ${EndIf}
 
-  SetCtlColors $Dialog 0xEAF7FF 0x111827
+  Push $Dialog
+  Call StyleDialog
+  Push "下一步"
+  Call SetNextButtonText
   Call CreateInstallerTitle
 
-  ${NSD_CreateLabel} 0 52u 100% 12u "安装位置"
-  Call SetDarkDialog
+  ${NSD_CreateLabel} 4u 72u 92% 14u "安装选项"
+  Call SetSectionTitleDialog
   Pop $0
 
-  ${NSD_CreateText} 0 68u 76% 14u "$INSTDIR"
+  ${NSD_CreateLabel} 4u 96u 92% 12u "安装位置"
+  Call SetMutedDialog
+  Pop $0
+
+  ${NSD_CreateText} 4u 114u 70% 16u "$INSTDIR"
   Pop $InstallDirText
-
-  ${NSD_CreateBrowseButton} 79% 67u 21% 16u "浏览..."
+  Push $InstallDirText
+  Call SetPanelDialog
   Pop $0
+
+  ${NSD_CreateBrowseButton} 77% 113u 19% 18u "浏览..."
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $InstallerButtonFont 1
   ${NSD_OnClick} $0 SelectInstallDirectory
 
-  ${NSD_CreateCheckbox} 0 98u 100% 14u "创建桌面快捷方式"
+  ${NSD_CreateCheckbox} 4u 154u 92% 14u "创建桌面快捷方式"
   Pop $DesktopShortcutCheckbox
+  Push $DesktopShortcutCheckbox
+  Call SetDarkDialog
+  Pop $0
   ${If} $CreateDesktopShortcut == "1"
     ${NSD_SetState} $DesktopShortcutCheckbox ${BST_CHECKED}
   ${Else}
     ${NSD_SetState} $DesktopShortcutCheckbox ${BST_UNCHECKED}
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 122u 100% 28u "开始菜单快捷方式会默认创建。若安装目录位于 Program Files，当前安装器会使用管理员权限完成写入。"
+  ${NSD_CreateCheckbox} 4u 178u 92% 14u "创建开始菜单快捷方式"
+  Pop $StartMenuShortcutCheckbox
+  Push $StartMenuShortcutCheckbox
   Call SetDarkDialog
+  Pop $0
+  ${If} $CreateStartMenuShortcut == "1"
+    ${NSD_SetState} $StartMenuShortcutCheckbox ${BST_CHECKED}
+  ${Else}
+    ${NSD_SetState} $StartMenuShortcutCheckbox ${BST_UNCHECKED}
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 4u 202u 92% 14u "安装完成后自动启动 NexTunnel"
+  Pop $AutoRunAfterInstallCheckbox
+  Push $AutoRunAfterInstallCheckbox
+  Call SetDarkDialog
+  Pop $0
+  ${If} $RunAfterInstall == "1"
+    ${NSD_SetState} $AutoRunAfterInstallCheckbox ${BST_CHECKED}
+  ${Else}
+    ${NSD_SetState} $AutoRunAfterInstallCheckbox ${BST_UNCHECKED}
+  ${EndIf}
+
+  ${NSD_CreateLabel} 4u 232u 92% 18u "安装器会验证路径并检查安装盘剩余空间，至少需要 ${REQUIRED_INSTALL_SPACE_MB} MB 可用空间。"
+  Call SetMutedDialog
   Pop $0
 
   nsDialogs::Show
@@ -189,12 +465,45 @@ Function OptionsPageLeave
     MessageBox MB_ICONEXCLAMATION "安装位置不能为空。"
     Abort
   ${EndIf}
+  Call ValidateInstallDirectory
 
   ${NSD_GetState} $DesktopShortcutCheckbox $0
   ${If} $0 == ${BST_CHECKED}
     StrCpy $CreateDesktopShortcut "1"
   ${Else}
     StrCpy $CreateDesktopShortcut "0"
+  ${EndIf}
+
+  ${NSD_GetState} $StartMenuShortcutCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $CreateStartMenuShortcut "1"
+  ${Else}
+    StrCpy $CreateStartMenuShortcut "0"
+  ${EndIf}
+
+  ${NSD_GetState} $AutoRunAfterInstallCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $RunAfterInstall "1"
+  ${Else}
+    StrCpy $RunAfterInstall "0"
+  ${EndIf}
+FunctionEnd
+
+Function ValidateInstallDirectory
+  ${GetRoot} "$INSTDIR" $InstallDriveRoot
+  ${If} $InstallDriveRoot == ""
+    MessageBox MB_ICONEXCLAMATION "安装路径无效，请选择本机磁盘上的目录。"
+    Abort
+  ${EndIf}
+
+  ${DriveSpace} "$InstallDriveRoot" "/D=F /S=M" $InstallFreeSpaceMB
+  ${If} $InstallFreeSpaceMB == ""
+    MessageBox MB_ICONEXCLAMATION "无法检查安装盘剩余空间，请选择其他安装位置。"
+    Abort
+  ${EndIf}
+  ${If} $InstallFreeSpaceMB < ${REQUIRED_INSTALL_SPACE_MB}
+    MessageBox MB_ICONEXCLAMATION "安装盘剩余空间不足。至少需要 ${REQUIRED_INSTALL_SPACE_MB} MB，当前可用 $InstallFreeSpaceMB MB。"
+    Abort
   ${EndIf}
 FunctionEnd
 
@@ -207,35 +516,59 @@ Function WintunPageCreate
     Abort
   ${EndIf}
 
-  SetCtlColors $Dialog 0xEAF7FF 0x111827
+  Push $Dialog
+  Call StyleDialog
+  Push "安装"
+  Call SetNextButtonText
   Call CreateInstallerTitle
 
   ${If} $WintunDetectedPath != ""
-    ${NSD_CreateLabel} 0 52u 100% 24u "已检测到 Wintun：$WintunDetectedPath"
+    ${NSD_CreateLabel} 4u 72u 92% 24u "已检测到 Wintun：$WintunDetectedPath"
     Call SetDarkDialog
     Pop $0
     StrCpy $WintunChoice "present"
   ${Else}
-    ${NSD_CreateLabel} 0 52u 100% 24u "未检测到 wintun.dll。建议安装器将官方匹配架构 DLL 放到 NexTunnel.exe 同目录。"
+    ${NSD_CreateLabel} 4u 72u 92% 24u "未检测到 wintun.dll。建议安装器将官方匹配架构 DLL 放到 NexTunnel.exe 同目录。"
     Call SetDarkDialog
     Pop $0
   ${EndIf}
 
   !ifdef WINTUN_BUNDLED_DLL
-    ${NSD_CreateRadioButton} 0 86u 100% 12u "使用安装包内置官方 Wintun DLL（推荐，离线可用）"
+    ${NSD_CreateRadioButton} 4u 108u 10u 10u ""
     Pop $WintunBundledRadio
+    ${NSD_CreateLabel} 20u 105u 88% 14u "内置官方 Wintun DLL（推荐，离线可用）"
+    Call SetDarkDialog
+    Pop $0
   !else
-    ${NSD_CreateRadioButton} 0 86u 100% 12u "安装包未内置 Wintun DLL"
+    ${NSD_CreateRadioButton} 4u 108u 10u 10u ""
     Pop $WintunBundledRadio
+    ${NSD_CreateLabel} 20u 105u 88% 14u "本安装包未内置 Wintun DLL"
+    Call SetMutedDialog
+    Pop $0
     EnableWindow $WintunBundledRadio 0
   !endif
 
-  ${NSD_CreateRadioButton} 0 106u 100% 12u "联网下载官方 Wintun ZIP 并校验 SHA256"
+  ${NSD_CreateRadioButton} 4u 134u 10u 10u ""
   Pop $WintunDownloadRadio
-  ${NSD_CreateRadioButton} 0 126u 100% 12u "我稍后手动安装 wintun.dll"
+  ${NSD_CreateLabel} 20u 131u 88% 14u "在线下载官方 Wintun ZIP，并校验 SHA256"
+  Call SetDarkDialog
+  Pop $0
+
+  ${NSD_CreateRadioButton} 4u 160u 10u 10u ""
   Pop $WintunManualRadio
-  ${NSD_CreateRadioButton} 0 146u 100% 12u "暂时跳过，仅使用 P2P/Relay 能力"
+  ${NSD_CreateLabel} 20u 157u 88% 14u "稍后手动放置 wintun.dll"
+  Call SetDarkDialog
+  Pop $0
+
+  ${NSD_CreateRadioButton} 4u 186u 10u 10u ""
   Pop $WintunSkipRadio
+  ${NSD_CreateLabel} 20u 183u 88% 14u "暂时跳过，仅使用 P2P/Relay 能力"
+  Call SetDarkDialog
+  Pop $0
+
+  ${NSD_CreateLabel} 4u 218u 92% 20u "如跳过 Wintun，真实系统路由 TUN 不可用；安装后仍可在网络页修复。"
+  Call SetMutedDialog
+  Pop $0
 
   ${If} $WintunDetectedPath != ""
     ${NSD_SetState} $WintunSkipRadio ${BST_CHECKED}
@@ -391,37 +724,64 @@ Function FinishPageCreate
     Abort
   ${EndIf}
 
-  SetCtlColors $Dialog 0xEAF7FF 0x111827
+  Push $Dialog
+  Call StyleDialog
+  Push "完成"
+  Call SetNextButtonText
   Call CreateInstallerTitle
 
-  ${NSD_CreateLabel} 0 52u 100% 32u "NexTunnel 已安装到：$INSTDIR"
+  ${NSD_CreateLabel} 4u 72u 92% 14u "安装完成"
+  Call SetSectionTitleDialog
+  Pop $0
+
+  ${NSD_CreateLabel} 4u 98u 92% 32u "NexTunnel 已安装到：$INSTDIR"
   Call SetDarkDialog
   Pop $0
 
   ${If} $WintunDetectedPath != ""
-    ${NSD_CreateLabel} 0 88u 100% 28u "Wintun 状态：已就绪，路径为 $WintunDetectedPath。创建虚拟网卡仍需要管理员权限。"
+    ${NSD_CreateLabel} 4u 142u 92% 28u "Wintun 状态：已就绪，路径为 $WintunDetectedPath。创建虚拟网卡仍需要管理员权限。"
     Call SetDarkDialog
     Pop $0
   ${Else}
-    ${NSD_CreateLabel} 0 88u 100% 36u "Wintun 状态：未就绪。NexTunnel 可继续使用 P2P/Relay；如需真实系统路由 TUN，请在网络页执行修复或手动放置官方 wintun.dll。"
+    ${NSD_CreateLabel} 4u 142u 92% 42u "Wintun 状态：未就绪。NexTunnel 可继续使用 P2P/Relay；如需真实系统路由 TUN，请在网络页执行修复或手动放置官方 wintun.dll。"
     Call SetDarkDialog
     Pop $0
   ${EndIf}
 
-  ${NSD_CreateCheckbox} 0 136u 100% 14u "立即运行 NexTunnel"
-  Pop $RunAfterInstallCheckbox
   ${If} $RunAfterInstall == "1"
-    ${NSD_SetState} $RunAfterInstallCheckbox ${BST_CHECKED}
+    ${NSD_CreateLabel} 4u 206u 92% 14u "点击“完成”后将自动启动 NexTunnel。"
   ${Else}
-    ${NSD_SetState} $RunAfterInstallCheckbox ${BST_UNCHECKED}
+    ${NSD_CreateLabel} 4u 206u 92% 14u "点击“完成”退出安装向导。"
   ${EndIf}
+  Call SetDarkDialog
+  Pop $0
 
   nsDialogs::Show
 FunctionEnd
 
+Function InstallFilesPagePre
+  Push "安装中"
+  Call SetNextButtonText
+FunctionEnd
+
+Function InstallFilesPageShow
+  Call ResizeNativeInstallerChrome
+  Call StyleNativeNavigation
+
+  GetDlgItem $0 $HWNDPARENT 1016
+  ${If} $0 <> 0
+    SetCtlColors $0 ${NEXTUNNEL_COLOR_TEXT} ${NEXTUNNEL_COLOR_BG}
+    SendMessage $0 ${WM_SETFONT} $InstallerBodyFont 1
+  ${EndIf}
+
+  GetDlgItem $0 $HWNDPARENT 1004
+  ${If} $0 <> 0
+    SendMessage $0 ${WM_SETFONT} $InstallerBodyFont 1
+  ${EndIf}
+FunctionEnd
+
 Function FinishPageLeave
-  ${NSD_GetState} $RunAfterInstallCheckbox $0
-  ${If} $0 == ${BST_CHECKED}
+  ${If} $RunAfterInstall == "1"
     ExecShell "open" "$INSTDIR\${PRODUCT_EXECUTABLE}"
   ${EndIf}
 FunctionEnd
@@ -429,18 +789,26 @@ FunctionEnd
 Section
   !insertmacro wails.setShellContext
 
+  DetailPrint "准备安装 WebView2 运行时"
   !insertmacro wails.webview2runtime
 
   SetOutPath $INSTDIR
 
+  DetailPrint "复制 NexTunnel 应用文件"
   !insertmacro wails.files
+  DetailPrint "检查并安装 Wintun 组件"
   Call InstallWintunIfRequired
 
-  CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+  ${If} $CreateStartMenuShortcut == "1"
+    DetailPrint "创建开始菜单快捷方式"
+    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+  ${EndIf}
   ${If} $CreateDesktopShortcut == "1"
+    DetailPrint "创建桌面快捷方式"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
   ${EndIf}
 
+  DetailPrint "写入文件关联和卸载信息"
   !insertmacro wails.associateFiles
   !insertmacro wails.associateCustomProtocols
 
